@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/khajaaijaz26/agentic-software-company/schemas/event.schema.json",
+  "title": "Domain Event",
+  "description": "An immutable event written to the event store by the orchestrator and specialist agents. The event store is the system of record for audit.",
+  "type": "object",
+  "required": [
+    "event_id",
+    "event_type",
+    "version",
+    "occurred_at",
+    "project_id",
+    "correlation_id",
+    "actor",
+    "data"
+  ],
+  "properties": {
+    "event_id": { "type": "string", "minLength": 1 },
+    "event_type": { "type": "string", "minLength": 1 },
+    "version": { "type": "integer", "minimum": 1 },
+    "occurred_at": { "type": "string", "format": "date-time" },
+    "project_id": { "type": "string", "minLength": 1 },
+    "correlation_id": { "type": "string", "minLength": 1 },
+    "actor": {
+      "type": "object",
+      "required": ["type", "id"],
+      "properties": {
+        "type": { "type": "string", "enum": ["human", "agent", "system"] },
+        "id": { "type": "string" }
+      }
+    },
+    "data": { "type": "object" }
+  }
+}

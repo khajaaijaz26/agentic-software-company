@@ -1,0 +1,37 @@
+name: release
+description: Gated release of a verified immutable artifact with rollback.
+version: 1
+
+steps:
+  - id: verify_artifact
+    agent: release-manager
+    action: confirm artifact sha matches approved and tested artifact
+    gate: G0
+
+  - id: confirm_approval
+    agent: orchestrator
+    action: re-validate scoped approval token immediately before side effect
+    gate: G3
+
+  - id: deploy
+    agent: devops-platform-engineer
+    depends_on: [verify_artifact, confirm_approval]
+    action: gradual rollout (canary/rolling/blue-green) per thresholds
+    gate: G3
+
+  - id: smoke
+    agent: sre-incident-manager
+    depends_on: [deploy]
+    action: run non-destructive smoke checks and observe signals
+    gate: G0
+
+  - id: report
+    agent: release-manager
+    depends_on: [smoke]
+    action: mark RELEASED only with deployment and post-deployment evidence
+    gate: G0
+
+  - id: rollback_path
+    agent: devops-platform-engineer
+    action: prepare rollback plan (app, feature-flag, config, db recovery)
+    gate: G1

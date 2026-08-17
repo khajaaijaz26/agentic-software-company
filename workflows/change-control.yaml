@@ -1,0 +1,33 @@
+name: change-control
+description: Classifies new work as clarification, defect, replacement, or scope change.
+version: 1
+
+steps:
+  - id: classify
+    agent: orchestrator
+    action: classify incoming work item
+    gate: G0
+
+  - id: clarification
+    agent: client-intake-account
+    condition: kind == clarification
+    action: ask designated decision owner for missing facts
+    gate: G0
+
+  - id: defect
+    agent: project-manager-and-delivery-manager
+    condition: kind == defect
+    action: route defect to owner with reproduction evidence
+    gate: G1
+
+  - id: scope_change
+    agent: orchestrator
+    condition: kind == scope_change
+    action: require approved project authority before re-baselining
+    gate: G3
+
+  - id: re_baseline
+    agent: project-manager-and-delivery-manager
+    depends_on: [scope_change]
+    action: update charter baseline, preserve prior history
+    gate: G2

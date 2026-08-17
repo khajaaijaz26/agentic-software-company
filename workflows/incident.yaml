@@ -1,0 +1,40 @@
+name: incident
+description: Incident response with assigned command and escalation.
+version: 1
+
+steps:
+  - id: detect
+    agent: sre-incident-manager
+    action: confirm incident and assign Incident Commander
+    gate: G0
+
+  - id: triage
+    agent: sre-incident-manager
+    action: classify severity, separate ops/investigation/communications
+    gate: G0
+
+  - id: contain
+    agent: sre-incident-manager
+    action: contain immediate harm using approved controls
+    gate: G3
+
+  - id: preserve_evidence
+    agent: security-engineer
+    action: preserve audit and evidence data
+    gate: G0
+
+  - id: communicate
+    agent: customer-support-and-customer-success-agent
+    action: factual status updates on cadence; never speculate
+    gate: G2
+
+  - id: escalate
+    agent: orchestrator
+    condition: data exposure, secret compromise, destructive attack, or legal impact
+    action: involve security, privacy, legal, and executive authorities
+    gate: G4
+
+  - id: postmortem
+    agent: project-manager-and-delivery-manager
+    action: incident review, action items, and follow-up
+    gate: G0

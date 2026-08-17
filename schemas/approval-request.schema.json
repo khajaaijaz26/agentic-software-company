@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/khajaaijaz26/agentic-software-company/schemas/approval-request.schema.json",
+  "title": "Approval Request (canonical)",
+  "description": "Canonical approval-request schema. The working copy used by the approval service lives at prompts/templates/approval-request.json.",
+  "type": "object",
+  "required": [
+    "request_id",
+    "project_id",
+    "gate",
+    "action",
+    "resource",
+    "environment",
+    "artifact_sha",
+    "requested_by",
+    "requested_at",
+    "reason"
+  ],
+  "properties": {
+    "request_id": { "type": "string", "minLength": 1 },
+    "project_id": { "type": "string", "minLength": 1 },
+    "gate": { "type": "string", "enum": ["G0", "G1", "G2", "G3", "G4"] },
+    "action": { "type": "string", "minLength": 1 },
+    "resource": { "type": "string", "minLength": 1 },
+    "environment": { "type": "string", "enum": ["local", "dev", "staging", "prod"] },
+    "artifact_sha": { "type": "string", "minLength": 1 },
+    "requested_by": { "type": "string", "minLength": 1 },
+    "requested_at": { "type": "string", "format": "date-time" },
+    "expires_at": { "type": "string", "format": "date-time" },
+    "approved_by": { "type": "string" },
+    "approved_at": { "type": "string", "format": "date-time" },
+    "decision": { "type": "string", "enum": ["pending", "approved", "rejected", "expired", "revoked"] },
+    "reason": { "type": "string" }
+  }
+}

@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+
+# Tests / coverage
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Runtime data
+.agentic_company/
+
+# Editors / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Secrets — never commit
+*.pem
+*.key
+.env
+.env.*
+!*.example

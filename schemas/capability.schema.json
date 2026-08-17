@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/khajaaijaz26/agentic-software-company/schemas/capability.schema.json",
+  "title": "Agent Capability",
+  "description": "A capability grants an agent role a named set of allowed operations. Capabilities are stored in the agent registry and enforced by the policy engine.",
+  "type": "object",
+  "required": ["capability_id", "name", "scope", "operations", "version"],
+  "properties": {
+    "capability_id": { "type": "string", "minLength": 1 },
+    "name": { "type": "string", "minLength": 1 },
+    "scope": {
+      "type": "string",
+      "enum": ["read", "write", "execute", "publish", "administer"]
+    },
+    "operations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["operation", "resource"],
+        "properties": {
+          "operation": { "type": "string" },
+          "resource": { "type": "string" }
+        }
+      }
+    },
+    "version": { "type": "string" }
+  }
+}

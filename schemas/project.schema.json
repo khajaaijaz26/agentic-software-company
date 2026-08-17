@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/khajaaijaz26/agentic-software-company/schemas/project.schema.json",
+  "title": "Project",
+  "description": "The canonical project record: identity, scope, status, decisions, risks, budget, and the immutable original request.",
+  "type": "object",
+  "required": [
+    "project_id",
+    "request_id",
+    "correlation_id",
+    "name",
+    "status",
+    "owner",
+    "created_at",
+    "scope",
+    "approval_gates",
+    "budget"
+  ],
+  "properties": {
+    "project_id": { "type": "string", "minLength": 1 },
+    "request_id": { "type": "string", "minLength": 1 },
+    "correlation_id": { "type": "string", "minLength": 1 },
+    "name": { "type": "string", "minLength": 1 },
+    "status": {
+      "type": "string",
+      "enum": ["intake", "clarification", "planning", "active", "on_hold", "accepted", "closed", "cancelled"]
+    },
+    "owner": { "type": "string", "minLength": 1 },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" },
+    "scope": {
+      "type": "object",
+      "required": ["goals", "non_goals", "acceptance_criteria"],
+      "properties": {
+        "goals": { "type": "array", "items": { "type": "string" } },
+        "non_goals": { "type": "array", "items": { "type": "string" } },
+        "acceptance_criteria": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "approval_gates": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["approver", "required"],
+        "properties": {
+          "approver": { "type": "string" },
+          "required": { "type": "boolean" }
+        }
+      }
+    },
+    "budget": {
+      "type": "object",
+      "properties": {
+        "currency": { "type": "string" },
+        "max_cost": { "type": "number", "minimum": 0 },
+        "max_tokens": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "decisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["adr_id", "decision", "owner", "status"],
+        "properties": {
+          "adr_id": { "type": "string" },
+          "decision": { "type": "string" },
+          "owner": { "type": "string" },
+          "status": { "type": "string", "enum": ["proposed", "approved", "superseded"] }
+        }
+      }
+    },
+    "risks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["risk_id", "description", "owner", "status"],
+        "properties": {
+          "risk_id": { "type": "string" },
+          "description": { "type": "string" },
+          "owner": { "type": "string" },
+          "status": { "type": "string", "enum": ["open", "mitigated", "accepted", "closed"] }
+        }
+      }
+    }
+  }
+}

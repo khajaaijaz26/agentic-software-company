@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/khajaaijaz26/agentic-software-company/schemas/task-envelope.schema.json",
+  "title": "Task Envelope",
+  "description": "The immutable instruction bundle handed to a specialist agent by the orchestrator. Binds identity, scope, policy, approvals, context, budget, and reporting expectations for one task.",
+  "type": "object",
+  "required": [
+    "envelope_version",
+    "task_id",
+    "correlation_id",
+    "project_id",
+    "request_id",
+    "kind",
+    "owner",
+    "agent_role",
+    "prompt_versions",
+    "instructions",
+    "policy_ids",
+    "approvals",
+    "budget",
+    "timebox",
+    "expects"
+  ],
+  "properties": {
+    "envelope_version": { "type": "integer", "const": 1 },
+    "task_id": { "type": "string", "minLength": 1 },
+    "correlation_id": { "type": "string", "minLength": 1 },
+    "project_id": { "type": "string", "minLength": 1 },
+    "request_id": { "type": "string", "minLength": 1 },
+    "kind": {
+      "type": "string",
+      "enum": ["clarification", "defect", "delivery", "review", "research", "approval", "release", "incident"]
+    },
+    "owner": { "type": "string", "minLength": 1 },
+    "agent_role": { "type": "string", "minLength": 1 },
+    "prompt_versions": {
+      "description": "Immutable versions of the constitution, role, and policy prompts used for this task.",
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "instructions": {
+      "type": "string",
+      "description": "The task instructions produced from the templates, not the user request itself."
+    },
+    "policy_ids": { "type": "array", "items": { "type": "string" } },
+    "approvals": {
+      "type": "array",
+      "items": { "$ref": "approval-request.schema.json" }
+    },
+    "budget": {
+      "type": "object",
+      "required": ["currency", "max_cost", "max_tokens", "max_time_seconds"],
+      "properties": {
+        "currency": { "type": "string" },
+        "max_cost": { "type": "number", "minimum": 0 },
+        "max_tokens": { "type": "integer", "minimum": 0 },
+        "max_time_seconds": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "timebox": {
+      "type": "object",
+      "required": ["issued_at", "deadline"],
+      "properties": {
+        "issued_at": { "type": "string", "format": "date-time" },
+        "deadline": { "type": "string", "format": "date-time" }
+      }
+    },
+    "expects": {
+      "description": "The result envelope sections and acceptance criteria this task must satisfy.",
+      "type": "object"
+    }
+  }
+}

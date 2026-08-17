@@ -1,0 +1,68 @@
+name: delivery
+description: Standard delivery workflow for a change request.
+version: 1
+
+steps:
+  - id: intake
+    agent: client-intake-account
+    action: capture request and preserve original request artifact
+    gate: G0
+
+  - id: discovery
+    agent: discovery-business-analyst
+    depends_on: [intake]
+    action: derive goals, non-goals, and acceptance criteria
+
+  - id: plan
+    agent: project-manager-and-delivery-manager
+    depends_on: [discovery]
+    action: produce task breakdown, owners, budget, and schedule
+    gate: G1
+
+  - id: design
+    agent: technical-lead-software-architect
+    depends_on: [plan]
+    action: produce architecture and ADR
+    gate: G1
+
+  - id: build
+    agent: orchestrator
+    depends_on: [design]
+    action: dispatch implementation to specialist engineers
+    gate: G1
+
+  - id: review
+    agent: code-reviewer
+    depends_on: [build]
+    action: independent code review
+    gate: G1
+
+  - id: test
+    agent: qa-strategist-quality-lead
+    depends_on: [review]
+    action: execute acceptance and regression tests
+    gate: G1
+
+  - id: security_review
+    agent: security-engineer
+    depends_on: [test]
+    action: security and data-handling review
+    gate: G2
+
+  - id: approval
+    agent: orchestrator
+    depends_on: [security_review]
+    action: request authorized human approval for release
+    gate: G3
+
+  - id: release
+    agent: release-manager
+    depends_on: [approval]
+    action: deploy verified artifact with rollback plan
+    gate: G3
+
+  - id: handoff
+    agent: customer-support-and-customer-success-agent
+    depends_on: [release]
+    action: communicate outcome and capture acceptance
+    gate: G0

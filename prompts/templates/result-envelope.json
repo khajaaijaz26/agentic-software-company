@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/khajaaijaz26/agentic-software-company/schemas/result-envelope.schema.json",
+  "title": "Result Envelope",
+  "description": "The structured output a specialist agent returns to the orchestrator. Carries status, evidence, artifacts, budget usage, and the required terminal state.",
+  "type": "object",
+  "required": [
+    "envelope_version",
+    "task_id",
+    "correlation_id",
+    "project_id",
+    "agent_role",
+    "status",
+    "summary",
+    "evidence",
+    "artifacts",
+    "budget_used",
+    "next"
+  ],
+  "properties": {
+    "envelope_version": { "type": "integer", "const": 1 },
+    "task_id": { "type": "string", "minLength": 1 },
+    "correlation_id": { "type": "string", "minLength": 1 },
+    "project_id": { "type": "string", "minLength": 1 },
+    "agent_role": { "type": "string", "minLength": 1 },
+    "status": {
+      "type": "string",
+      "enum": ["COMPLETE", "BLOCKED", "NEEDS_APPROVAL", "NEEDS_INPUT", "ESCALATED"]
+    },
+    "summary": { "type": "string" },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["criterion_id", "criterion", "outcome", "proof"],
+        "properties": {
+          "criterion_id": { "type": "string" },
+          "criterion": { "type": "string" },
+          "outcome": { "type": "string", "enum": ["pass", "fail", "not_applicable", "blocked"] },
+          "proof": { "type": "string", "description": "Reference to recorded evidence output." }
+        }
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "kind", "sha", "status"],
+        "properties": {
+          "path": { "type": "string" },
+          "kind": { "type": "string" },
+          "sha": { "type": "string" },
+          "status": { "type": "string", "enum": ["created", "updated", "approved", "released"] }
+        }
+      }
+    },
+    "budget_used": {
+      "type": "object",
+      "properties": {
+        "cost": { "type": "number", "minimum": 0 },
+        "tokens": { "type": "integer", "minimum": 0 },
+        "time_seconds": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "next": {
+      "type": "object",
+      "required": ["owner", "action"],
+      "properties": {
+        "owner": { "type": "string" },
+        "action": { "type": "string" }
+      }
+    }
+  }
+}
