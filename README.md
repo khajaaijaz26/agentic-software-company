@@ -39,10 +39,10 @@ Everything in this repo — the prompt library, JSON schemas, YAML workflows, po
 
 The platform runs on Python 3.10+ with the standard library only. All commands assume you are in the repository root.
 
-### 1. Set up the Python path
+### 1. Set up the platform
 
 ```bash
-# Method 1: Install the package in development mode
+# Method 1: Install the package in development mode (recommended)
 python -m pip install -e .
 
 # Method 2: Set PYTHONPATH
@@ -96,7 +96,7 @@ python -m compileall -q src tests
 
 This platform is designed so any LLM-based coding assistant can act as a **specialist agent** by consuming the prompt files and routing work through the **task envelope** / **result envelope** contract.
 
-### General Integration Pattern
+### General Integration Pattern (Universal)
 
 1. **Load the Base Constitution** — the file `prompts/base-agent-constitution.md` sets the mandatory operating rules every agent must follow.
 2. **Select a Role Prompt** — choose from `prompts/roles/` matching the agent's function (25 options).
@@ -117,7 +117,7 @@ If you want to serve the prompt library and schemas via an MCP server so any age
    - `GET /schemas/<name>.json`
 2. **Authentication** — use your preferred method (API key, OAuth, bearer tokens). The server must validate that the requesting agent has permission to read the requested prompt/schema.
 3. **Catalog metadata** — publish a machine-readable catalog at the server root listing all available prompts, their versions (SHA-256 of file content), and associated policies.
-4. **Example minimal MCP config** (adapt to your MCP framework):
+4. **Example minimal MCP configuration** (adapt to your MCP framework):
 
 ```json
 {
@@ -177,49 +177,99 @@ result = orchestrator.dispatch(
 
 ---
 
-## 🏗️ Architecture
+## 🛠️ Development
 
-```mermaid
-flowchart TB
-    subgraph "Prompt Library"
-        P1[base-agent-constitution.md]
-        P2[master-orchestrator.md]
-        P3[roles/*.md]:::roles
-        P4[policies/*.md]:::policies
-        P5[templates/*.json]:::templates
-    end
+| Goal | Command |
+|------|---------|
+| Install package (dev mode) | `python -m pip install -e .` |
+| Run all tests | `python -m unittest discover -s tests -v` |
+| Lint / compile check | `python -m compileall -q src tests` |
+| Validate JSON schemas parse | `python -c "import glob, json; [json.load(open(p,encoding='utf-8')) for p in glob.glob('schemas/*.json')]; [json.load(open(p,encoding='utf-8')) for p in glob.glob('prompts/templates/*.json')]; print('JSON OK')"` |
+| Verify prompt-library completeness | `python -c "import pathlib; r=list(pathlib.Path('prompts/roles').glob('*.md')); assert len(r)==25, len(r); assert pathlib.Path('prompts/master-orchestrator.md').exists(); print('prompts OK')"` |
+| Run the delivery eval scenario | `python evals/scenarios/delivery_cli.py` |
+| Initialize a project via CLI | `python -m agentic_company init-project "Name" "owner" --goal "goal"` |
+| Dispatch a specialist via CLI | `python -m agentic_company dispatch <role> "<instructions>"` |
+| Audit a project via CLI | `python -m agentic_company audit <project_id>` |
 
-    subgraph "Python Reference"
-        C1[contracts.py]:::py
-        C2[orchestrator.py]:::py
-        C3[policy_engine.py]:::py
-        C4[approval_service.py]:::py
-        C5[tool_gateway.py]:::py
-        C6[agent_registry.py]:::py
-        C7[state_store.py]:::py
-        C8[event_store.py]:::py
-        C9[artifact_store.py]:::py
-        C10[workflow.py]:::py
-        C11[__main__.py]:::py
-    end
+---
 
-    subgraph "Governance"
-        G1[LICENSE]:::license
-        G2[CONTRIBUTING.md]:::md
-        G3[GOVERNANCE.md]:::md
-        G4[CODE_OF_CONDUCT.md]:::md
-        G5[SECURITY.md]:::md
-        G6[CHANGELOG.md]:::md
-    end
+## 📄 License
 
-    style Prompts fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
-    style Python fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
-    style Governance fill:#fff3e0,ff6f00,stroke:#e65100,stroke-width:2px
-    classDef roles fill:#e3f2fd,stroke:#1976d2,stroke-width:2px;
-    classDef py fill:#e8f5e9,stroke:#388e3c,stroke-width:2px;
-    classDef md fill:#fff3e0,ff6f00,stroke:#e65100,stroke-width:2px;
-    classDef license fill:#e8f4f0,stroke:#00838f,stroke-width:2px;
+[Apache-2.0](https://opensource.org/licenses/Apache-2.0) — See [LICENSE](LICENSE).
+
+---
+
+## 👐 Contributing
+
+Please read [CONTRIBUTING.md](CONTRIBUTING.md), [GOVERNANCE.md](GOVERNANCE.md), and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) before opening an issue or pull request.
+
+We work in small reversible steps, add or update tests, and never commit secrets.
+
+---
+
+## 🔧 Installation & Integration for AI Coding Platforms
+
+### How to integrate this platform with an AI coding assistant
+
+1. **Provide the prompt library** — share the `prompts/` directory (or a subset) with the assistant. The assistant should load:
+   - `prompts/base-agent-constitution.md` as its system-level instruction anchor.
+   - One file from `prompts/roles/` matching the desired specialist function.
+   - `prompts/templates/task-envelope.json` and `prompts/templates/result-envelope.json` as the contract for request/response framing.
+
+2. **Set up the policy engine** — the assistant should classify every tool operation against the gate map (G0–G4) as described in `prompts/policies/default-project-policy.md`. Operations not explicitly allowed are denied by default.
+
+3. **Implement approval gating** — for any action in gate G2–G4, the assistant must obtain a bound approval token before proceeding. The token lifecycle is:
+   - **Request** — the assistant sends a scoped approval request (actor, action, resource, environment, artifact sha, project ID, gate).
+   - **Resolve** — a human (or automated guardrail) approves or rejects the request.
+   - **Verify** — the assistant confirms the token is still valid (not expired, not reused, bound to the correct artifact).
+
+4. **Enforce path and secret safety** — the assistant must never insert raw secrets into model context, logs, or artifacts. Use redaction patterns from `prompts/base-agent-constitution.md` §5.
+
+5. **Record domain events** — every significant action (tool call, approval, handoff) should be logged with: timestamp, actor type/ID, event type, project ID, correlation ID, and data payload. This mirrors the `event_store.py` append-only pattern.
+
+### What the platform provides (ready-to-use)
+
+- ✅ 25 ready-to-copy-paste role prompts
+- ✅ Five governance policy files (constitution + 3 project policies)
+- ✅ Six JSON schemas for request/response validation
+- ✅ Four YAML workflows (delivery, change-control, release, incident)
+- ✅ A stubbed CLI (`python -m agentic_company`) that demonstrates the envelope pattern
+- ✅ 43 unit tests proving the contracts work end-to-end
+- ✅ CI configuration that tests on Python 3.10–3.13
+
+### What the assistant/platform owner must provide
+
+- ⬜ An LLM or local model invocation layer (the assistant's native API).
+- ⬜ A tool execution sandbox (the actual commands/filesystem/APIs the agent is allowed to run).
+- ⬜ An approval flow UI/process (human or automated) for G2–G4 actions.
+- ⬜ Persistence for state, events, and artifacts (the `src/agentic_company/` stores are file-based examples; you can replace with PostgreSQL, DynamoDB, etc.).
+- ⬜ Your own agent registry if you add beyond the 25 canonical roles.
+
+### Example minimal integration flow (assistant-agnostic)
+
+```text
+1. User asks assistant: "summarize this repository"
+2. Assistant loads prompts/base-agent-constitution.md as system prompt
+3. Assistant selects prompt from prompts/roles/ matching "technical-lead" or similar
+4. Assistant reads prompts/templates/task-envelope.json to frame the request
+5. Assistant sends the framed request to its model, with the constitution + role prompt in context
+6. Assistant receives the model's response, frames it as a result envelope
+7. Assistant validates the result envelope against schemas/result-envelope.json
+8. Assistant checks if the task requires an approval (G2–G4); if so, pauses and routes to human gate
+9. Upon approval, assistant executes the approved tool action in its sandbox
+10. Assistant records a domain event (event_store pattern) and returns the result to the user
 ```
+
+### What "automatic setup" looks like
+
+If an AI coding platform supports **custom tool definitions** and **prompt injection**, the platform owner can:
+
+1. Upload the `prompts/` directory as the assistant's system prompt pack.
+2. Configure the assistant's tool schema to match the operations in `prompts/policies/default-project-policy.md`.
+3. Set up an approval queue for G2–G4 actions.
+4. Point the assistant's artifact store at a directory that mimics `src/agentic_company/artifact_store.py` semantics (content-addressed, root-scoped).
+
+The assistant then becomes a functional specialist agent for the Open-Source Agentic Software Company without any further configuration — the prompts, policies, and contracts are all pre-built.
 
 ---
 
@@ -307,22 +357,6 @@ flowchart TB
    ├─ release.yaml
    └─ incident.yaml
 ```
-
----
-
-## 🛠️ Development
-
-| Goal | Command |
-|------|---------|
-| Install package (dev mode) | `python -m pip install -e .` |
-| Run all tests | `python -m unittest discover -s tests -v` |
-| Lint / compile check | `python -m compileall -q src tests` |
-| Validate JSON schemas parse | `python -c "import glob, json; [json.load(open(p,encoding='utf-8')) for p in glob.glob('schemas/*.json')]; [json.load(open(p,encoding='utf-8')) for p in glob.glob('prompts/templates/*.json')]; print('JSON OK')"` |
-| Verify prompt-library completeness | `python -c "import pathlib; r=list(pathlib.Path('prompts/roles').glob('*.md')); assert len(r)==25, len(r); assert pathlib.Path('prompts/master-orchestrator.md').exists(); print('prompts OK')"` |
-| Run the delivery eval scenario | `python evals/scenarios/delivery_cli.py` |
-| Initialize a project via CLI | `python -m agentic_company init-project "Name" "owner" --goal "goal"` |
-| Dispatch a specialist via CLI | `python -m agentic_company dispatch <role> "<instructions>"` |
-| Audit a project via CLI | `python -m agentic_company audit <project_id>` |
 
 ---
 
