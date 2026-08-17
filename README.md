@@ -3,7 +3,7 @@
 [![Apache 2.0 License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Tests: 43 passing](https://img.shields.io/badge/tests-43%20passing-brightgreen.svg)](https://github.com/khajaaijaz26/agentic-software-company/actions)
-[![CI: test+lint](https://img.shields.io/badge/CI-test%2Blint-brightgreen.svg)](https://github.com/khajaaijaz26/agentic-software-company/actions)
+[![CI: test + lint](https://img.shields.io/badge/CI-test%2Blint-brightgreen.svg)](https://github.com/khajaaijaz26/agentic-software-company/actions)
 [![Contributions welcome](https://img.shields.io/badge/contributions-welcome-orange.svg)](https://github.com/khajaaijaz26/agentic-software-company/pulls)
 [![GitHub Issues](https://img.shields.io/github/issues/khajaaijaz26/agentic-software-company.svg)](https://github.com/khajaaijaz26/agentic-software-company/issues)
 [![GitHub Stars](https://img.shields.io/github/stars/khajaaijaz26/agentic-software-company.svg?style=social)](https://github.com/khajaaijaz26/agentic-software-company/stargazers)
@@ -30,100 +30,94 @@ Everything in this repo — the prompt library, JSON schemas, YAML workflows, po
 | **Content-Addressed Artifacts** | SHA-256 content-addressed storage with path-traversal protection |
 | **Dependency-Free Python** | Reference implementation using only the Python standard library (`unittest` tests only; no pip install required) |
 | **Four YAML Workflows** | Delivery pipeline, change-control classification, production release gating, incident response |
-| **JSON Schemas** | 6 canonical schemas: project, event, capability, task/result/approval envelopes (mirrors in `contracts.py`) |
+| **JSON Schemas** | 6 canonical schemas: project, event, capability, task/result/approval envelopes (mirrors in `src/agentic_company/contracts.py`) |
 | **Full Eval Suite** | 1 delivery scenario + structured rubrics under `evals/` |
 
 ---
 
-## 🚀 Quick Start
+## 🚀 Quick Start (Universal Terminal)
 
-### 1. Run the test suite (stdlib only)
+The platform runs on Python 3.10+ with the standard library only. All commands assume you are in the repository root.
+
+### 1. Set up the Python path
 
 ```bash
-PYTHONPATH=src python -m unittest discover -s tests -v
+# Method 1: Install the package in development mode
+python -m pip install -e .
+
+# Method 2: Set PYTHONPATH
+export PYTHONPATH=src
+```
+
+### 2. Run the test suite
+
+```bash
+python -m unittest discover -s tests -v
 # → 43 tests pass
 ```
 
-### 2. Initialize a project
+### 3. Initialize a project
 
 ```bash
-PYTHONPATH=src python -m agentic_company init-project "DemoApp" "carol" --goal "ship v1"
-# Output: proj_a1effd13844a
+python -m agentic_company init-project "DemoApp" "carol" --goal "ship v1"
+# → proj_a1effd13844a
 ```
 
-### 3. Dispatch a specialist
+### 4. Dispatch a specialist
 
 ```bash
-PYTHONPATH=src python -m agentic_company dispatch technical-lead "design the architecture"
-# Output: task_32d15eeb9d1d COMPLETE
+python -m agentic_company dispatch technical-lead "design the architecture"
+# → task_32d15eeb9d1d COMPLETE
 ```
 
-### 4. Audit a project's event trail
+### 5. Audit a project's event trail
 
 ```bash
-PYTHONPATH=src python -m agentic_company audit proj_a1effd13844a
+python -m agentic_company audit proj_a1effd13844a
 # → Prints one event line per dispatch/approval/handoff
 ```
 
-### 5. Run the delivery scenario
+### 6. Run the delivery eval scenario
 
 ```bash
-PYTHONPATH=src python evals/scenarios/delivery_cli.py
+python evals/scenarios/delivery_cli.py
 # → SCENARIO PASSED
 ```
 
-### 6. Run the full suite end-to-end
+### 7. Full compile/check
 
 ```bash
-python -m pytest tests/  # if pytest is available, or
-PYTHONPATH=src python -m unittest discover -s tests
+python -m compileall -q src tests
 ```
 
 ---
 
-## 📦 Integration with AI Coding Platforms
+## 📦 Integration with AI Coding Assistants
 
-This platform is designed so any LLM‑based coding assistant can act as a **specialist agent** by consuming the prompt files under `prompts/roles/` and routing work through the **task envelope** / **result envelope** contract.
+This platform is designed so any LLM-based coding assistant can act as a **specialist agent** by consuming the prompt files and routing work through the **task envelope** / **result envelope** contract.
 
-### OpenCode
+### General Integration Pattern
 
-```bash
-# Set up OpenCode session
-opencode_setup
+1. **Load the Base Constitution** — the file `prompts/base-agent-constitution.md` sets the mandatory operating rules every agent must follow.
+2. **Select a Role Prompt** — choose from `prompts/roles/` matching the agent's function (25 options).
+3. **Compose Instructions** — combine the constitution + role + project policy + task envelope context.
+4. **Tool Authorization** — before any tool invocation, classify the operation via the policy engine logic (G0–G4 gates); require a bound, short-lived approval token for G2–G4 actions; enforce path safety and redaction as described in the constitution.
+5. **Record Handoffs** — every agent output, tool call, and approval decision should be logged as an immutable domain event for audit continuity.
+6. **Result Envelope** — the agent returns a structured result containing: status, summary, evidence (criterion outcomes with proofs), artifacts, budget usage, and the next owner/action.
 
-# Reference the prompt library
-export PROMPTS_ROOT=/path/to/agentic-software-company/prompts
+The envelope formats live under `prompts/templates/` and their canonical schemas under `schemas/`. Any assistant can validate requests/responses against these schemas.
 
-# Use the dispatcher pattern: the orchestrator builds a TaskEnvelope,
-# passes it to the LLM, the LLM returns a ResultEnvelope.
-# See src/agentic_company/orchestrator.py for the exact contract.
-```
+### MCP Server Setup (Universal)
 
-### Claude Code / Claude Code Agent
+If you want to serve the prompt library and schemas via an MCP server so any agent can discover and version the library:
 
-1. Add the **Base Agent Constitution** (`prompts/base-agent-constitution.md`) as your system prompt.
-2. Select a **role prompt** from `prompts/roles/` matching the agent's function.
-3. Compose the agent's instructions: `constitution + role + project_policy + task_envelope`.
-4. All tool calls should pass through your own `ToolGateway`-style authorization layer that mirrors the policy‑engine gate logic (G0–G4).
-5. Record every hand‑off as a domain event for audit.
-
-### GitHub Copilot / Copilot Workspace
-
-- The `prompts/templates/` JSON envelopes define the contract for memory/artifact passing.
-- Use the **policy engine** logic as a guardrail before any tool invocation.
-- The `approval_service` contract (`request → resolve → verify`) maps naturally to Copilot's approval UI for production‑gate actions.
-
-### Custom MCP Server
-
-If you want to serve the prompt library (and schemas/workflows) via an MCP server so any agent can discover and version the library:
-
-1. Add an MCP server config (see `.mcp.json` example below).
-2. The server exposes three resources:
+1. **Serve the resources** — the MCP server should expose three endpoint types:
    - `GET /prompts/base-agent-constitution.md`
    - `GET /prompts/roles/<name>.md`
    - `GET /schemas/<name>.json`
-3. Agents authenticate via your preferred method (API key, OAuth, etc.).
-4. Example `.mcp.json`:
+2. **Authentication** — use your preferred method (API key, OAuth, bearer tokens). The server must validate that the requesting agent has permission to read the requested prompt/schema.
+3. **Catalog metadata** — publish a machine-readable catalog at the server root listing all available prompts, their versions (SHA-256 of file content), and associated policies.
+4. **Example minimal MCP config** (adapt to your MCP framework):
 
 ```json
 {
@@ -139,9 +133,11 @@ If you want to serve the prompt library (and schemas/workflows) via an MCP serve
 }
 ```
 
-### Manual Terminal (No CLI)
+The `agentic_company.mcp_adapter` module should read the prompt files and schemas from `PROMPTS_ROOT` and serve them via HTTP with proper content-type headers and authentication checking.
 
-All functionality is callable from Python:
+### Manual Terminal (No LLM Assistant)
+
+All functionality is callable directly from Python:
 
 ```python
 from agentic_company.state_store import StateStore
@@ -218,7 +214,7 @@ flowchart TB
 
     style Prompts fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
     style Python fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
-    style Governance fill:#fff3e0,ff6f00,stroke-width:2px
+    style Governance fill:#fff3e0,ff6f00,stroke:#e65100,stroke-width:2px
     classDef roles fill:#e3f2fd,stroke:#1976d2,stroke-width:2px;
     classDef py fill:#e8f5e9,stroke:#388e3c,stroke-width:2px;
     classDef md fill:#fff3e0,ff6f00,stroke:#e65100,stroke-width:2px;
@@ -232,7 +228,7 @@ flowchart TB
 ```
 ├─ .github/
 │  └─ workflows/
-│     ├─ ci.yml            # CI: test, lint, JSON parse, prompt completeness
+│     ├─ ci.yml            # CI: install + test + compile + schema validate + prompt completeness
 │     ├─ delivery.yaml     # Delivery pipeline workflow
 │     ├─ change-control.yaml
 │     ├─ release.yaml
@@ -266,16 +262,17 @@ flowchart TB
 │  ├─ roles/                               # 25 specialist agent prompts
 │  ├─ policies/                            # Project / Production / Data‑handling policies
 │  └─ templates/                           # Task / Result / Approval envelope JSON schemas
-├─ prompts/system/   # Pre‑seeded scaffold (duplicates canonical prompts;
+├─ prompts/system/   # Pre‑seeded scaffold (duplicates canonical prompts)
 │   ├─ base-agent-constitution.md
-│   └─ master-orchestrator.md
-│   └─ agents/   # 3 sample agent prompt markdown files
-│  └─ schemas/
+│   ├─ master-orchestrator.md
+│   ├─ agents/   # 3 sample agent prompt markdown files
+│   └─ schemas/
 │     └─ task/                             # task-envelope-v1.json
 ├─ prompts/roles/      # ← canonical 25 role prompt markdown files
 ├─ prompts/policies/   # ← canonical 3 policy markdown files
 ├─ prompts/templates/  # ← canonical envelope JSON files
-├─ README.md           # ← This file
+├─ pyproject.toml
+├─ README.md
 ├─ schemas/
 │  ├─ project.schema.json
 │  ├─ event.schema.json
@@ -317,14 +314,15 @@ flowchart TB
 
 | Goal | Command |
 |------|---------|
-| Run all tests | `PYTHONPATH=src python -m unittest discover -s tests -v` |
+| Install package (dev mode) | `python -m pip install -e .` |
+| Run all tests | `python -m unittest discover -s tests -v` |
 | Lint / compile check | `python -m compileall -q src tests` |
 | Validate JSON schemas parse | `python -c "import glob, json; [json.load(open(p,encoding='utf-8')) for p in glob.glob('schemas/*.json')]; [json.load(open(p,encoding='utf-8')) for p in glob.glob('prompts/templates/*.json')]; print('JSON OK')"` |
 | Verify prompt-library completeness | `python -c "import pathlib; r=list(pathlib.Path('prompts/roles').glob('*.md')); assert len(r)==25, len(r); assert pathlib.Path('prompts/master-orchestrator.md').exists(); print('prompts OK')"` |
-| Run the delivery eval scenario | `PYTHONPATH=src python evals/scenarios/delivery_cli.py` |
+| Run the delivery eval scenario | `python evals/scenarios/delivery_cli.py` |
 | Initialize a project via CLI | `python -m agentic_company init-project "Name" "owner" --goal "goal"` |
-| Dispatch a specialist | `python -m agentic_company dispatch <role> "<instructions>"` |
-| Audit a project | `python -m agentic_company audit <project_id>` |
+| Dispatch a specialist via CLI | `python -m agentic_company dispatch <role> "<instructions>"` |
+| Audit a project via CLI | `python -m agentic_company audit <project_id>` |
 
 ---
 
