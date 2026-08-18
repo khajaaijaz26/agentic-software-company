@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.agent-company.dev/vnext/attachment.schema.json",
+  "title": "Agent Company attachment receipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "attachment_id",
+    "source",
+    "state",
+    "children",
+    "findings",
+    "transfer_count",
+    "created_at"
+  ],
+  "properties": {
+    "schema": { "const": "agent-company.attachment/v1" },
+    "attachment_id": { "type": "string", "pattern": "^att_[A-Za-z0-9_-]+$" },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "display_name"],
+      "properties": {
+        "kind": { "enum": ["file", "folder", "stdin", "clipboard", "url"] },
+        "display_name": { "type": "string", "minLength": 1 }
+      }
+    },
+    "state": { "enum": ["READY", "QUARANTINED", "BLOCKED", "FAILED"] },
+    "artifact": { "$ref": "artifact.schema.json" },
+    "children": {
+      "type": "array",
+      "items": { "$ref": "artifact.schema.json" }
+    },
+    "findings": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/finding" }
+    },
+    "transfer_count": {
+      "description": "Ingestion never grants upload authority.",
+      "const": 0
+    },
+    "created_at": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "finding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scanner", "severity", "code", "summary"],
+      "properties": {
+        "scanner": { "enum": ["malware", "secret", "pii", "type", "prompt-injection"] },
+        "severity": { "enum": ["info", "warning", "block"] },
+        "code": { "type": "string", "minLength": 1 },
+        "summary": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

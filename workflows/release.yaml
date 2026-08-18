@@ -14,7 +14,7 @@ steps:
     gate: G3
 
   - id: deploy
-    agent: devops-platform-engineer
+    agent: devops-platform
     depends_on: [verify_artifact, confirm_approval]
     action: gradual rollout (canary/rolling/blue-green) per thresholds
     gate: G3
@@ -32,6 +32,6 @@ steps:
     gate: G0
 
   - id: rollback_path
-    agent: devops-platform-engineer
+    agent: devops-platform
     action: prepare rollback plan (app, feature-flag, config, db recovery)
     gate: G1

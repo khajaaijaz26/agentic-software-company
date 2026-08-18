@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.agent-company.dev/vnext/ipc-response.schema.json",
+  "title": "Agent Company authenticated controller RPC response v1",
+  "description": "Correlated RPC response carried in a 4-byte big-endian length-prefixed JSON frame.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "requestId", "ok"],
+  "properties": {
+    "kind": { "const": "response" },
+    "requestId": { "type": "string", "pattern": "^rpc_[a-f0-9]{32}$" },
+    "ok": { "type": "boolean" },
+    "result": true,
+    "error": { "$ref": "#/$defs/error" }
+  },
+  "oneOf": [
+    {
+      "required": ["result"],
+      "properties": { "ok": { "const": true } },
+      "not": { "required": ["error"] }
+    },
+    {
+      "required": ["error"],
+      "properties": { "ok": { "const": false } },
+      "not": { "required": ["result"] }
+    }
+  ],
+  "$defs": {
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "retryable"],
+      "properties": {
+        "code": { "type": "string" },
+        "message": { "type": "string" },
+        "retryable": { "type": "boolean" }
+      }
+    }
+  }
+}

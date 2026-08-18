@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.agent-company.dev/vnext/run.schema.json",
+  "title": "Agent Company run view v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "projectId",
+    "objective",
+    "state",
+    "createdAt",
+    "tasks",
+    "agents",
+    "approvalIds",
+    "costUsd"
+  ],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "projectId": { "type": "string", "minLength": 1 },
+    "objective": { "type": "string", "minLength": 1 },
+    "state": {
+      "enum": [
+        "DRAFT",
+        "PLANNING",
+        "WAITING_INPUT",
+        "WAITING_APPROVAL",
+        "RUNNING",
+        "PAUSING",
+        "PAUSED",
+        "RECOVERING",
+        "NEEDS_RECONCILIATION",
+        "SUCCEEDED",
+        "PARTIAL",
+        "FAILED",
+        "CANCELED"
+      ]
+    },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "tasks": {
+      "type": "array",
+      "items": { "$ref": "task.schema.json" }
+    },
+    "agents": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/agent" }
+    },
+    "approvalIds": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "costUsd": { "type": "number", "minimum": 0 }
+  },
+  "$defs": {
+    "agent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "role",
+        "displayName",
+        "state",
+        "taskId",
+        "model",
+        "modelClass",
+        "why",
+        "scopes",
+        "estimatedCostUsd",
+        "deactivateWhen"
+      ],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "role": { "type": "string", "minLength": 1 },
+        "displayName": { "type": "string", "minLength": 1 },
+        "state": {
+          "enum": [
+            "ACTIVATING",
+            "PLANNING",
+            "RUNNING",
+            "WAITING_TOOL",
+            "WAITING_INPUT",
+            "WAITING_APPROVAL",
+            "BLOCKED",
+            "REVIEWING",
+            "PAUSED",
+            "SUCCEEDED",
+            "FAILED",
+            "STOPPED"
+          ]
+        },
+        "taskId": { "type": "string" },
+        "model": { "type": "string", "minLength": 1 },
+        "modelClass": { "enum": ["reasoning", "coding", "fast"] },
+        "why": { "type": "string", "minLength": 1 },
+        "scopes": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true
+        },
+        "estimatedCostUsd": {
+          "oneOf": [
+            { "type": "number", "minimum": 0 },
+            { "const": "UNKNOWN" }
+          ]
+        },
+        "deactivateWhen": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

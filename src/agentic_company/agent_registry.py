@@ -8,7 +8,7 @@ declarative source that keeps role → operation mappings consistent.
 from __future__ import annotations
 
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from .contracts import Actor
 

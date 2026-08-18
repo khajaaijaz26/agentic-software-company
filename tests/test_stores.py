@@ -1,13 +1,12 @@
 """Tests for stores: state, event, artifact."""
 
-import json
 import tempfile
 import unittest
 from pathlib import Path
 
 from agentic_company.artifact_store import ArtifactStore, ArtifactStoreError
 from agentic_company.contracts import Actor, DomainEvent
-from agentic_company.event_store import EventStore
+from agentic_company.event_store import EventStore, EventStoreError
 from agentic_company.state_store import StateStore
 
 
@@ -49,11 +48,21 @@ class TestEventStore(unittest.TestCase):
 
     def test_append_only_no_mutation(self) -> None:
         store = EventStore()
-        store.append(DomainEvent(event_type="a", actor=Actor.system(), data={"v": 1}))
+        payload = {"nested": {"v": 1}}
+        event = DomainEvent(event_type="a", actor=Actor.system(), data=payload)
+        store.append(event)
         store.append(DomainEvent(event_type="b", actor=Actor.system(), data={"v": 2}))
+        payload["nested"]["v"] = 99
         self.assertEqual(store.sequence, 2)
         first = store.events_for()[0]
         self.assertEqual(first.event_type, "a")
+        self.assertEqual(first.data["nested"]["v"], 1)
+        first.data["nested"]["v"] = 50
+        self.assertEqual(store.events_for()[0].data["nested"]["v"], 1)
+        with self.assertRaises(EventStoreError):
+            store.append(event)
+        with self.assertRaises(EventStoreError):
+            store.clear()
 
 
 class TestArtifactStore(unittest.TestCase):
@@ -77,6 +86,25 @@ class TestArtifactStore(unittest.TestCase):
             store = ArtifactStore(tmp)
             with self.assertRaises(ArtifactStoreError):
                 store.read("nope.txt")
+
+    def test_content_addressing_deduplicates_and_refs_are_immutable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ArtifactStore(tmp)
+            first = store.store_text("docs/a.md", "same")
+            second = store.store_text("docs/b.md", "same")
+            self.assertEqual(first["path"], second["path"])
+            self.assertEqual(first["sha256"], second["sha256"])
+            self.assertEqual(store.store_text("docs/a.md", "same")["sha256"], first["sha256"])
+            with self.assertRaises(ArtifactStoreError):
+                store.store_text("docs/a.md", "different")
+
+    def test_corrupt_content_addressed_object_is_detected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ArtifactStore(tmp)
+            meta = store.store_text("docs/spec.md", "original")
+            Path(meta["path"]).write_text("tampered", encoding="utf-8")
+            with self.assertRaises(ArtifactStoreError):
+                store.read("docs/spec.md")
 
 
 if __name__ == "__main__":

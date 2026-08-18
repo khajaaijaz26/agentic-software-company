@@ -61,23 +61,20 @@ class TestWorkflow(unittest.TestCase):
             wf.run(items, _ok)
 
     def test_budget_time_exhaustion(self) -> None:
-        wf = Workflow(budget=Budget(max_time_seconds=1))
-        items = [
-            WorkItem(item_id=f"i{i}", project_id="p", title=str(i), owner="x") for i in range(5)
-        ]
-
-        class CountingExecutor:
-            def __init__(self) -> None:
-                self.calls = 0
-
-            def __call__(self, item):
-                self.calls += 1
-                if self.calls > 1:
-                    raise WorkflowError("workflow exceeded time budget")
-                return "ok"
-
+        readings = iter((0.0, 0.25, 1.25))
+        wf = Workflow(budget=Budget(max_time_seconds=1), clock=lambda: next(readings))
+        items = [WorkItem(item_id="i0", project_id="p", title="0", owner="x")]
         with self.assertRaises(WorkflowError):
-            wf.run(items, CountingExecutor())
+            wf.run(items, _ok)
+
+    def test_duplicate_item_ids_are_rejected(self) -> None:
+        wf = Workflow()
+        items = [
+            WorkItem(item_id="same", project_id="p", title="a", owner="x"),
+            WorkItem(item_id="same", project_id="p", title="b", owner="x"),
+        ]
+        with self.assertRaises(WorkflowError):
+            wf.run(items, _ok)
 
 
 class TestAgentRegistry(unittest.TestCase):

@@ -5,14 +5,25 @@ from __future__ import annotations
 import json
 import os
 import sys
+import tempfile
 import unittest
+from pathlib import Path
+
+_STATE_TEMP = tempfile.TemporaryDirectory(prefix="agentic-company-mcp-tests-")
+_PREVIOUS_STATE_DIR = os.environ.get("AGENTIC_COMPANY_STATE_DIR")
+os.environ["AGENTIC_COMPANY_STATE_DIR"] = str(Path(_STATE_TEMP.name) / "state")
+MCP_IMPORT_ERROR = None
 
 try:
     from mcp.server.fastmcp import FastMCP
     MCP_AVAILABLE = True
-except ImportError:  # pragma: no cover
+except ImportError as exc:  # pragma: no cover
     FastMCP = None  # type: ignore[assignment]
     MCP_AVAILABLE = False
+    MCP_IMPORT_ERROR = exc
+
+if not MCP_AVAILABLE and os.environ.get("AGENTIC_REQUIRE_MCP") == "1":  # pragma: no cover
+    raise RuntimeError("MCP tests are required but the supported MCP SDK could not be imported") from MCP_IMPORT_ERROR
 
 if MCP_AVAILABLE and sys.version_info >= (3, 10):
     from contextlib import asynccontextmanager
@@ -88,11 +99,13 @@ class McpServerTest(unittest.TestCase):
                         "instructions": "plan the delivery",
                     },
                 )
-                self.assertEqual(json.loads(assigned.content[0].text)["agent_role"], "technical-lead")
+                assigned_record = json.loads(assigned.content[0].text)
+                self.assertEqual(assigned_record["agent_role"], "technical-lead")
+                task_id = assigned_record["task_id"]
 
                 completed = await client.call_tool(
                     "complete_task",
-                    {"project_id": project_id, "task_id": "task-x", "status": "COMPLETE", "summary": "done"},
+                    {"project_id": project_id, "task_id": task_id, "status": "COMPLETE", "summary": "done"},
                 )
                 self.assertTrue(json.loads(completed.content[0].text)["recorded"])
 
@@ -105,6 +118,22 @@ class McpServerTest(unittest.TestCase):
                 return True
 
         self.assertTrue(_run(scenario()))
+
+    def test_task_ids_are_unique_and_completion_is_validated(self):
+        project = mcp_server.begin_project(name="mcp-task-validation", owner="tester", goal="deliver")
+        first = mcp_server.assign_task(project["project_id"], "technical-lead", "first")
+        second = mcp_server.assign_task(project["project_id"], "technical-lead", "second")
+        self.assertNotEqual(first["task_id"], second["task_id"])
+
+        with self.assertRaises(ValueError):
+            mcp_server.complete_task(project["project_id"], "unknown", "COMPLETE", "done")
+        with self.assertRaises(ValueError):
+            mcp_server.complete_task(project["project_id"], first["task_id"], "PENDING", "done")
+
+        recorded = mcp_server.complete_task(project["project_id"], first["task_id"], "COMPLETE", "done")
+        self.assertTrue(recorded["recorded"])
+        with self.assertRaises(ValueError):
+            mcp_server.complete_task(project["project_id"], first["task_id"], "COMPLETE", "again")
 
     def test_approval_round_trip(self):
         async def scenario():
@@ -133,6 +162,14 @@ class McpServerTest(unittest.TestCase):
                 return True
 
         self.assertTrue(_run(scenario()))
+
+
+def tearDownModule():
+    if _PREVIOUS_STATE_DIR is None:
+        os.environ.pop("AGENTIC_COMPANY_STATE_DIR", None)
+    else:
+        os.environ["AGENTIC_COMPANY_STATE_DIR"] = _PREVIOUS_STATE_DIR
+    _STATE_TEMP.cleanup()
 
 
 if __name__ == "__main__":

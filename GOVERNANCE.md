@@ -2,52 +2,85 @@
 
 ## Purpose
 
-This document defines how the Open-Source Agentic Software Company project is
-governed: who holds authority, how decisions are made, and how changes are
-reviewed. It mirrors the governance baseline of the master system prompt: human
-authority at material gates, evidence before claims, and a one-source-of-truth
-record.
+This document defines project authority and change control for Agent Company
+CLI. It applies to both the npm terminal-platform preview and the preserved
+Python/MCP compatibility runtime. It does not grant an AI agent authority to
+make repository, release, production, legal, or financial decisions.
 
-## Roles
+The project owner and current maintainer is `khajaaijaz26`.
+
+## Project roles
 
 | Role | Authority |
-|------|-----------|
-| Maintainer | Merges pull requests, owns release decisions, resolves governance disputes |
-| Reviewer | Approves or requests changes on pull requests; may not merge alone |
-| Contributor | Opens issues and pull requests |
-| User | Consumes the project; files issues |
+| --- | --- |
+| Maintainer | Triage, merge, release, security coordination, and final project decisions |
+| Reviewer | Review a proposed change and record approve/request-changes evidence |
+| Contributor | Propose issues, patches, schemas, tests, and documentation |
+| User | Operate the software and report defects or requirements |
 
-## Decision-making
+Runtime specialist-agent names are software roles, not project-governance
+roles. They have no merge, release, or approval authority merely because a
+prompt assigns them a title.
 
-- **Day-to-day technical decisions** are made by maintainers on pull requests.
-- **Material decisions** (architecture changes, prompt-version changes, new
-  governance rules, license changes, security posture) require a written
-  Architecture Decision Record (ADR) under `docs/adr/` and a review by at
-  least two maintainers.
-- **Silence is not consent.** A decision is not approved by a timeout.
-- Any decision may be revisited with new evidence; superseded decisions are
-  marked, not erased.
+## Decision principles
 
-## Approval gates (repository-level)
+- Evidence precedes claims.
+- Silence is not consent.
+- The smallest reversible change is preferred when it meets the requirement.
+- Human decisions are attributable and preserved; superseded records are not
+  erased.
+- Changes crossing a trust boundary receive independent review.
+- Compatibility breaks and residual risk are documented before release.
 
-| Gate | Example | Control |
-|------|---------|---------|
-| G1 | Trivial doc/test change | Reviewer approval |
-| G2 | Non-trivial code or prompt change | Reviewer approval + CI green |
-| G3 | Architecture or governance change | Two maintainers + ADR |
-| G4 | Release, license, or security-policy change | Maintainer consensus + recorded decision |
+## Change classes
+
+| Class | Examples | Minimum review |
+| --- | --- | --- |
+| C0 | Typo, non-normative clarification | Maintainer or reviewer |
+| C1 | Reversible implementation or test change | One reviewer and required CI |
+| C2 | Contract/schema, persistence, approval, policy, connector, or compatibility change | One independent reviewer, tests, migration/compatibility note |
+| C3 | Security posture, remote execution, production support, architecture boundary, or data handling | ADR, threat-model review, two maintainers when available |
+| C4 | Release, license, governance, ownership, or coordinated disclosure | Project owner plus recorded decision |
+
+When the project has only one active maintainer, required independent review
+cannot be silently waived. The release record must identify the missing review
+and the reason, and high-risk functionality should remain disabled by default.
+
+## Architecture decisions
+
+Durable decisions live under `docs/adr/` and include context, decision,
+alternatives, consequences, owner, date, status, and a revisit trigger. A later
+ADR supersedes rather than rewrites the historical decision.
+
+## Schema and CLI governance
+
+- Schemas under `schemas/vnext/` and the exit-code/output rules in
+  `docs/protocols/cli-abi.md` are public preview contracts.
+- A compatible change may add optional fields or new event/output `type`
+  values. It must not change existing field meaning.
+- Removing a field, changing an enum, reusing an exit code, or altering
+  canonical hashing requires a versioned schema/ABI and a migration note.
+- Root `schemas/*.json` remain Python compatibility contracts until a recorded
+  migration retires them.
 
 ## Releases
 
-- Releases follow [semantic versioning](https://semver.org).
-- Each release records the prompt-library version alongside the code version.
-- Release notes live in [CHANGELOG.md](CHANGELOG.md).
+- npm and Python distributions are versioned independently while both runtimes
+  remain supported.
+- A release must record the source commit, distribution version, schema and
+  plugin/API versions, test evidence, known limitations, and migration steps.
+- Release artifacts should be reproducible and inspected before publication.
+- Production/stable labels require all mandatory architecture controls for that
+  claim; a preview may not be relabeled stable to satisfy a schedule.
 
-## Conflict resolution
+## Security and conflicts
 
-If a decision cannot be reached, a maintainer may call a governance review.
-Escalation goes to the project owner (`khajaaijaz26`).
+Security reports follow [SECURITY.md](SECURITY.md), not public issue triage.
+Reviewers disclose material conflicts of interest. If consensus is unavailable,
+the project owner decides and records the rationale. License, governance, and
+ownership changes remain C4 decisions.
 
-## Changes to this document
+## Amending this document
 
-Changes to this governance document require a G4 decision and a recorded ADR.
+Changes require a C4 decision. The pull request or release record must state
+what authority changed and why.

@@ -12,7 +12,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from .contracts import DomainEvent, ProjectRecord
+from .contracts import ProjectRecord
 
 
 class StateStore:

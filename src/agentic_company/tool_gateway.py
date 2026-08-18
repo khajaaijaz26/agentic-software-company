@@ -16,6 +16,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+from .approval_service import ApprovalService
 from .contracts import Actor, ApprovalRequest, DomainEvent
 from .event_store import EventStore
 from .policy_engine import PolicyEngine
@@ -30,9 +31,15 @@ class ToolGatewayError(Exception):
 class ToolGateway:
     """Authorized, audited tool-call boundary for agents."""
 
-    def __init__(self, policy: PolicyEngine, events: EventStore) -> None:
+    def __init__(
+        self,
+        policy: PolicyEngine,
+        events: EventStore,
+        approvals: ApprovalService | None = None,
+    ) -> None:
         self._policy = policy
         self._events = events
+        self._approvals = approvals
         self._tools: dict[str, Tool] = {}
         self._operations: dict[str, str] = {}
 
@@ -58,23 +65,35 @@ class ToolGateway:
             operation=operation,
             environment=environment,
             role=actor.id,
-            artifact_approved=approval is not None,
+            artifact_approved=False,
         )
 
         if decision.requires_approval:
-            if approval is None or not approval.matches(
-                ApprovalRequest(
-                    action=operation,
-                    resource=str((args or {}).get("resource", "*")),
-                    environment=environment,
-                    artifact_sha=str((args or {}).get("artifact_sha", "")),
-                    requested_by=actor.id,
-                    project_id=project_id,
-                )
-            ):
+            if approval is None or self._approvals is None:
                 raise ToolGatewayError(
                     f"tool '{name}' needs a matching approval token for gate {decision.gate}: {decision.reason}"
                 )
+            consumed = self._approvals.consume(
+                approval,
+                actor=actor.id,
+                action=operation,
+                resource=str((args or {}).get("resource", "*")),
+                environment=environment,
+                artifact_sha=str((args or {}).get("artifact_sha", "")),
+                project_id=project_id,
+                gate=decision.gate,
+            )
+            if not consumed:
+                raise ToolGatewayError(
+                    f"tool '{name}' needs an approved, unexpired, unused token bound to actor, action, "
+                    f"resource, environment, artifact, project, and gate {decision.gate}"
+                )
+            decision = self._policy.decide(
+                operation=operation,
+                environment=environment,
+                role=actor.id,
+                artifact_approved=True,
+            )
 
         if not decision.allowed:
             raise ToolGatewayError(f"tool '{name}' denied by policy: {decision.reason}")

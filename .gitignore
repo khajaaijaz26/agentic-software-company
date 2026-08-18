@@ -8,6 +8,13 @@ dist/
 .venv/
 venv/
 
+# Node / TypeScript
+node_modules/
+*.tsbuildinfo
+*.tgz
+coverage/
+.npm/
+
 # Tests / coverage
 .coverage
 htmlcov/
@@ -15,6 +22,11 @@ htmlcov/
 
 # Runtime data
 .agentic_company/
+.agent-company/*.sqlite*
+.agent-company/artifacts/
+.agent-company/attachments/
+.agent-company/runtime/
+.agent-company/local.toml
 
 # Editors / OS
 .idea/

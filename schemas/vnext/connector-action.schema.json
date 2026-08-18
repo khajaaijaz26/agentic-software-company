@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.agent-company.dev/vnext/connector-action.schema.json",
+  "title": "Agent Company normalized connector action v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "actionId",
+    "operationId",
+    "connectorId",
+    "connectionId",
+    "capability",
+    "targetRef",
+    "providerIds",
+    "environment",
+    "arguments",
+    "preconditions",
+    "risk",
+    "operationHash",
+    "createdAt"
+  ],
+  "properties": {
+    "schema": { "const": "agent-company.connector-action/v1" },
+    "actionId": { "type": "string", "pattern": "^act_[A-Za-z0-9_-]+$" },
+    "operationId": { "type": "string", "pattern": "^op_[A-Za-z0-9_-]+$" },
+    "connectorId": { "type": "string", "minLength": 1 },
+    "connectionId": { "type": "string", "minLength": 1 },
+    "capability": { "type": "string", "minLength": 1 },
+    "targetRef": { "type": "string", "minLength": 1 },
+    "providerIds": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "environment": { "type": "string", "minLength": 1 },
+    "arguments": { "type": "object" },
+    "preconditions": {
+      "type": "array",
+      "items": { "type": "object" }
+    },
+    "risk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["class"],
+      "properties": {
+        "class": {
+          "enum": [
+            "A0_OBSERVE",
+            "A1_LOCAL_REVERSIBLE",
+            "A2_REMOTE_REVERSIBLE",
+            "A3_SHARED_MUTATION",
+            "A4_PRODUCTION_OR_SECURITY",
+            "A5_DESTRUCTIVE_OR_IRREVERSIBLE"
+          ]
+        }
+      }
+    },
+    "operationHash": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "createdAt": { "type": "string", "format": "date-time" }
+  }
+}

@@ -1,293 +1,221 @@
-# Open-Source Agentic Software Company
+# Agent Company CLI
 
-<img src="assets/logo.png" alt="Agentic Software Company logo" width="180" align="left" />
+<p align="center">
+  <img src="assets/logo.svg" alt="Agent Company terminal prompt, orchestration graph, and governance shield" width="190" />
+</p>
 
-<br clear="both"/>
+<p align="center">
+  Governed, visible multi-agent software delivery from a local terminal.
+</p>
 
-[![Apache 2.0 License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Tests: 48 passing](https://img.shields.io/badge/tests-48%20passing-brightgreen.svg)](https://github.com/khajaaijaz26/agentic-software-company/actions)
-[![CI: test + lint](https://img.shields.io/badge/CI-test%2Blint-brightgreen.svg)](https://github.com/khajaaijaz26/agentic-software-company/actions)
-[![MCP: universal](https://img.shields.io/badge/MCP-universal%20(stdio%2C%20sse%2C%20http)-purple.svg)](https://github.com/khajaaijaz26/agentic-software-company)
-[![Contributions welcome](https://img.shields.io/badge/contributions-welcome-orange.svg)](https://github.com/khajaaijaz26/agentic-software-company/pulls)
-[![GitHub Issues](https://img.shields.io/github/issues/khajaaijaz26/agentic-software-company.svg)](https://github.com/khajaaijaz26/agentic-software-company/issues)
-[![GitHub Stars](https://img.shields.io/github/stars/khajaaijaz26/agentic-software-company.svg?style=social)](https://github.com/khajaaijaz26/agentic-software-company/stargazers)
+[![Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![Node.js 22.13+](https://img.shields.io/badge/Node.js-22.13%2B-339933.svg)](INSTALL.md)
+[![Python 3.10+ compatibility](https://img.shields.io/badge/Python-3.10%2B-3776AB.svg)](INSTALL.md#python-and-mcp-compatibility-runtime)
 
----
+Agent Company CLI turns a delivery request into a durable run with an explicit
+task graph, specialist roles, evidence, budgets, and human approval gates. The
+new `@agent-company/cli` v0.2 runtime is written in strict TypeScript. It is a
+working vertical slice of the larger Terminal Platform Blueprint, not a claim
+that every stable-platform capability in that blueprint is complete.
 
-## 🏢 About
+The existing Python package and MCP server remain in the repository as a
+compatibility runtime. Their file-based state and contracts are separate from
+the v0.2 TypeScript SQLite state; see [Compatibility](docs/compatibility.md).
 
-A governed, multi-agent software delivery platform. This repository is the **reference implementation** of the **Open-Source Agentic Software Company Master System Prompt** (v1.0, 17 August 2026): a blueprint for a coordinated team of specialist AI agents that plan, build, review, test, secure, deploy, and support software — under explicit human authority, policy control, and full audit.
+## What works in v0.2
 
-Everything in this repo — the prompt library, JSON schemas, YAML workflows, policies, a dependency-free Python reference implementation, and a **universal MCP server** — is open source under the Apache-2.0 license.
+- `agent-company init`, `start`/`run`, approval, resume, cancellation, and
+  read-only inspection commands.
+- A durable SQLite event store in WAL mode with optimistic stream versions and
+  idempotent command receipts.
+- Canonical run, task, and approval states; a deterministic five-task delivery
+  slice; and lazy activation from the 25-role catalog.
+- Exact, expiring, single-use approval bindings and A0-A5 policy
+  classification for GitHub, Vercel, and Supabase operations.
+- Atomic budget reservations, content-addressed SHA-256 artifacts, and scanned
+  local attachments that never imply permission to upload.
+- Read-only connector discovery through the installed `gh`, `vercel`, and
+  `supabase` CLIs. Mutating connector commands currently emit normalized plans;
+  they do not silently perform the remote mutation.
+- Human, plain, JSON, and NDJSON output modes with stable machine exit codes.
+- Authenticated, bounded, four-byte length-framed local IPC over Unix sockets
+  or Windows named pipes. The CLI reuses a standalone controller when present
+  or starts and closes a one-shot service for the command.
+- A deterministic model worker launched in a separate Node process with a
+  bound attempt/lease manifest, reduced environment, wall-time/output limits,
+  cancellation, and result-binding verification.
 
-> **New in 1.0**: a single universal MCP server (`src/agentic_company/mcp_server.py`) exposes the whole platform to **any** MCP-capable AI coding agent, IDE, or terminal over `stdio`, `sse`, or `streamable-http`. See [INSTALL.md](INSTALL.md) for the complete step-by-step setup.
+## Quick start
 
----
-
-## 🔥 Features
-
-| Feature | Description |
-|---------|-------------|
-| **25 Specialist Role Prompts** | Extracted verbatim from the master doc: client-intake-account, sales-qualification, discovery-business-analyst, product-manager, project-manager, ux-researcher, ux-ui-designer, solution-architect, risk-compliance-advisor, finops-commercial, technical-lead, frontend-engineer, backend-engineer, data-database-engineer, integration-engineer, code-reviewer, qa-strategist, test-automation-engineer, security-engineer, performance-reliability, devops-platform, release-manager, sre-incident-manager, technical-writer, customer-support-success |
-| **Five Governance Layers** | Base Agent Constitution, Project Policy, Production Policy, Data Handling Policy, and Approval Gating (G0–G4) |
-| **Deterministic Policy Engine** | Maps operations to approval gates (G0=read-only, G1=reversible workspace, G2=shared/non-prod, G3=production/sensitive, G4=irreversible/high-impact); environment escalation (e.g. workspace edits in prod auto-upgrade to G3) |
-| **Bound & Short-Lived Approvals** | Single-use approval tokens bound to actor, action, resource, environment, artifact sha, and project; silence is never consent |
-| **Full Audit Trail** | Append-only event store with immutable domain events; every tool call, approval, and handoff is recorded |
-| **Content-Addressed Artifacts** | SHA-256 content-addressed storage with path-traversal protection |
-| **Universal MCP Server** | One server, three transports (`stdio`, `sse`, `streamable-http`): 8 tools, 6 resource templates, and 2 pre-assembled prompts for any MCP-capable agent |
-| **Dependency-Free Core** | Reference implementation using only the Python standard library; the MCP adapter is an optional extra |
-| **Four YAML Workflows** | Delivery pipeline, change-control classification, production release gating, incident response |
-| **JSON Schemas** | 6 canonical schemas: project, event, capability, task/result/approval envelopes (mirrors in `src/agentic_company/contracts.py`) |
-| **Full Eval Suite** | Delivery scenario + structured rubrics under `evals/` |
-
----
-
-## 🚀 Quick Start (Universal Terminal)
-
-The platform runs on Python 3.10+ with the standard library only. All commands assume you are in the repository root.
-
-### 1. Set up the platform
+Requirements: Node.js 22.13 or newer and npm.
 
 ```bash
-# Method 1: Install the package in development mode (recommended)
-python -m pip install -e .
+npm install
+npm run build
+npm link
 
-# Method 2: Set PYTHONPATH (no install)
-export PYTHONPATH=src            # bash / zsh / macOS / Linux
-# PowerShell: $env:PYTHONPATH = "src"
+mkdir demo-project
+cd demo-project
+agent-company init
+agent-company run --json "Plan and verify a small CLI change"
 ```
 
-### 2. Run the test suite
+`run` intentionally exits with code `4` because the generated plan needs a
+human decision. Continue with the identifiers returned by the CLI:
 
 ```bash
+agent-company --project . approvals list --json
+agent-company --project . approvals approve <approval-id> --reason "Plan reviewed"
+agent-company --project . resume <run-id> --json
+agent-company --project . events list <run-id> --ndjson
+```
+
+For development without linking the executable:
+
+```bash
+npm run dev -- init --no-write
+npm run dev -- --project ./demo-project runs list --json
+```
+
+See [INSTALL.md](INSTALL.md) for Windows, macOS, Linux, package development,
+MCP setup, and troubleshooting.
+
+## Safety model
+
+Approval classes describe authority, not just technical difficulty:
+
+| Class | Meaning | Default behavior |
+| --- | --- | --- |
+| A0 | Observe/read only | May proceed autonomously |
+| A1 | Reversible local change | May proceed inside the workspace and policy |
+| A2 | Reversible isolated remote change | Exact human approval required |
+| A3 | Shared non-production mutation | Exact human approval required |
+| A4 | Production or security-sensitive mutation | Exact human approval required |
+| A5 | Destructive or irreversible effect | Denied by default; selected operations are hard-denied |
+
+An approval is bound to the actor, connector, action, resource, environment,
+artifact digest, and canonical operation hash. A different operation cannot
+reuse it, and consumption is atomic. Silence is never consent.
+
+Attachments are local inputs, not upload grants. Ingestion resolves allowed
+roots, applies size/count limits, detects common content types, scans for
+malware test signatures, likely secrets, PII, and prompt-injection language,
+then writes a content-addressed receipt with `transfer_count: 0`.
+
+Read [SECURITY.md](SECURITY.md) and the
+[threat model](docs/security/threat-model.md) before enabling a real model or
+remote mutation executor.
+
+## Architecture at a glance
+
+```text
+Terminal / scripts
+        |
+        v
+CLI and operator console
+        |
+        | authenticated framed IPC
+        v
+Controller service (one-shot or standalone)
+   |        |          |             |
+   v        v          v             v
+SQLite   approvals   budgets    worker supervisor
+events      |                      child process
+   |        v                         |
+   +---- policy/tool gateway ---- connector plans
+                |
+                v
+       content-addressed artifacts
+```
+
+The exact descriptor, HMAC nonce-proof handshake, four-byte big-endian frame,
+and RPC envelopes are documented in
+[the IPC protocol note](docs/protocols/local-ipc.md) and
+[`schemas/vnext`](schemas/vnext). A standalone controller entry and leased
+child-process attempts are implemented. Persistent lease heartbeats, retries,
+OS sandboxing, full orphan recovery, and live streaming TUI updates remain
+roadmap items.
+
+Detailed component and trust-boundary documentation is in
+[Architecture](docs/architecture/architecture.md). Blueprint-to-code status is
+tracked without overclaiming in
+[Blueprint traceability](docs/blueprint-traceability.md).
+
+## Machine interface
+
+Use `--json` for one result envelope or `--ndjson` for line-oriented output.
+Successful values use `agent-company.output/v1`; failures use
+`agent-company.error/v1`. Important exit codes are `0` success, `2` usage,
+`3` policy denial, `4` approval required, and `10` reconciliation required.
+The full ABI is documented in [CLI ABI](docs/protocols/cli-abi.md).
+
+```bash
+agent-company version --json
+agent-company doctor --json
+agent-company integrations catalog --json
+agent-company integrations test github --json
+agent-company repo push --plan --json
+agent-company deploy production my-app --json
+agent-company database plan --environment staging --json
+```
+
+The final three examples produce plans. They are not remote execution
+commands in v0.2.
+
+## Python and MCP compatibility
+
+The Python package remains useful for current prompt-pack and MCP consumers:
+
+```bash
+python -m pip install -e ".[mcp]"
 python -m unittest discover -s tests -v
-# → 48 tests pass (including the MCP adapter integration tests)
+python -m agentic_company.mcp_server
 ```
 
-### 3. Initialize a project
+It exposes the established MCP tools, resources, and prompts over `stdio`,
+`sse`, or `streamable-http`. Do not point both runtimes at the same state
+directory and expect shared runs: Python uses JSON/JSONL compatibility stores,
+while v0.2 uses `.agent-company/state.sqlite`.
+
+## Development
 
 ```bash
-python -m agentic_company init-project "DemoApp" "carol" --goal "ship v1"
-# → proj_a1effd13844a
-```
+npm run typecheck
+npm run lint
+npm test
+npm run build
+npm run check
 
-### 4. Dispatch a specialist
-
-```bash
-python -m agentic_company dispatch technical-lead "design the architecture"
-# → task_32d15eeb9d1d COMPLETE
-```
-
-### 5. Audit a project's event trail
-
-```bash
-python -m agentic_company audit proj_a1effd13844a
-# → Prints one event line per dispatch/approval/handoff
-```
-
-### 6. Run the delivery eval scenario
-
-```bash
-python evals/scenarios/delivery_cli.py
-# → SCENARIO PASSED
-```
-
-### 7. Full compile/check
-
-```bash
+python -m unittest discover -s tests -v
 python -m compileall -q src tests
 ```
 
----
+The vNext schemas are Draft 2020-12 JSON Schemas under
+[`schemas/vnext`](schemas/vnext); the existing root schemas remain the Python
+compatibility contracts.
 
-## 🔌 Universal MCP Server
+## Repository layout
 
-The platform ships one MCP server that works with **every** MCP-compatible
-AI coding agent, IDE, and terminal — nothing platform-specific inside.
-
-### What it exposes
-
-| Capability | Details |
-|------------|---------|
-| **8 Tools** | `begin_project`, `assign_task`, `complete_task`, `request_approval`, `resolve_approval`, `audit`, `list_roles`, `list_workflows` |
-| **6 Resource Templates** | `prompts://roles/{role}`, `prompts://policies/{policy}`, `schemas://{schema}`, `workflows://{workflow}`, plus the constitution and master orchestrator |
-| **2 Prompts** | `act_as_role(role)`, `conduct_code_review` |
-| **3 Transports** | `stdio` (local), `sse` (remote), `streamable-http` (remote/container) |
-
-### Run it
-
-```bash
-# stdio (local agents / IDEs)
-python -m agentic_company.mcp_server
-
-# remote, over HTTP — reachable from any platform on any machine
-python -m agentic_company.mcp_server --transport streamable-http --mount-path /mcp
-
-# or containerized (universal remote endpoint)
-docker build -t agentic-company-mcp .
-docker run -p 8000:8000 agentic-company-mcp   # → http://localhost:8000/mcp
+```text
+apps/                         CLI, controller service, TUI, worker runtime
+packages/                     IPC, worker supervisor, contracts, stores, policy
+adapters/                     GitHub, Vercel, and Supabase CLI adapters
+schemas/vnext/                TypeScript v0.2 protocol schemas
+src/agentic_company/          Python/MCP compatibility runtime
+prompts/                      constitution, orchestrator, policies, 25 roles
+workflows/                    governed Python compatibility workflows
+docs/                         architecture, protocols, security, runbooks
 ```
 
-### Connect it
+## Project status and contribution
 
-Each platform needs a tiny connection snippet — all pointing at the **same**
-server. Ready-made files for Claude Code, Codex, Cursor, VS Code, Claude
-Desktop, Windsurf, OpenCode, and remote HTTP live in [`configs/`](configs/).
-The project-scoped `.mcp.json` is already committed for platforms that read it.
+v0.2 is an implementation preview. It is suitable for local evaluation and
+contract development; it should not be treated as an unattended production
+deployment engine. Please read [GOVERNANCE.md](GOVERNANCE.md),
+[CONTRIBUTING.md](CONTRIBUTING.md), and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+before contributing.
 
-> 📘 **Full step-by-step installation & integration for every platform is in
-> [INSTALL.md](INSTALL.md).**
+This project is maintained by `khajaaijaz26`. Prompt and blueprint attribution
+is preserved in [ATTRIBUTION.md](ATTRIBUTION.md).
 
----
-
-## 🤖 Integration with AI Coding Assistants (Universal)
-
-Any LLM-based coding assistant can act as a **specialist agent** by consuming
-the prompt files and routing work through the **task envelope** / **result
-envelope** contract.
-
-### The general pattern (assistant-agnostic)
-
-1. **Load the Base Constitution** — `prompts/base-agent-constitution.md` sets the mandatory operating rules every agent must follow.
-2. **Select a Role Prompt** — choose from `prompts/roles/` matching the agent's function (25 options).
-3. **Compose Instructions** — combine the constitution + role + project policy + task envelope context.
-4. **Tool Authorization** — before any tool invocation, classify the operation via the policy engine logic (G0–G4 gates); require a bound, short-lived approval token for G2–G4 actions; enforce path safety and redaction as described in the constitution.
-5. **Record Handoffs** — every agent output, tool call, and approval decision should be logged as an immutable domain event for audit continuity.
-6. **Result Envelope** — the agent returns a structured result containing: status, summary, evidence (criterion outcomes with proofs), artifacts, budget usage, and the next owner/action.
-
-The envelope formats live under `prompts/templates/` and their canonical
-schemas under `schemas/`. Any assistant can validate requests/responses
-against these schemas.
-
-### Two integration styles
-
-**A. MCP (recommended, zero-config)** — point your agent at the universal MCP
-server and it automatically gains the tools, prompts, and schemas. See
-[INSTALL.md](INSTALL.md) for platform-by-platform snippets.
-
-**B. Prompt pack (copy-paste)** — share the `prompts/` directory with the
-assistant and wire the envelope pattern yourself:
-
-```python
-from agentic_company.state_store import StateStore
-from agentic_company.event_store import EventStore
-from agentic_company.orchestrator import Orchestrator
-from agentic_company.approval_service import ApprovalService
-from agentic_company.agent_registry import AgentRegistry, AgentSpec
-from agentic_company.policy_engine import PolicyEngine
-
-state = StateStore(path=".agentic_company/state.json")
-events = EventStore(path=".agentic_company/events.jsonl")
-registry = AgentRegistry()
-for role in ("client-intake-account", "technical-lead", "backend-engineer"):
-    registry.register(AgentSpec(role=role, prompt_file=f"prompts/roles/{role}.md", prompt_sha=f"sha-{role}"))
-
-policy = PolicyEngine()
-approvals = ApprovalService()
-orchestrator = Orchestrator(state=state, events=events, policy=policy, approvals=approvals, registry=registry, dispatcher=_my_dispatcher)
-
-# Begin a project
-project = orchestrator.begin_project(
-    request="build a CLI tool",
-    name="my-cli",
-    owner="alice",
-    scope_goals=["summarize a repo"],
-    scope_non_goals=[],
-    acceptance_criteria=["CLI exits 0"],
-)
-
-# Dispatch a task
-result = orchestrator.dispatch(
-    project=project,
-    agent_role="technical-lead",
-    kind="delivery",
-    instructions="design the architecture",
-)
-```
-
-### What "automatic setup" looks like
-
-1. Clone this repo (or add it as a dependency).
-2. Install the package + MCP extra (`python -m pip install -e ".[mcp]"`).
-3. Add the connection snippet for your platform from [INSTALL.md](INSTALL.md).
-4. Your agent now has governed project management, specialist role prompts,
-   approval gating, and audit — ready to run.
-
----
-
-## 🛠️ Development
-
-| Goal | Command |
-|------|---------|
-| Install package + MCP extra (dev) | `python -m pip install -e ".[mcp]"` |
-| Run all tests | `python -m unittest discover -s tests -v` |
-| Lint / compile check | `python -m compileall -q src tests` |
-| Validate JSON schemas parse | `python -c "import glob, json; [json.load(open(p,encoding='utf-8')) for p in glob.glob('schemas/*.json')]; [json.load(open(p,encoding='utf-8')) for p in glob.glob('prompts/templates/*.json')]; print('JSON OK')"` |
-| Verify prompt-library completeness | `python -c "import pathlib; r=list(pathlib.Path('prompts/roles').glob('*.md')); assert len(r)==25, len(r); assert pathlib.Path('prompts/master-orchestrator.md').exists(); print('prompts OK')"` |
-| Run the delivery eval scenario | `python evals/scenarios/delivery_cli.py` |
-| Initialize a project via CLI | `python -m agentic_company init-project "Name" "owner" --goal "goal"` |
-| Dispatch a specialist via CLI | `python -m agentic_company dispatch <role> "<instructions>"` |
-| Audit a project via CLI | `python -m agentic_company audit <project_id>` |
-| Run the MCP server (stdio) | `python -m agentic_company.mcp_server` |
-| Run the MCP server (HTTP) | `python -m agentic_company.mcp_server --transport streamable-http --mount-path /mcp` |
-
----
-
-## 📁 Repository Layout
-
-```
-├─ .github/
-│  ├─ workflows/ci.yml        # CI: install + test + compile + schema validate + prompt completeness
-│  └─ ISSUE_TEMPLATE/         # Bug report & feature request templates
-├─ assets/
-│  ├─ logo.png                # Project logo (PNG)
-│  └─ logo.svg                # Project logo (vector source)
-├─ configs/                   # Universal MCP config files per platform
-│  ├─ opencode.jsonc
-│  ├─ codex-config.toml
-│  ├─ cursor-mcp.json
-│  ├─ vscode-mcp.json
-│  ├─ claude-desktop-config.json
-│  └─ windsurf-mcp.json
-├─ docs/
-│  ├─ architecture/architecture.md
-│  ├─ adr/0001-initial-architecture.md
-│  └─ runbooks/local-development.md
-├─ evals/scenarios/delivery_cli.py
-├─ prompts/
-│  ├─ base-agent-constitution.md   # Mandatory foundation
-│  ├─ master-orchestrator.md       # Orchestrator prompt (verbatim)
-│  ├─ roles/                       # 25 specialist agent prompts
-│  ├─ policies/                    # Project / Production / Data-handling policies
-│  └─ templates/                   # Task / Result / Approval envelope JSON
-├─ schemas/                        # 6 canonical JSON schemas
-├─ src/agentic_company/
-│  ├─ __main__.py                  # CLI entry point
-│  ├─ mcp_server.py                # Universal MCP server (stdio/sse/http)
-│  ├─ orchestrator.py, policy_engine.py, approval_service.py
-│  ├─ tool_gateway.py, agent_registry.py, workflow.py
-│  ├─ state_store.py, event_store.py, artifact_store.py
-│  └─ contracts.py
-├─ tests/                          # 48 tests (incl. MCP adapter)
-├─ workflows/                      # delivery, change-control, release, incident
-├─ INSTALL.md                      # Step-by-step install & integration for every platform
-├─ Dockerfile                      # Containerized universal MCP server
-├─ pyproject.toml                  # Build metadata + optional mcp extra
-└─ LICENSE, README.md, SECURITY.md, CONTRIBUTING.md, GOVERNANCE.md,
-   CODE_OF_CONDUCT.md, CHANGELOG.md, ATTRIBUTION.md
-```
-
----
-
-## 📄 License
-
-[Apache-2.0](https://opensource.org/licenses/Apache-2.0) — See [LICENSE](LICENSE).
-
----
-
-## 👐 Contributing
-
-Please read [CONTRIBUTING.md](CONTRIBUTING.md), [GOVERNANCE.md](GOVERNANCE.md), and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) before opening an issue or pull request.
-
-We work in small reversible steps, add or update tests, and never commit secrets.
+Licensed under [Apache-2.0](LICENSE).

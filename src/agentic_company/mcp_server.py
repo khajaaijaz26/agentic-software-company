@@ -20,15 +20,11 @@ SDK, declared as the ``mcp`` extra.
 
 from __future__ import annotations
 
-import json
+import os
 import sys
+import threading
 from pathlib import Path
 from typing import Any
-
-REPO_ROOT = Path(__file__).resolve().parents[2]
-PROMPTS_ROOT = REPO_ROOT / "prompts"
-SCHEMAS_ROOT = REPO_ROOT / "schemas"
-WORKFLOWS_ROOT = REPO_ROOT / "workflows"
 
 try:
     from mcp.server.fastmcp import FastMCP
@@ -43,33 +39,39 @@ except ImportError:  # pragma: no cover - exercised only when the extra is absen
 
 from .agent_registry import AgentRegistry, AgentSpec
 from .approval_service import ApprovalService
-from .contracts import (
-    Actor as _Actor,
-    Budget as _Budget,
-    DomainEvent as _DomainEvent,
-    ProjectRecord,
-    TaskEnvelope,
-)
+from .contracts import TERMINAL_STATES, ProjectRecord, TaskEnvelope, new_id
+from .contracts import Actor as _Actor
+from .contracts import Budget as _Budget
+from .contracts import DomainEvent as _DomainEvent
 from .event_store import EventStore
 from .orchestrator import Orchestrator
 from .policy_engine import PolicyEngine
+from .resources import PROMPTS_ROOT, SCHEMAS_ROOT, WORKFLOWS_ROOT
 from .state_store import StateStore
 from .tool_gateway import ToolGateway
 
 mcp = FastMCP("agentic-software-company")
 
-_BASE = Path.cwd() / ".agentic_company"
+_BASE = Path(os.environ.get("AGENTIC_COMPANY_STATE_DIR", Path.cwd() / ".agentic_company"))
 _STATE = StateStore(_BASE / "state.json")
 _EVENTS = EventStore(_BASE / "events.jsonl")
 _POLICY = PolicyEngine()
 _APPROVALS = ApprovalService()
 _REGISTRY = AgentRegistry()
-_GATEWAY = ToolGateway(policy=_POLICY, events=_EVENTS)
+_GATEWAY = ToolGateway(policy=_POLICY, events=_EVENTS, approvals=_APPROVALS)
+_MCP_LOCK = threading.RLock()
 
 
 def _build_orchestrator() -> Orchestrator:
     registry = _REGISTRY
     if not registry.roles():
+        registry.register(
+            AgentSpec(
+                role="orchestrator",
+                prompt_file=str(PROMPTS_ROOT / "master-orchestrator.md"),
+                prompt_sha="sha-orchestrator",
+            )
+        )
         for path in sorted((PROMPTS_ROOT / "roles").glob("*.md")):
             registry.register(
                 AgentSpec(
@@ -92,8 +94,8 @@ def _deferred_dispatcher(envelope: TaskEnvelope) -> Any:
     """Placeholder used until the host completes the task via complete_task.
 
     The orchestrator dispatch path is driven through the MCP tools; a
-    dispatched-but-uncompleted envelope is reported as PENDING so the host can
-    pick it up.
+    dispatched-but-uncompleted envelope is reported as NEEDS_INPUT so the host
+    can pick it up without introducing a status outside the canonical schema.
     """
     from .contracts import ResultEnvelope
 
@@ -102,8 +104,8 @@ def _deferred_dispatcher(envelope: TaskEnvelope) -> Any:
         correlation_id=envelope.correlation_id,
         project_id=envelope.project_id,
         agent_role=envelope.agent_role,
-        status="PENDING",
-        summary="awaiting host execution; use complete_task to record the result",
+        status="NEEDS_INPUT",
+        summary="awaiting host execution; use complete_task to record a terminal result",
     )
 
 
@@ -133,13 +135,13 @@ def assign_task(project_id: str, role: str, instructions: str, kind: str = "deli
     Returns the full envelope (task_id, prompt versions, budget, approvals)
     that the host should execute as the named agent.
     """
-    orchestrator = _build_orchestrator()
+    _build_orchestrator()
     project = _load_project(project_id)
     registry_spec = _REGISTRY.get(role)
     if registry_spec is None:
         raise ValueError(f"unregistered agent role: {role}; list_roles for available roles")
     envelope = TaskEnvelope(
-        task_id=f"task-{project_id[:8]}",
+        task_id=new_id("task"),
         correlation_id=project.correlation_id,
         project_id=project.project_id,
         request_id=project.request_id,
@@ -171,15 +173,33 @@ def assign_task(project_id: str, role: str, instructions: str, kind: str = "deli
 def complete_task(project_id: str, task_id: str, status: str, summary: str) -> dict[str, Any]:
     """Record the host's execution result for a previously assigned task."""
     project = _load_project(project_id)
-    _EVENTS.append(
-        _DomainEvent(
-            event_type="task.complete",
-            actor=_Actor.agent(summary[:16] if summary else "agent"),
-            data={"task_id": task_id, "status": status, "summary": summary},
-            project_id=project.project_id,
-            correlation_id=project.correlation_id,
+    if status not in TERMINAL_STATES:
+        raise ValueError(f"invalid terminal task status: {status}")
+    with _MCP_LOCK:
+        dispatches = [
+            event
+            for event in _EVENTS.events_for(project.project_id, event_type="task.dispatch")
+            if event.data.get("task_id") == task_id
+        ]
+        if len(dispatches) != 1:
+            raise ValueError(f"unknown task for project: {task_id}")
+        completed = [
+            event
+            for event in _EVENTS.events_for(project.project_id, event_type="task.complete")
+            if event.data.get("task_id") == task_id
+        ]
+        if completed:
+            raise ValueError(f"task already completed: {task_id}")
+        role = str(dispatches[0].data.get("agent_role", "agent"))
+        _EVENTS.append(
+            _DomainEvent(
+                event_type="task.complete",
+                actor=_Actor.agent(role),
+                data={"task_id": task_id, "status": status, "summary": summary},
+                project_id=project.project_id,
+                correlation_id=project.correlation_id,
+            )
         )
-    )
     return {"task_id": task_id, "status": status, "summary": summary, "recorded": True}
 
 
@@ -192,6 +212,7 @@ def request_approval(
     artifact_sha: str,
     gate: str = "G3",
     reason: str = "",
+    requested_by: str = "agent",
 ) -> dict[str, Any]:
     """Request a human approval gate (G2/G3/G4) for a deployment action."""
     orchestrator = _build_orchestrator()
@@ -202,7 +223,7 @@ def request_approval(
         resource=resource,
         environment=environment,
         artifact_sha=artifact_sha,
-        requested_by="agent",
+        requested_by=requested_by,
         gate=gate,
         reason=reason,
     )
@@ -245,7 +266,7 @@ def audit(project_id: str) -> dict[str, Any]:
 @mcp.tool()
 def list_roles() -> dict[str, Any]:
     """List every registered specialist role and its prompt file."""
-    roles = []
+    roles = [{"role": "orchestrator", "prompt_file": str(PROMPTS_ROOT / "master-orchestrator.md")}]
     for path in sorted((PROMPTS_ROOT / "roles").glob("*.md")):
         roles.append({"role": path.stem, "prompt_file": str(path)})
     return {"roles": roles, "count": len(roles)}

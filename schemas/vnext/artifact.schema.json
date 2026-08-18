@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.agent-company.dev/vnext/artifact.schema.json",
+  "title": "Agent Company artifact manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "artifact_id",
+    "sha256",
+    "size_bytes",
+    "media_type",
+    "logical_name",
+    "producer",
+    "classification",
+    "created_at"
+  ],
+  "properties": {
+    "schema": { "const": "agent-company.artifact-manifest/v1" },
+    "artifact_id": { "type": "string", "pattern": "^art_[A-Za-z0-9_-]+$" },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "size_bytes": { "type": "integer", "minimum": 0 },
+    "media_type": { "type": "string", "minLength": 1 },
+    "logical_name": { "type": "string", "minLength": 1 },
+    "producer": { "type": "string", "minLength": 1 },
+    "classification": {
+      "enum": ["public", "internal", "confidential", "restricted"]
+    },
+    "created_at": { "type": "string", "format": "date-time" },
+    "source_revision": { "type": "string", "minLength": 1 }
+  }
+}

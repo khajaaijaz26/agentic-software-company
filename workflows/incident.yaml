@@ -24,7 +24,7 @@ steps:
     gate: G0
 
   - id: communicate
-    agent: customer-support-and-customer-success-agent
+    agent: customer-support-success
     action: factual status updates on cadence; never speculate
     gate: G2
 
@@ -35,6 +35,6 @@ steps:
     gate: G4
 
   - id: postmortem
-    agent: project-manager-and-delivery-manager
+    agent: project-manager
     action: incident review, action items, and follow-up
     gate: G0

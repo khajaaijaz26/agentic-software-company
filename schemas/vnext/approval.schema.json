@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.agent-company.dev/vnext/approval.schema.json",
+  "title": "Agent Company approval record v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "approvalId",
+    "binding",
+    "bindingHash",
+    "status",
+    "requestedAt",
+    "expiresAt",
+    "decidedAt",
+    "decidedBy",
+    "decisionReason",
+    "consumedAt",
+    "terminalAt"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "approvalId": { "type": "string", "minLength": 1 },
+    "binding": { "$ref": "#/$defs/binding" },
+    "bindingHash": { "$ref": "#/$defs/sha256" },
+    "status": {
+      "enum": [
+        "PENDING",
+        "APPROVED",
+        "DENIED",
+        "CHANGES_REQUESTED",
+        "CANCELED",
+        "SUPERSEDED",
+        "EXPIRED",
+        "CONSUMED",
+        "INVALIDATED"
+      ]
+    },
+    "requestedAt": { "type": "string", "format": "date-time" },
+    "expiresAt": { "type": "string", "format": "date-time" },
+    "decidedAt": { "$ref": "#/$defs/nullableTimestamp" },
+    "decidedBy": {
+      "oneOf": [{ "$ref": "#/$defs/actor" }, { "type": "null" }]
+    },
+    "decisionReason": { "type": "string" },
+    "consumedAt": { "$ref": "#/$defs/nullableTimestamp" },
+    "terminalAt": { "$ref": "#/$defs/nullableTimestamp" }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "nullableTimestamp": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "id"],
+      "properties": {
+        "type": { "enum": ["human", "agent", "system"] },
+        "id": { "type": "string", "minLength": 1 }
+      }
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "actor",
+        "connector",
+        "action",
+        "resource",
+        "environment",
+        "artifactSha256",
+        "operationHash"
+      ],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "actor": { "$ref": "#/$defs/actor" },
+        "connector": { "enum": ["local", "github", "vercel", "supabase"] },
+        "action": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9]*(?:[._:-][a-z0-9]+)*$"
+        },
+        "resource": { "type": "string", "minLength": 1 },
+        "environment": {
+          "enum": ["local", "development", "preview", "staging", "production"]
+        },
+        "artifactSha256": {
+          "oneOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }]
+        },
+        "operationHash": { "$ref": "#/$defs/sha256" }
+      }
+    }
+  }
+}

@@ -14,7 +14,7 @@ always returns the same gate and authorization decision.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from .contracts import ApprovalGate, Environment
 
@@ -74,7 +74,6 @@ class PolicyEngine:
     """Deterministic policy decisions for tool-call authorization."""
 
     def __init__(self) -> None:
-        self._bypass_roles: set[str] = {"production_approver"}
         self._denied_operations: set[str] = set()
         self._custom_rules: dict[str, ApprovalGate] = {}
 
@@ -111,9 +110,6 @@ class PolicyEngine:
             return AuthorizationDecision(allowed=True, gate=gate, requires_approval=False, matched_operation=operation)
 
         if gate == "G1":
-            return AuthorizationDecision(allowed=True, gate=gate, requires_approval=False, matched_operation=operation)
-
-        if role in self._bypass_roles and gate in ("G2", "G3"):
             return AuthorizationDecision(allowed=True, gate=gate, requires_approval=False, matched_operation=operation)
 
         requires_approval = gate in ("G2", "G3", "G4")

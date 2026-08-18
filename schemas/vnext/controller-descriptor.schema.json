@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.agent-company.dev/vnext/controller-descriptor.schema.json",
+  "title": "Agent Company local controller descriptor v1",
+  "description": "Discovery descriptor atomically written by the active local controller IPC server.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "pid",
+    "startedAt",
+    "heartbeatAt",
+    "endpoint",
+    "transport",
+    "instanceId",
+    "protocol",
+    "buildVersion",
+    "userBinding",
+    "nonceRef",
+    "workspaceHash"
+  ],
+  "properties": {
+    "schema": { "const": "agent-company.controller/v1" },
+    "pid": { "type": "integer", "minimum": 1 },
+    "startedAt": { "type": "string", "format": "date-time" },
+    "heartbeatAt": { "type": "string", "format": "date-time" },
+    "endpoint": { "type": "string", "minLength": 1, "maxLength": 512 },
+    "transport": { "enum": ["unix", "named-pipe"] },
+    "instanceId": { "type": "string", "pattern": "^ctl_[a-f0-9]{32}$" },
+    "protocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["min", "max"],
+      "properties": {
+        "min": { "const": 1 },
+        "max": { "const": 1 }
+      }
+    },
+    "buildVersion": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "userBinding": { "type": "string", "pattern": "^[a-f0-9]{48}$" },
+    "nonceRef": {
+      "description": "Safe basename of the separate owner-private nonce file; the descriptor never contains the nonce value.",
+      "type": "string",
+      "pattern": "^nonce-ctl_[a-f0-9]{32}\\.key$"
+    },
+    "workspaceHash": { "type": "string", "pattern": "^[a-f0-9]{24}$" }
+  }
+}

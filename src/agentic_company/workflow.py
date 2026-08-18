@@ -9,6 +9,7 @@ dependency blocks its dependents.
 from __future__ import annotations
 
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -33,9 +34,10 @@ class WorkflowError(Exception):
 class Workflow:
     """Runs a dependency graph of work items with a shared budget."""
 
-    def __init__(self, budget: Budget | None = None) -> None:
+    def __init__(self, budget: Budget | None = None, clock: Callable[[], float] | None = None) -> None:
         self._lock = threading.RLock()
         self._budget = budget or Budget()
+        self._clock = clock or time.monotonic
         self._results: dict[str, Any] = {}
 
     def _ready_items(self, items: list[WorkItem], completed: set[str]) -> list[WorkItem]:
@@ -47,9 +49,25 @@ class Workflow:
 
     def run(self, items: list[WorkItem], executor: Executor) -> RunStats:
         stats = RunStats()
+        started_at = self._clock()
         pending = [item for item in items if item.status in ("queued", "ready")]
         completed: set[str] = set()
         failed: set[str] = set()
+
+        item_ids = [item.item_id for item in items]
+        if len(item_ids) != len(set(item_ids)):
+            raise WorkflowError("workflow item ids must be unique")
+        known_ids = set(item_ids)
+        missing = sorted({dependency for item in items for dependency in item.depends_on if dependency not in known_ids})
+        if missing:
+            raise WorkflowError(f"unknown workflow dependencies: {', '.join(missing)}")
+
+        def check_time_budget() -> None:
+            if self._budget.max_time_seconds <= 0:
+                return
+            elapsed = self._clock() - started_at
+            if elapsed > self._budget.max_time_seconds:
+                raise WorkflowError("workflow exceeded time budget")
 
         # Detect cycles.
         visited: dict[str, int] = {}
@@ -80,15 +98,17 @@ class Workflow:
                 break
 
             for item in ready:
+                check_time_budget()
                 stats.started += 1
-                with self._lock:
-                    if self._budget.max_time_seconds > 0 and stats.started > self._budget.max_time_seconds:
-                        raise WorkflowError("workflow exceeded time budget")
                 try:
-                    self._results[item.item_id] = executor(item)
+                    result = executor(item)
+                    check_time_budget()
+                    self._results[item.item_id] = result
                     completed.add(item.item_id)
                     stats.completed += 1
-                except Exception:
+                except WorkflowError:
+                    raise
+                except Exception:  # noqa: BLE001 - executor failures are workflow results
                     failed.add(item.item_id)
                     stats.failed += 1
                 pending.remove(item)

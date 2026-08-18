@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -24,7 +24,7 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-mcp = ["mcp>=1.2.0"]
+mcp = ["mcp>=1.2.0,<2"]
 
 [project.scripts]
 agentic-company = "agentic_company.__main__:main"
@@ -35,3 +35,12 @@ package-dir = { "" = "src" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.data-files]
+"share/agentic_company/prompts" = ["prompts/*.md"]
+"share/agentic_company/prompts/policies" = ["prompts/policies/*.md"]
+"share/agentic_company/prompts/roles" = ["prompts/roles/*.md"]
+"share/agentic_company/prompts/templates" = ["prompts/templates/*.json"]
+"share/agentic_company/schemas" = ["schemas/*.json"]
+"share/agentic_company/schemas/vnext" = ["schemas/vnext/*.json"]
+"share/agentic_company/workflows" = ["workflows/*.yaml"]

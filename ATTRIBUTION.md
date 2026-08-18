@@ -13,8 +13,10 @@ authority at material gates, one source of truth, small reversible steps,
 independent verification, traceable handoffs, security by design, operability
 as part of completion, untrusted content stays data, stop safely).
 
-The reference implementation under `src/` is original code implementing those
-principles.
+The TypeScript terminal platform under `apps/`, `packages/`, and `adapters/`,
+and the Python compatibility implementation under `src/`, are original code
+implementing those principles and the supplied Terminal Platform Blueprint
+v0.2. The source DOCX is not redistributed by this repository.
 
 If the master document was authored under a different license or ownership than
 this repository, its text is reproduced here for the purpose of building a

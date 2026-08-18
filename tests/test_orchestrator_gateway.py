@@ -4,7 +4,12 @@ import unittest
 
 from agentic_company.agent_registry import AgentRegistry, AgentSpec
 from agentic_company.approval_service import ApprovalService
-from agentic_company.contracts import Actor, ApprovalRequest, DomainEvent, ResultEnvelope, TaskEnvelope
+from agentic_company.contracts import (
+    Actor,
+    ApprovalRequest,
+    ResultEnvelope,
+    TaskEnvelope,
+)
 from agentic_company.event_store import EventStore
 from agentic_company.orchestrator import Orchestrator
 from agentic_company.policy_engine import PolicyEngine
@@ -27,7 +32,22 @@ class TestToolGateway(unittest.TestCase):
     def setUp(self) -> None:
         self.policy = PolicyEngine()
         self.events = EventStore()
-        self.gateway = ToolGateway(self.policy, self.events)
+        self.approvals = ApprovalService()
+        self.gateway = ToolGateway(self.policy, self.events, self.approvals)
+
+    def approved_deployment(self, *, actor: str = "devops", artifact_sha: str = "abc1234") -> ApprovalRequest:
+        request = self.approvals.request(
+            ApprovalRequest(
+                action="deploy:production",
+                resource="svc",
+                environment="prod",
+                artifact_sha=artifact_sha,
+                requested_by=actor,
+                project_id="proj",
+                gate="G3",
+            )
+        )
+        return self.approvals.resolve(request, approver="carol", granted=True)
 
     def test_g0_tool_calls_freely_and_is_audited(self) -> None:
         self.gateway.register("read_file", "read:file", lambda path: f"content of {path}")
@@ -42,29 +62,52 @@ class TestToolGateway(unittest.TestCase):
 
     def test_approval_must_match_artifact(self) -> None:
         self.gateway.register("deploy", "deploy:production", lambda **kw: "deployed")
-        approval = ApprovalRequest(
-            action="deploy:production", resource="svc", environment="prod",
-            artifact_sha="abc1234", requested_by="orchestrator",
-        )
+        approval = self.approved_deployment()
         with self.assertRaises(ToolGatewayError):
             self.gateway.call(
                 "deploy", Actor.agent("devops"),
                 {"resource": "svc", "artifact_sha": "different_sha"},
-                approval=approval, environment="prod",
+                approval=approval, environment="prod", project_id="proj",
             )
 
     def test_approval_matching_artifact_succeeds(self) -> None:
         self.gateway.register("deploy", "deploy:production", lambda **kw: "deployed")
-        approval = ApprovalRequest(
-            action="deploy:production", resource="svc", environment="prod",
-            artifact_sha="abc1234", requested_by="orchestrator",
-        )
+        approval = self.approved_deployment()
         result = self.gateway.call(
             "deploy", Actor.agent("devops"),
             {"resource": "svc", "artifact_sha": "abc1234"},
-            approval=approval, environment="prod",
+            approval=approval, environment="prod", project_id="proj",
         )
         self.assertEqual(result, "deployed")
+        with self.assertRaises(ToolGatewayError):
+            self.gateway.call(
+                "deploy", Actor.agent("devops"),
+                {"resource": "svc", "artifact_sha": "abc1234"},
+                approval=approval, environment="prod", project_id="proj",
+            )
+
+    def test_pending_or_wrong_actor_approval_is_rejected(self) -> None:
+        self.gateway.register("deploy", "deploy:production", lambda **kw: "deployed")
+        pending = self.approvals.request(
+            ApprovalRequest(
+                action="deploy:production", resource="svc", environment="prod",
+                artifact_sha="abc1234", requested_by="devops", project_id="proj",
+            )
+        )
+        with self.assertRaises(ToolGatewayError):
+            self.gateway.call(
+                "deploy", Actor.agent("devops"),
+                {"resource": "svc", "artifact_sha": "abc1234"},
+                approval=pending, environment="prod", project_id="proj",
+            )
+
+        approved = self.approved_deployment(actor="release-manager")
+        with self.assertRaises(ToolGatewayError):
+            self.gateway.call(
+                "deploy", Actor.agent("devops"),
+                {"resource": "svc", "artifact_sha": "abc1234"},
+                approval=approved, environment="prod", project_id="proj",
+            )
 
     def test_secrets_redacted_in_audit(self) -> None:
         self.gateway.register("call_api", "read:file", lambda **kw: "ok")

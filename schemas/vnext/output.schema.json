@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.agent-company.dev/vnext/output.schema.json",
+  "title": "Agent Company CLI output envelope v1",
+  "oneOf": [
+    { "$ref": "#/$defs/success" },
+    { "$ref": "#/$defs/error" }
+  ],
+  "$defs": {
+    "success": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "type", "data"],
+      "properties": {
+        "schema": { "const": "agent-company.output/v1" },
+        "type": { "type": "string", "minLength": 1 },
+        "data": true
+      }
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "type", "data"],
+      "properties": {
+        "schema": { "const": "agent-company.error/v1" },
+        "type": { "const": "error" },
+        "data": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "message"],
+          "properties": {
+            "code": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" },
+            "message": { "type": "string" },
+            "next": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    }
+  }
+}

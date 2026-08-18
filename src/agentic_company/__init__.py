@@ -7,8 +7,8 @@ agents under policy control, with an append-only audit trail, bound approval
 tokens, and deterministic tool authorization.
 """
 
-from .approval_service import ApprovalService
 from .agent_registry import AgentRegistry, AgentSpec
+from .approval_service import ApprovalService
 from .artifact_store import ArtifactStore
 from .contracts import (
     Actor,
@@ -23,8 +23,8 @@ from .contracts import (
     TaskEnvelope,
     WorkItem,
 )
-from .event_store import EventStore
-from .orchestrator import Orchestrator, OrchestrationResult
+from .event_store import EventStore, EventStoreError
+from .orchestrator import OrchestrationResult, Orchestrator
 from .policy_engine import AuthorizationDecision, PolicyEngine
 from .state_store import StateStore
 from .tool_gateway import ToolGateway, ToolGatewayError
@@ -34,8 +34,8 @@ __version__ = "1.0.0"
 
 __all__ = [
     "Actor",
-    "AgentSpec",
     "AgentRegistry",
+    "AgentSpec",
     "ApprovalRequest",
     "ApprovalService",
     "Artifact",
@@ -44,8 +44,9 @@ __all__ = [
     "Budget",
     "BudgetUsage",
     "DomainEvent",
-    "Evidence",
     "EventStore",
+    "EventStoreError",
+    "Evidence",
     "OrchestrationResult",
     "Orchestrator",
     "PolicyEngine",

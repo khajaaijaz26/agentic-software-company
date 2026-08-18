@@ -1,299 +1,342 @@
-# Installation & Integration Guide
+# Installation and integration
 
-This guide covers every way to install and use the Agentic Software Company,
-from plain terminals to AI coding agents, IDEs, and remote/universal MCP.
+This repository contains two intentionally separate runtimes:
 
-> **What "universal" means here.** The repository ships **one MCP server**
-> (`src/agentic_company/mcp_server.py`) that exposes the same tools,
-> resources, and prompts over three standard transports — `stdio`, `sse`, and
-> `streamable-http`. Every MCP-compatible platform below points at that same
-> server; only the connection snippet differs. There is nothing platform-
-> specific inside the server itself.
+1. `@agent-company/cli` v0.2, the primary TypeScript terminal-platform preview.
+2. `agentic-company` 1.x, the preserved Python prompt-pack and MCP compatibility
+   runtime.
 
----
+Install only the runtime you need, or install both for development. They do not
+share durable state.
 
-## 1. System requirements
+## TypeScript CLI requirements
 
-- **Python 3.10+** (tested through 3.14) — the core package has **zero runtime
-  dependencies**.
-- **[uv](https://docs.astral.sh/uv/)** (recommended) *or* `pip` for the MCP
-  adapter. The MCP server itself needs the `mcp` SDK, declared as the optional
-  `mcp` extra.
-- **git** to clone the repository.
+- Node.js 22.13 or newer. The TypeScript runtime uses Node's built-in SQLite
+  API, so older Node releases are unsupported.
+- npm, supplied with Node.js.
+- Git for repository inspection.
+- Optional provider CLIs for read-only connector discovery: GitHub CLI (`gh`),
+  Vercel CLI (`vercel`), and Supabase CLI (`supabase`). Each provider owns its
+  own login session; Agent Company does not copy their credentials.
 
----
+Node 22.13 supports the required API but labels `node:sqlite` experimental and
+may write its upstream `ExperimentalWarning` to stderr. JSON/NDJSON envelopes
+remain isolated on stdout. A current Node 22 maintenance release or Node 24 is
+recommended for quieter operation; the warning does not indicate state loss.
 
-## 2. Get the code
+Check versions:
+
+```bash
+node --version
+npm --version
+git --version
+```
+
+## Install the TypeScript CLI from this repository
 
 ```bash
 git clone https://github.com/khajaaijaz26/agentic-software-company.git
 cd agentic-software-company
+npm install
+npm run check
+npm link
+agent-company version
 ```
 
----
-
-## 3. Install
-
-Choose whichever matches your environment.
-
-### 3a. Plain Python (no dependencies, core platform only)
+`npm link` makes the local build available as `agent-company`. If you do not
+want a global link, use the development entry point from the repository root:
 
 ```bash
-python -m pip install -e .
+npm run dev -- version --json
 ```
 
-That gives you the CLI:
+To remove the development link later:
 
 ```bash
-# Begin a governed project
-agentic-company init-project my-app "you@example.com"
-
-# Dispatch a task to a specialist agent (stubbed dispatcher)
-agentic-company dispatch technical-lead "plan the delivery"
-
-# Print the append-only audit trail
-agentic-company audit <project_id>
+npm unlink --global @agent-company/cli
 ```
 
-Or run the CLI without installing:
+## Initialize a workspace
+
+Agent Company writes project-local files beneath `.agent-company/`. Runtime
+SQLite databases, WAL files, artifacts, and local overrides are ignored by the
+generated `.agent-company/.gitignore`.
 
 ```bash
-export PYTHONPATH=src            # bash/zsh/macOS/Linux
-# PowerShell: $env:PYTHONPATH = "src"
-python -m agentic_company init-project my-app you@example.com
+mkdir sample-project
+cd sample-project
+git init
+agent-company init --name sample-project
 ```
 
-### 3b. With the MCP adapter (recommended)
+Preview without writing:
 
 ```bash
-# With uv:
-uv venv && uv pip install ".[mcp]"
-
-# With pip:
-python -m pip install ".[mcp]"
+agent-company init --name sample-project --no-write --json
 ```
 
-Verify the MCP server boots and advertises its capabilities:
+Initialization creates:
+
+- `.agent-company/project.toml`: mapping, runtime, budget, and UI defaults.
+- `.agent-company/policy.toml`: local filesystem, shell, network, production,
+  secret, and telemetry defaults.
+- `.agent-company/.gitignore`: excludes local state and sensitive runtime data.
+
+Do not commit `.agent-company/state.sqlite`, its `-wal`/`-shm` files, or the
+artifact directory.
+
+## Run the governed vertical slice
 
 ```bash
-# Streams the JSON-RPC handshake to stdout — silence while waiting is normal
-python -m agentic_company.mcp_server
-#   or
-agentic-company-mcp
+agent-company run --json "Design and verify a bounded change"
 ```
 
-Quick capability check:
+The command creates a run and plan approval, prints their identifiers, and
+exits `4` (`APPROVAL_REQUIRED`). Review before approving:
 
 ```bash
-python -c "from agentic_company import mcp_server; print('MCP server imports OK')"
+agent-company approvals list --json
+agent-company tasks graph <run-id> --json
+agent-company approvals approve <approval-id> --reason "Scope and tasks reviewed"
+agent-company resume <run-id> --json
+agent-company events list <run-id> --ndjson
 ```
 
----
+The current deterministic adapter makes this flow repeatable and offline. It
+does not provide production-quality model reasoning.
 
-## 4. One server, three transports (the "universal MCP")
+## Output modes
 
-The same server speaks every MCP transport. Pick the one your platform wants.
+- Default: human-readable; an Ink dashboard is used when appropriate.
+- `--plain`: no cursor-control UI; suitable for logs and narrow terminals.
+- `--json`: one machine-readable envelope.
+- `--ndjson`: line-delimited machine envelopes.
+- `--no-color`: disables ANSI color.
+- `--non-interactive`: promises that the command will not prompt.
+- `--offline`: blocks provider/network discovery.
 
-| Transport          | Use when                                              | Command                                    |
-| ------------------ | ----------------------------------------------------- | ------------------------------------------ |
-| `stdio`            | Local terminal agents and most IDE integrations       | `python -m agentic_company.mcp_server`     |
-| `sse`              | Remote URL, event-streaming clients                   | `python -m agentic_company.mcp_server --transport sse --mount-path /mcp` |
-| `streamable-http`  | Modern remote clients, containers, multi-client fleets | `python -m agentic_company.mcp_server --transport streamable-http --mount-path /mcp` |
+For automation, always inspect both the envelope and process exit code. See
+[docs/protocols/cli-abi.md](docs/protocols/cli-abi.md).
 
-Run it remotely inside Docker so **any** platform — on any machine — connects
-to the same governed company:
+## Attachments
+
+Only paths under the selected workspace are accepted by default:
 
 ```bash
-docker build -t agentic-company-mcp .
-docker run -p 8000:8000 agentic-company-mcp
-# streamable-http endpoint: http://localhost:8000/mcp
+agent-company attachments scan ./request.md --json
+agent-company attachments add ./request.md --json
+agent-company attachments add-dir ./specs --json
+agent-company run --file ./request.md --json
 ```
 
----
+The receipt records scan findings and stores content by SHA-256. Ingestion does
+not upload the file or authorize future transfer. Files containing likely
+secrets are blocked; an EICAR test signature is quarantined.
 
-## 5. Universal connection snippets
+## Provider CLI connections
 
-Every snippet below launches the **same** MCP server. Choose the block for
-your platform, or use the pre-made files in [`configs/`](configs/).
-
-### A. Terminal AI agent (CLI)
-
-Register once per session (example):
+Authenticate directly with each provider's official CLI, outside Agent
+Company. Examples:
 
 ```bash
-your-agent-cli mcp add agentic-software-company -- \
-  uv run --with "mcp[cli]" --with "agentic-company[mcp]" mcp run src/agentic_company/mcp_server.py
+gh auth login
+vercel login
+supabase login
 ```
 
-### B. Claude Code
-
-Claude Code reads `.mcp.json` from the project root — **already committed** in
-this repo. If you use a global install instead:
+Then run non-mutating probes:
 
 ```bash
-claude mcp add agentic-software-company -- \
-  uv run --with "mcp[cli]" --with "agentic-company[mcp]" mcp run src/agentic_company/mcp_server.py
+agent-company integrations catalog --json
+agent-company integrations test github --json
+agent-company integrations test vercel --json
+agent-company integrations test supabase --json
+agent-company integrations list github --json
 ```
 
-Verify inside a session with `/mcp`, then ask:
+Credentials stay with the provider CLI. The connector runner passes a reduced
+environment, bounds execution time and captured output, avoids a shell, and
+sanitizes terminal-control characters.
 
-```
-Begin a project named "order-service", dispatch a delivery task to the
-technical-lead, then show me the audit trail.
-```
-
-### C. Codex (OpenAI)
-
-Add to `~/.codex/config.toml` (see [`configs/codex-config.toml`](configs/codex-config.toml)):
-
-```toml
-[mcp_servers.agentic-software-company]
-command = "uv"
-args = ["run", "--with", "mcp[cli]", "--with", "agentic-company[mcp]", "mcp", "run", "src/agentic_company/mcp_server.py"]
-```
-
-Or add it interactively:
+Connected mutation commands are planning surfaces in v0.2:
 
 ```bash
-codex mcp add agentic-software-company -- \
-  uv run --with "mcp[cli]" --with "agentic-company[mcp]" mcp run src/agentic_company/mcp_server.py
+agent-company repo push --plan --json
+agent-company pr open --json
+agent-company deploy preview --json
+agent-company deploy production --json
+agent-company database plan --environment staging --json
 ```
 
-### D. Cursor
+These emit `agent-company.connector-action/v1` records and, for gated classes,
+exit `4`. They do not execute the remote mutation. Production database reset
+or seed, production secret copying, and protected-branch force pushes are
+hard-denied in the connector action builder.
 
-Create `.cursor/mcp.json` (see [`configs/cursor-mcp.json`](configs/cursor-mcp.json)):
+## Platform data locations
 
-```json
-{
-  "mcpServers": {
-    "agentic-software-company": {
-      "command": "uv",
-      "args": ["run", "--with", "mcp[cli]", "--with", "agentic-company[mcp]", "mcp", "run", "src/agentic_company/mcp_server.py"]
-    }
-  }
-}
-```
+Project state always lives under the selected project's `.agent-company/`
+directory. `agent-company config path --json` also reports platform-level
+paths:
 
-### E. VS Code (Copilot, Agent mode, VS Code 1.99+)
+| Platform | Default base behavior |
+| --- | --- |
+| Windows | `%APPDATA%\AgentCompany` and `%LOCALAPPDATA%\AgentCompany` |
+| macOS | `~/Library/Application Support/AgentCompany` |
+| Linux/Unix | XDG config/data/state/cache/runtime directories |
 
-Create `.vscode/mcp.json` (see [`configs/vscode-mcp.json`](configs/vscode-mcp.json)):
+Set `AGENT_COMPANY_HOME` to place all platform-level directories below a
+single absolute root. This does not move project-local state.
 
-```json
-{
-  "servers": {
-    "agentic-software-company": {
-      "type": "stdio",
-      "command": "uv",
-      "args": ["run", "--with", "mcp[cli]", "--with", "agentic-company[mcp]", "mcp", "run", "src/agentic_company/mcp_server.py"]
-    }
-  }
-}
-```
+## Controller lifecycle and local IPC
 
-### F. Claude Desktop
+Controller-backed CLI commands always communicate through authenticated local
+IPC. The client first looks for a fresh workspace-bound descriptor. If no
+controller can be used, the CLI starts a one-shot local service in the same
+process, connects over a Unix socket or Windows named pipe, performs the RPC,
+then closes that service. This requires no setup.
 
-Add to your Claude Desktop config (see
-[`configs/claude-desktop-config.json`](configs/claude-desktop-config.json)):
-
-```json
-{
-  "mcpServers": {
-    "agentic-software-company": {
-      "command": "uv",
-      "args": ["run", "--with", "mcp[cli]", "--with", "agentic-company[mcp]", "mcp", "run", "src/agentic_company/mcp_server.py"]
-    }
-  }
-}
-```
-
-### G. Windsurf
-
-Use [`configs/windsurf-mcp.json`](configs/windsurf-mcp.json) — same shape as
-Cursor's `mcpServers` block.
-
-### H. OpenCode
-
-OpenCode's config lives in `opencode.jsonc` (see
-[`configs/opencode.jsonc`](configs/opencode.jsonc)):
-
-```jsonc
-{
-  "mcp": {
-    "agentic-software-company": {
-      "type": "local",
-      "command": ["uv", "run", "--with", "mcp[cli]", "--with", "agentic-company[mcp]", "mcp", "run", "src/agentic_company/mcp_server.py"],
-      "enabled": true
-    }
-  }
-}
-```
-
-### I. Remote / universal (any MCP client over HTTP)
-
-Point any MCP client at the containerized streamable-http endpoint:
-
-```json
-{
-  "mcpServers": {
-    "agentic-software-company": {
-      "type": "http",
-      "url": "http://localhost:8000/mcp"
-    }
-  }
-}
-```
-
----
-
-## 6. What the MCP server exposes
-
-Once connected, your agent automatically gains:
-
-**Tools (8)**
-
-| Tool               | Purpose                                             |
-| ------------------ | --------------------------------------------------- |
-| `begin_project`    | Create a governed project record                    |
-| `assign_task`      | Build a bound task envelope for a specialist role   |
-| `complete_task`    | Record the executing agent's result envelope        |
-| `request_approval` | Raise a human approval gate (G2/G3/G4)              |
-| `resolve_approval` | Grant/deny a pending approval as an approver        |
-| `audit`            | Return the append-only event log for a project      |
-| `list_roles`       | List all 25 specialist roles + prompt files         |
-| `list_workflows`   | List governed workflows (delivery, release, ...)    |
-
-**Resources** — read-only, versioned assets your agent can load:
-
-- `prompts://base-agent-constitution`
-- `prompts://master-orchestrator`
-- `prompts://roles/{role}` (e.g. `prompts://roles/technical-lead`)
-- `prompts://policies/{policy}`
-- `schemas://{schema}` (project, event, task-envelope, ...)
-- `workflows://{workflow}` (delivery, change-control, release, incident)
-
-**Prompts** — pre-assembled chat instructions:
-
-- `act_as_role(role)` — instruct the host to act as a specialist agent
-- `conduct_code_review` — run a governed code-review session
-
----
-
-## 7. Troubleshooting
-
-| Symptom | Fix |
-| ------- | --- |
-| `No module named 'mcp'` | Install the extra: `python -m pip install ".[mcp]"` or run via `uv run --with "mcp[cli]"` |
-| Server runs but tools missing | Restart the agent session; MCP tool lists are fetched at startup |
-| Docker build slow | First build downloads the base image + `mcp` SDK; subsequent builds are cached |
-| "unknown agent role" | Call `list_roles` first — roles come from `prompts/roles/*.md` at runtime |
-| HTTP port already in use | `docker run -p 9000:8000 ...` and point clients at the new port |
-
----
-
-## 8. Development
+For a controller that stays available across commands, build and launch the
+standalone entry in a separate terminal:
 
 ```bash
-python -m pip install -e ".[mcp]"   # dev install incl. MCP
-python -m unittest discover -s tests -v   # 48 tests (incl. MCP adapter)
+node dist/controller.js --workspace /absolute/path/to/sample-project
+```
+
+Source-development equivalent:
+
+```bash
+npx tsx apps/controller-daemon/src/index.ts --workspace /absolute/path/to/sample-project
+```
+
+Stop it with `Ctrl+C`/`SIGTERM`. Optional flags are `--runtime`,
+`--build-version`, and `--heartbeat-ms`. The controller prints a descriptor
+summary at startup; it never prints the authentication nonce. The npm package
+currently installs only the `agent-company` binary, so invoke the standalone
+controller through `node dist/controller.js`.
+
+The protocol uses a workspace/user-bound descriptor, a separate owner-private
+nonce file, HMAC-SHA-256 proof, and four-byte big-endian length-framed JSON
+(1 MiB default maximum). See
+[docs/protocols/local-ipc.md](docs/protocols/local-ipc.md). On Windows, keep the
+runtime directory protected by the account's normal ACLs; v0.2 does not
+independently verify an owner-only Windows ACL.
+
+Approved runs execute deterministic tasks in separate child Node processes.
+Each attempt has a lease ID/expiry, wall-time limit, output limit, reduced
+environment, and bound result. This is process separation, not an OS sandbox:
+workers have the workspace as their current directory, and lease heartbeats,
+automatic retries, and full orphan recovery are not implemented.
+
+## Python and MCP compatibility runtime
+
+Python 3.10 or newer is required. The core package uses the standard library;
+the MCP server needs the optional `mcp` extra.
+
+```bash
+python -m venv .venv
+```
+
+Activate the environment:
+
+```bash
+# macOS/Linux
+source .venv/bin/activate
+
+# PowerShell
+.venv\Scripts\Activate.ps1
+```
+
+Install and verify:
+
+```bash
+python -m pip install -e ".[mcp]"
+python -m unittest discover -s tests -v
 python -m compileall -q src tests
 ```
+
+Run the MCP server locally over stdio:
+
+```bash
+python -m agentic_company.mcp_server
+```
+
+Or use HTTP transports for a deliberately configured remote environment:
+
+```bash
+python -m agentic_company.mcp_server --transport sse --mount-path /mcp
+python -m agentic_company.mcp_server --transport streamable-http --mount-path /mcp
+```
+
+The HTTP defaults bind broadly. Put authentication, TLS, request limits, and
+network access controls in front of the server before exposing it beyond a
+trusted development network. The authenticated local TypeScript IPC protocol
+is used by the v0.2 CLI but is unrelated to MCP.
+
+Ready-made MCP client examples live under `configs/`. Resolve all relative
+paths from the repository checkout, or install the Python console script and
+configure the client to invoke `agentic-company-mcp`.
+
+## Development checks
+
+TypeScript:
+
+```bash
+npm run typecheck
+npm run lint
+npm test
+npm run build
+npm run check
+npm pack --dry-run
+```
+
+Python compatibility:
+
+```bash
+python -m unittest discover -s tests -v
+python -m compileall -q src tests
+python -m build
+```
+
+Schema parse check (PowerShell):
+
+```powershell
+Get-ChildItem schemas\vnext\*.json | ForEach-Object {
+  Get-Content $_.FullName -Raw | ConvertFrom-Json | Out-Null
+}
+```
+
+## Backup and migration
+
+Close all Agent Company processes before copying a project SQLite database.
+Copy the database together with any `-wal` and `-shm` sidecars, or use SQLite's
+online backup mechanism. Artifacts are a separate content-addressed tree and
+must be backed up with the database. Full guidance is in
+[docs/runbooks/backup-and-recovery.md](docs/runbooks/backup-and-recovery.md).
+
+There is no automatic migration from Python JSON/JSONL state to TypeScript
+SQLite in v0.2. Keep the original state until a migration tool is released.
+
+## Troubleshooting
+
+| Symptom | Action |
+| --- | --- |
+| `node:sqlite` unavailable | Upgrade to Node.js 22.13 or newer. |
+| Node 22.13 prints an SQLite `ExperimentalWarning` | Expected from that Node release; use a current Node 22 maintenance release or Node 24. |
+| `PROJECT_NOT_INITIALIZED` | Run `agent-company init` in the selected workspace. |
+| Exit code `4` | Review `approvals list`, approve/deny explicitly, then resume. |
+| Provider reports `AUTH_REQUIRED` | Log in with that provider's own CLI, then rerun the probe. |
+| Provider reports `UNAVAILABLE` | Install the relevant CLI and ensure it is on `PATH`. |
+| Attachment is `BLOCKED` | Inspect findings; remove secrets/unsafe content rather than bypassing the scan. |
+| `DESCRIPTOR_STALE` | Stop any unhealthy standalone controller, verify the PID, then retry; do not delete another user's runtime files. |
+| `HANDSHAKE_REJECTED` | Stop the suspected controller, preserve diagnostics, and restart it so the descriptor/nonce pair is recreated. |
+| `CONTROLLER_ALREADY_RUNNING` | Use the existing controller or stop it cleanly with `Ctrl+C`; do not start a second writer. |
+| `WORKER_TIMEOUT` / `WORKER_OUTPUT_LIMIT` | Narrow the task or configured limits; the current worker supervisor does not retry automatically. |
+| SQLite reports a lock | Ensure no abandoned process is holding the project, then retry; do not delete WAL files while a process is open. |
+| `No module named mcp` | Install the Python extra with `python -m pip install -e ".[mcp]"`. |
+| MCP tools appear stale | Restart the MCP client session so it re-discovers capabilities. |
+
+Run `agent-company doctor --json` for non-mutating diagnostics. When reporting
+a bug, include the CLI version, Node version, OS, sanitized error envelope,
+and reproduction steps. Never include tokens, `.env` files, provider configs,
+or unredacted project databases.

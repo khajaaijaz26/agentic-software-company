@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.agent-company.dev/vnext/ipc-request.schema.json",
+  "title": "Agent Company authenticated controller RPC request v1",
+  "description": "RPC request payload carried after the authenticated hello/welcome handshake in a 4-byte big-endian length-prefixed JSON frame.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "requestId", "protocolVersion", "method", "params"],
+  "properties": {
+    "kind": { "const": "request" },
+    "requestId": { "type": "string", "pattern": "^rpc_[a-f0-9]{32}$" },
+    "protocolVersion": { "const": 1 },
+    "method": {
+      "enum": ["snapshot", "createRun", "listApprovals", "approve", "deny", "resume", "pause", "cancel"]
+    },
+    "params": { "type": "object" }
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "method": { "const": "snapshot" },
+        "params": { "$ref": "#/$defs/emptyParams" }
+      }
+    },
+    {
+      "properties": {
+        "method": { "const": "createRun" },
+        "params": { "$ref": "#/$defs/createRunParams" }
+      }
+    },
+    {
+      "properties": {
+        "method": { "const": "listApprovals" },
+        "params": { "$ref": "#/$defs/listApprovalsParams" }
+      }
+    },
+    {
+      "properties": {
+        "method": { "enum": ["approve", "deny"] },
+        "params": { "$ref": "#/$defs/decisionParams" }
+      }
+    },
+    {
+      "properties": {
+        "method": { "enum": ["resume", "pause", "cancel"] },
+        "params": { "$ref": "#/$defs/runParams" }
+      }
+    }
+  ],
+  "$defs": {
+    "nonBlank512": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "\\S"
+    },
+    "emptyParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "maxProperties": 0
+    },
+    "createRunParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["objective"],
+      "properties": {
+        "objective": { "type": "string", "minLength": 1, "maxLength": 32768, "pattern": "\\S" }
+      }
+    },
+    "listApprovalsParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "runId": { "$ref": "#/$defs/nonBlank512" }
+      }
+    },
+    "decisionParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["approvalId"],
+      "properties": {
+        "approvalId": { "$ref": "#/$defs/nonBlank512" },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 4096, "pattern": "\\S" }
+      }
+    },
+    "runParams": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runId"],
+      "properties": {
+        "runId": { "$ref": "#/$defs/nonBlank512" }
+      }
+    }
+  }
+}

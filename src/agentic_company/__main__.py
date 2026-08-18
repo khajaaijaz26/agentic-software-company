@@ -16,15 +16,12 @@ from pathlib import Path
 
 from .agent_registry import AgentRegistry, AgentSpec
 from .approval_service import ApprovalService
-from .artifact_store import ArtifactStore
-from .contracts import Actor, ResultEnvelope, TaskEnvelope
+from .contracts import ResultEnvelope, TaskEnvelope
 from .event_store import EventStore
 from .orchestrator import Orchestrator
 from .policy_engine import PolicyEngine
+from .resources import PROMPTS_ROOT
 from .state_store import StateStore
-from .tool_gateway import ToolGateway
-
-PROMPTS_ROOT = Path(__file__).resolve().parents[2] / "prompts"
 
 
 def _stub_dispatcher(envelope: TaskEnvelope) -> ResultEnvelope:
@@ -47,8 +44,13 @@ def _build() -> tuple[Orchestrator, StateStore, EventStore]:
     approvals = ApprovalService()
     registry = AgentRegistry()
     for role in ("orchestrator", "technical-lead", "frontend-engineer", "backend-engineer"):
+        prompt_file = (
+            PROMPTS_ROOT / "master-orchestrator.md"
+            if role == "orchestrator"
+            else PROMPTS_ROOT / "roles" / f"{role}.md"
+        )
         registry.register(
-            AgentSpec(role=role, prompt_file=str(PROMPTS_ROOT / "roles" / f"{role}.md"), prompt_sha=f"sha-{role}")
+            AgentSpec(role=role, prompt_file=str(prompt_file), prompt_sha=f"sha-{role}")
         )
     orchestrator = Orchestrator(
         state=state,

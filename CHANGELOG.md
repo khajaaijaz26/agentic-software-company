@@ -1,28 +1,69 @@
 # Changelog
 
-All notable changes to this project are documented here. The project follows
-[semantic versioning](https://semver.org).
+All notable changes are documented here. The project uses semantic versioning
+per distribution: the npm CLI and preserved Python compatibility package have
+independent version lines during the v0.2 transition.
 
 ## [Unreleased]
 
+### Planned
+
+- Persistent worker lease heartbeats/extensions, bounded retries, crash
+  recovery, orphan reconciliation, and OS-level sandboxing.
+- Approval-backed execution adapters for normalized connector actions.
+- Live event subscriptions and a fully interactive operator console.
+- Signed export/import and an automated Python-state migration tool.
+
+## [npm 0.2.0] - 2026-08-18
+
 ### Added
-- Prompt library: `prompts/base-agent-constitution.md`, `prompts/master-orchestrator.md` (verbatim extract), 25 role prompts under `prompts/roles/`, and policies under `prompts/policies/`.
-- Envelope templates under `prompts/templates/` (task, result, approval).
-- JSON schemas under `schemas/` (project, event, capability, task/result/approval envelopes).
-- Dependency-free Python reference implementation under `src/agentic_company/`:
-  - `contracts.py` — envelopes, approvals, budgets, events
-  - `orchestrator.py` — task routing and audit
-  - `policy_engine.py` — deterministic G0–G4 gate decisions
-  - `approval_service.py` — bound, short-lived approval tokens
-  - `tool_gateway.py` — authorized, audited, redacted tool boundary
-  - `agent_registry.py` — role → capability → prompt-version mapping
-  - `state_store.py`, `event_store.py`, `artifact_store.py` — durable stores
-  - `workflow.py` — dependency-aware WorkItem execution
-  - `__main__.py` — CLI entry point
-- `tests/` — 43 unittest tests (stdlib only).
-- Governance: `LICENSE` (Apache-2.0), `README.md`, `SECURITY.md`, `CONTRIBUTING.md`, `GOVERNANCE.md`, `CODE_OF_CONDUCT.md`, `CHANGELOG.md`.
-- CI workflow under `.github/workflows/ci.yml`.
 
-## [1.0.0] — 2026-08-17
+- Strict TypeScript `@agent-company/cli` package targeting Node.js 22.13+.
+- Commander-based CLI with human, plain, JSON, and NDJSON modes and documented
+  machine exit codes.
+- Local controller implementing a deterministic create/approve/resume delivery
+  slice with canonical run and task states.
+- Authenticated local controller IPC over Unix domain sockets or Windows named
+  pipes, with workspace/user-bound discovery, a separate private nonce,
+  HMAC-SHA-256 handshake proof, bounded four-byte big-endian length-framed JSON,
+  heartbeat descriptors, request correlation/timeouts, and clean shutdown.
+- Automatic one-shot controller service for ordinary CLI commands plus a
+  standalone `dist/controller.js` entry for a longer-lived single writer.
+- SQLite WAL event store with optimistic stream concurrency, command
+  idempotency receipts, and deterministic replay.
+- SQLite approval service with exact operation binding, expiry, explicit human
+  decisions, and atomic single-use consumption.
+- A0-A5 policy classes, hard denials, a schema-validated tool gateway, and
+  normalized GitHub/Vercel/Supabase connector action plans.
+- Provider-owned CLI discovery adapters for GitHub, Vercel, and Supabase.
+- Atomic budget ledger, deterministic and OpenAI-compatible model gateway
+  interfaces, and a secret-reference broker.
+- Child-process worker supervision with attempt/lease manifests, expiry check,
+  reduced environment, cancellation, wall-time/output bounds, exactly-one-line
+  NDJSON results, and attempt/lease/task result binding.
+- SHA-256 content-addressed artifact storage and attachment ingestion with path,
+  size, malware-test, secret, PII, type, and prompt-injection checks.
+- Lazy specialist activation from the 25-role registry, Ink dashboard, terminal
+  sanitization/redaction utilities, and a new vector logo.
+- Draft 2020-12 vNext JSON Schemas plus architecture, ABI, threat-model,
+  compatibility, recovery, and blueprint traceability documentation.
 
-Initial release.
+### Security
+
+- Remote mutations default to plans and approvals rather than direct execution.
+- Production Supabase reset/seed and secret-copy operations, plus force push to
+  protected branches, are hard-denied in the v0.2 action builder.
+- Attachment ingestion never grants transfer permission and records
+  `transfer_count: 0`.
+
+### Compatibility
+
+- Preserved the Python package, prompt library, YAML workflows, root JSON
+  schemas, and MCP server. Their JSON/JSONL state remains separate from v0.2
+  SQLite state.
+
+## [Python 1.0.0] - 2026-08-17
+
+- Initial Python reference implementation with governed prompt library, 25 role
+  prompts, policies, envelope schemas, workflows, CLI, and MCP adapter.
+- Apache-2.0 project governance, contribution, security, and attribution files.

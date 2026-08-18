@@ -1,6 +1,7 @@
 """Tests for the policy engine and approval service."""
 
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 
 from agentic_company.approval_service import ApprovalService
 from agentic_company.contracts import ApprovalRequest
@@ -32,6 +33,11 @@ class TestPolicyEngine(unittest.TestCase):
     def test_approved_artifact_allows_gated_action(self) -> None:
         d = self.engine.decide("deploy:production", environment="prod", artifact_approved=True)
         self.assertTrue(d.allowed)
+
+    def test_role_name_cannot_bypass_approval(self) -> None:
+        d = self.engine.decide("deploy:production", environment="prod", role="production_approver")
+        self.assertFalse(d.allowed)
+        self.assertTrue(d.requires_approval)
 
     def test_unknown_operation_denied(self) -> None:
         d = self.engine.decide("rm -rf /", environment="local")
@@ -73,8 +79,8 @@ class TestApprovalService(unittest.TestCase):
         req = self.service.request(
             ApprovalRequest(action="deploy:production", resource="svc", environment="prod", artifact_sha="abc1234", requested_by="orchestrator")
         )
-        self.service.resolve(req, approver="carol", granted=False)
-        self.assertFalse(self.service.verify(req))
+        rejected = self.service.resolve(req, approver="carol", granted=False)
+        self.assertFalse(self.service.verify(rejected))
 
     def test_cannot_resolve_twice(self) -> None:
         req = self.service.request(
@@ -105,6 +111,60 @@ class TestApprovalService(unittest.TestCase):
         approved = ApprovalRequest(action="deploy:production", resource="svc", environment="prod", artifact_sha="abc1234", requested_by="orchestrator")
         different = ApprovalRequest(action="deploy:production", resource="svc", environment="prod", artifact_sha="zzz9999", requested_by="orchestrator")
         self.assertFalse(approved.matches(different))
+
+    def test_consume_is_bound_and_single_use(self) -> None:
+        req = self.service.request(
+            ApprovalRequest(
+                action="deploy:production",
+                resource="svc",
+                environment="prod",
+                artifact_sha="abc1234",
+                requested_by="devops",
+                project_id="proj",
+                gate="G3",
+            )
+        )
+        approved = self.service.resolve(req, approver="carol", granted=True)
+        binding = {
+            "actor": "devops",
+            "action": "deploy:production",
+            "resource": "svc",
+            "environment": "prod",
+            "artifact_sha": "abc1234",
+            "project_id": "proj",
+            "gate": "G3",
+        }
+        self.assertFalse(self.service.consume(approved, **{**binding, "actor": "other"}))
+        self.assertTrue(self.service.verify(approved))
+        self.assertTrue(self.service.consume(approved, **binding))
+        self.assertTrue(self.service.is_consumed(approved.request_id))
+        self.assertFalse(self.service.verify(approved))
+        self.assertFalse(self.service.consume(approved, **binding))
+
+    def test_consume_is_atomic_across_callers(self) -> None:
+        req = self.service.request(
+            ApprovalRequest(
+                action="deploy:production",
+                resource="svc",
+                environment="prod",
+                artifact_sha="abc1234",
+                requested_by="devops",
+                project_id="proj",
+            )
+        )
+        approved = self.service.resolve(req, approver="carol", granted=True)
+        binding = {
+            "actor": "devops",
+            "action": "deploy:production",
+            "resource": "svc",
+            "environment": "prod",
+            "artifact_sha": "abc1234",
+            "project_id": "proj",
+            "gate": "G3",
+        }
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(lambda _: self.service.consume(approved, **binding), range(2)))
+        self.assertEqual(sorted(results), [False, True])
 
 
 if __name__ == "__main__":

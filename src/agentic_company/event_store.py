@@ -8,9 +8,14 @@ from __future__ import annotations
 
 import json
 import threading
+from copy import deepcopy
 from pathlib import Path
 
 from .contracts import Actor, DomainEvent
+
+
+class EventStoreError(Exception):
+    """Raised when an append-only event-store invariant is violated."""
 
 
 class EventStore:
@@ -19,6 +24,7 @@ class EventStore:
     def __init__(self, path: str | Path | None = None) -> None:
         self._lock = threading.RLock()
         self._events: list[DomainEvent] = []
+        self._event_ids: set[str] = set()
         self._path = Path(path) if path else None
         if self._path and self._path.exists():
             self._load()
@@ -28,18 +34,25 @@ class EventStore:
             if not line.strip():
                 continue
             raw = json.loads(line)
-            self._events.append(
-                DomainEvent(
-                    event_type=raw["event_type"],
-                    actor=Actor(type=raw["actor"]["type"], id=raw["actor"]["id"]),
-                    data=raw.get("data", {}),
-                    event_id=raw.get("event_id", ""),
-                    version=raw.get("version", 1),
-                    project_id=raw.get("project_id", ""),
-                    correlation_id=raw.get("correlation_id", ""),
-                    occurred_at=raw.get("occurred_at", ""),
-                )
+            event = DomainEvent(
+                event_type=raw["event_type"],
+                actor=Actor(type=raw["actor"]["type"], id=raw["actor"]["id"]),
+                data=deepcopy(raw.get("data", {})),
+                event_id=raw.get("event_id", ""),
+                version=raw.get("version", 1),
+                project_id=raw.get("project_id", ""),
+                correlation_id=raw.get("correlation_id", ""),
+                occurred_at=raw.get("occurred_at", ""),
             )
+            self._remember(event)
+
+    def _remember(self, event: DomainEvent) -> None:
+        if not event.event_id:
+            raise EventStoreError("event_id is required")
+        if event.event_id in self._event_ids:
+            raise EventStoreError(f"duplicate event_id: {event.event_id}")
+        self._events.append(event)
+        self._event_ids.add(event.event_id)
 
     def _append_line(self, event: DomainEvent) -> None:
         if self._path:
@@ -49,9 +62,12 @@ class EventStore:
 
     def append(self, event: DomainEvent) -> DomainEvent:
         with self._lock:
-            self._events.append(event)
-            self._append_line(event)
-            return event
+            stored = deepcopy(event)
+            if not stored.event_id or stored.event_id in self._event_ids:
+                raise EventStoreError(f"duplicate or empty event_id: {stored.event_id}")
+            self._append_line(stored)
+            self._remember(stored)
+            return deepcopy(stored)
 
     def events_for(self, project_id: str | None = None, event_type: str | None = None) -> list[DomainEvent]:
         with self._lock:
@@ -60,7 +76,7 @@ class EventStore:
                 result = [e for e in result if e.project_id == project_id]
             if event_type:
                 result = [e for e in result if e.event_type == event_type]
-            return list(result)
+            return deepcopy(result)
 
     @property
     def sequence(self) -> int:
@@ -68,7 +84,4 @@ class EventStore:
             return len(self._events)
 
     def clear(self) -> None:
-        with self._lock:
-            self._events.clear()
-            if self._path and self._path.exists():
-                self._path.write_text("", encoding="utf-8")
+        raise EventStoreError("event stores are append-only and cannot be cleared")

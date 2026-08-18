@@ -14,13 +14,13 @@ steps:
     action: derive goals, non-goals, and acceptance criteria
 
   - id: plan
-    agent: project-manager-and-delivery-manager
+    agent: project-manager
     depends_on: [discovery]
     action: produce task breakdown, owners, budget, and schedule
     gate: G1
 
   - id: design
-    agent: technical-lead-software-architect
+    agent: technical-lead
     depends_on: [plan]
     action: produce architecture and ADR
     gate: G1
@@ -38,7 +38,7 @@ steps:
     gate: G1
 
   - id: test
-    agent: qa-strategist-quality-lead
+    agent: qa-strategist
     depends_on: [review]
     action: execute acceptance and regression tests
     gate: G1
@@ -62,7 +62,7 @@ steps:
     gate: G3
 
   - id: handoff
-    agent: customer-support-and-customer-success-agent
+    agent: customer-support-success
     depends_on: [release]
     action: communicate outcome and capture acceptance
     gate: G0

@@ -15,7 +15,7 @@ steps:
     gate: G0
 
   - id: defect
-    agent: project-manager-and-delivery-manager
+    agent: project-manager
     condition: kind == defect
     action: route defect to owner with reproduction evidence
     gate: G1
@@ -27,7 +27,7 @@ steps:
     gate: G3
 
   - id: re_baseline
-    agent: project-manager-and-delivery-manager
+    agent: project-manager
     depends_on: [scope_change]
     action: update charter baseline, preserve prior history
     gate: G2
