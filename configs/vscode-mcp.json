@@ -1,0 +1,18 @@
+{
+  "servers": {
+    "agentic-software-company": {
+      "type": "stdio",
+      "command": "uv",
+      "args": [
+        "run",
+        "--with",
+        "mcp[cli]",
+        "--with",
+        "agentic-company[mcp]",
+        "mcp",
+        "run",
+        "src/agentic_company/mcp_server.py"
+      ]
+    }
+  }
+}

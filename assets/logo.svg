@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0d1b2a"/>
+      <stop offset="100%" stop-color="#1b263b"/>
+    </linearGradient>
+    <linearGradient id="head" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00e5ff"/>
+      <stop offset="100%" stop-color="#7c4dff"/>
+    </linearGradient>
+    <linearGradient id="core" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#b3e5fc"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#00e5ff" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#00e5ff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <!-- background rounded square -->
+  <rect x="8" y="8" width="496" height="496" rx="96" fill="url(#bg)"/>
+
+  <!-- ambient glow -->
+  <circle cx="256" cy="256" r="180" fill="url(#glow)"/>
+
+  <!-- agent head (hex-core) -->
+  <g>
+    <circle cx="256" cy="248" r="108" fill="url(#head)" opacity="0.92"/>
+    <path d="M256 168 L328 208 L328 288 L256 328 L184 288 L184 208 Z" fill="url(#head)"/>
+    <path d="M256 190 L306 220 L306 276 L256 306 L206 276 L206 220 Z" fill="#0d1b2a" opacity="0.18"/>
+    <circle cx="256" cy="248" r="42" fill="url(#core)"/>
+    <path d="M256 222 a26 26 0 1 1 -18.4 44.4 M256 196 a52 52 0 1 1 -36.8 88.8" fill="none" stroke="#0d1b2a" stroke-width="5" stroke-linecap="round" opacity="0.85"/>
+  </g>
+
+  <!-- orbital node dots (specialist agents) -->
+  <g fill="#00e5ff">
+    <circle cx="256" cy="84" r="12"/>
+    <circle cx="428" cy="248" r="12"/>
+    <circle cx="256" cy="412" r="12"/>
+    <circle cx="84" cy="248" r="12"/>
+    <circle cx="378" cy="114" r="9"/>
+    <circle cx="378" cy="382" r="9"/>
+    <circle cx="134" cy="114" r="9"/>
+    <circle cx="134" cy="382" r="9"/>
+  </g>
+
+  <!-- connections (orchestration network) -->
+  <g stroke="#00e5ff" stroke-width="3" opacity="0.55">
+    <line x1="256" y1="248" x2="256" y2="96"/>
+    <line x1="256" y1="248" x2="416" y2="248"/>
+    <line x1="256" y1="248" x2="256" y2="400"/>
+    <line x1="256" y1="248" x2="96" y2="248"/>
+    <line x1="256" y1="248" x2="372" y2="120"/>
+    <line x1="256" y1="248" x2="372" y2="376"/>
+    <line x1="256" y1="248" x2="140" y2="120"/>
+    <line x1="256" y1="248" x2="140" y2="376"/>
+  </g>
+
+  <!-- shield (governance) at base -->
+  <g>
+    <path d="M256 404 L196 436 L196 466 A60 60 0 0 0 256 494 A60 60 0 0 0 316 466 L316 436 Z" fill="#7c4dff" opacity="0.9"/>
+    <path d="M256 418 L210 443 L210 466 A46 46 0 0 0 256 484 A46 46 0 0 0 302 466 L302 443 Z" fill="#00e5ff" opacity="0.85"/>
+    <path d="M256 432 v44 M240 446 l16 12 l16 -12" stroke="#0d1b2a" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  </g>
+</svg>

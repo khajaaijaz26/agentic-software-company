@@ -1,0 +1,20 @@
+{
+  "mcp": {
+    "agentic-software-company": {
+      "type": "local",
+      "command": [
+        "uv",
+        "run",
+        "--with",
+        "mcp[cli]",
+        "--with",
+        "agentic-company[mcp]",
+        "mcp",
+        "run",
+        "src/agentic_company/mcp_server.py"
+      ],
+      "enabled": true,
+      "environment": {}
+    }
+  }
+}

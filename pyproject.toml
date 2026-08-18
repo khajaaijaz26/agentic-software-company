@@ -13,7 +13,6 @@ authors = [{ name = "khajaaijaz26", email = "khajaaijaz26@gmail.com" }]
 classifiers = [
   "Development Status :: 5 - Production/Stable",
   "Intended Audience :: Developers",
-  "License :: OSI Approved :: Apache Software License",
   "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.10",
@@ -23,6 +22,13 @@ classifiers = [
   "Programming Language :: Python :: 3.14",
   "Topic :: Software Development",
 ]
+
+[project.optional-dependencies]
+mcp = ["mcp>=1.2.0"]
+
+[project.scripts]
+agentic-company = "agentic_company.__main__:main"
+agentic-company-mcp = "agentic_company.mcp_server:main"
 
 [tool.setuptools]
 package-dir = { "" = "src" }
