@@ -8,7 +8,7 @@ version = "1.0.0"
 description = "Governed multi-agent software delivery platform (reference implementation)"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "Apache-2.0" }
+license = "Apache-2.0"
 authors = [{ name = "khajaaijaz26", email = "khajaaijaz26@gmail.com" }]
 classifiers = [
   "Development Status :: 5 - Production/Stable",
