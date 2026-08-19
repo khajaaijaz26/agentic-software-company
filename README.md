@@ -13,7 +13,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/software-agent"><img alt="npm" src="https://img.shields.io/npm/v/software-agent?color=5c6cff" /></a>
+  <a href="https://github.com/khajaaijaz26/software-agent/releases/latest"><img alt="GitHub release" src="https://img.shields.io/github/v/release/khajaaijaz26/software-agent?color=5c6cff" /></a>
   <a href="https://github.com/khajaaijaz26/software-agent/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/khajaaijaz26/software-agent/actions/workflows/ci.yml/badge.svg" /></a>
   <a href="LICENSE"><img alt="Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-20c997" /></a>
   <a href="INSTALL.md"><img alt="Node 22.14+" src="https://img.shields.io/badge/Node.js-22.14%2B-339933" /></a>
@@ -28,11 +28,11 @@ Software Agent is a local-first, event-sourced coding platform—not a single ch
 Requirements: Node.js 22.14 or newer, npm, and Git. Node.js 24 LTS is recommended.
 
 ```bash
-npm install -g software-agent
+npm install -g https://github.com/khajaaijaz26/software-agent/releases/download/v0.3.0/software-agent-0.3.0.tgz
 software-agent --version
 ```
 
-The npm name is prepared for the v0.3 release. Until that release is published, install this checkout with the [source installation steps](INSTALL.md#install-from-source).
+This is the verified GitHub `v0.3.0` release asset (`SHA-256 ee8993db8de0371dc976cae695915694a7a3cc49ac981c8b4dbd66359df9e9f8`). The shorter `npm install -g software-agent` command becomes available after the package owner completes npm registry authentication. Contributors can also use the [source installation steps](INSTALL.md#install-from-this-checkout).
 
 ## Start in under a minute
 

@@ -17,9 +17,25 @@ npm --version
 git --version
 ```
 
-## Global npm installation
+## Install the verified release
 
-After v0.3 is published:
+The public GitHub release is available now:
+
+```powershell
+npm install -g https://github.com/khajaaijaz26/software-agent/releases/download/v0.3.0/software-agent-0.3.0.tgz
+software-agent --version
+software-agent setup
+```
+
+Expected SHA-256 for `software-agent-0.3.0.tgz`:
+
+```text
+ee8993db8de0371dc976cae695915694a7a3cc49ac981c8b4dbd66359df9e9f8
+```
+
+## Global npm registry installation
+
+After the package owner completes npm registry authentication:
 
 ```powershell
 npm install -g software-agent
