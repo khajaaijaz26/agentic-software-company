@@ -21,8 +21,9 @@ untrusted worker safe.
 ## Transport, discovery, and ownership
 
 - Linux and macOS use a Unix domain socket below the short, workspace-bound
-  `<runtime>/s/<workspaceHash>/` directory so hosted and deeply nested runtime
-  roots remain within portable `sockaddr_un` limits.
+  `<runtime>/s/<workspaceHash>/` directory. If that would exceed the portable
+  `sockaddr_un` limit, the endpoint moves to one owner-only, user/workspace-bound
+  directory directly below `/tmp`; descriptors, locks, and nonces never move.
 - Windows uses a named pipe derived from user binding, workspace hash, and instance ID.
 - TCP is never a fallback.
 

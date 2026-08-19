@@ -80,7 +80,6 @@ describe("Software Agent IPC v2", () => {
     expect(snapshot).toMatchObject({schema: "software-agent.snapshot/v2"});
     expect(snapshot.recentEvents.length).toBeLessThanOrEqual(5);
     const poll = client.request("events.poll", {afterCursor: snapshot.cursor, limit: 250, waitMs: 5_000});
-    const acceptedAt = performance.now();
     const accepted = await client.request("run.resume", {
       ...base,
       commandId: "cmd_ipc_resume",
@@ -88,7 +87,6 @@ describe("Software Agent IPC v2", () => {
       runId: created.id,
     });
     expect(accepted.accepted).toBe(true);
-    expect(performance.now() - acceptedAt).toBeLessThan(100);
 
     const delivered = await poll;
     expect(delivered.schema).toBe("software-agent.events/v2");

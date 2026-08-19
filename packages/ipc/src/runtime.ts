@@ -66,9 +66,14 @@ export function controllerRuntimePaths(options: RuntimePathOptions = {}): Contro
   const workspaceHash = sha256(workspace).slice(0, 24);
   const runtimeRoot = resolve(options.runtimeRoot ?? resolvePlatformPaths().runtime);
   const directory = join(runtimeRoot, "controllers", workspaceHash);
+  const localEndpointDirectory = join(runtimeRoot, "s", workspaceHash);
+  const endpointDirectory = platform() === "win32"
+    || Buffer.byteLength(join(localEndpointDirectory, "c.sock"), "utf8") <= 100
+    ? localEndpointDirectory
+    : join("/tmp", `software-agent-${currentUserBinding().slice(0, 16)}-${workspaceHash}`);
   return {
     directory,
-    endpointDirectory: join(runtimeRoot, "s", workspaceHash),
+    endpointDirectory,
     descriptor: join(directory, CONTROLLER_DESCRIPTOR_FILE),
     lock: join(directory, CONTROLLER_LOCK_FILE),
     workspaceHash,
