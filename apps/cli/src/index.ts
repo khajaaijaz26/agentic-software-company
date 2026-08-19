@@ -50,13 +50,17 @@ import {
 import {
   DEFAULT_SPEECH_MODEL,
   DEFAULT_TRANSCRIPTION_MODEL,
+  SystemWavAudioPlayer,
   VOICE_ASSISTANT_NAME,
+  VoiceCapabilityError,
+  createVoiceTestTone,
+  listVoiceInputDevices,
 } from "../../../packages/voice-input/src/index.js";
 import {EXIT_CODES, emit, emitError, processIo, type Io, type OutputMode} from "./output.js";
 import {IpcProjectRoomSource, softwareAgentSnapshotToProjectRoom} from "./project-room-source.js";
 
-const VERSION = "0.7.0";
-const BUILD = "software-agent-v0.7.0";
+const VERSION = "0.7.1";
+const BUILD = "software-agent-v0.7.1";
 const CLI_NAME = "software-agent";
 
 interface Runtime {
@@ -276,6 +280,7 @@ function buildProgram(runtime: Runtime): Command {
   addConnectedOperationCommands(program, runtime);
   addInspectionCommands(program, runtime);
   addProviderModelCommands(program, runtime);
+  addVoiceCommands(program, runtime);
   addUtilityCommands(program, runtime);
   return program;
 }
@@ -722,6 +727,80 @@ function addProviderModelCommands(program: Command, runtime: Runtime): void {
   });
 }
 
+function addVoiceCommands(program: Command, runtime: Runtime): void {
+  const voice = program.command("voice").description("check and test Nova microphone and speaker readiness");
+  voice.action((_options: unknown, command: Command) => {
+    const globals = global(command);
+    emit(runtime.io, mode(globals), "voice.help", {
+      steps: [
+        `${CLI_NAME} voice doctor`,
+        `${CLI_NAME} voice test-speaker`,
+        `Enter a project, run ${CLI_NAME}, type /setup to connect OpenAI, then press Ctrl+R or type /voice.`,
+        "The voice panel listens first; it does not speak immediately. After transcription, review the text and press Enter. Nova speaks after the matching agent reply commits.",
+      ],
+    });
+  });
+  voice.command("doctor").description("list Nova readiness without opening the microphone").action(async (_options: unknown, command: Command) => {
+    const globals = global(command);
+    const providers = await loadUserProviderConfig(resolvePlatformPaths());
+    const microphone = await inspectMicrophones();
+    const openaiConfigured = providers.providers.openai?.enabled === true;
+    emit(runtime.io, mode(globals), "voice.doctor", {
+      ready: globals.offline !== true && openaiConfigured && microphone.devices.length > 0,
+      openai: openaiConfigured ? "CONNECTED" : "NOT CONNECTED",
+      microphone: microphone.devices.length > 0 ? "READY" : "NOT DETECTED",
+      microphoneDevices: microphone.devices,
+      microphoneProbeError: microphone.error,
+      speaker: "RUN TEST TO CONFIRM AUDIBLE OUTPUT",
+      speakerTestCommand: `${CLI_NAME} voice test-speaker`,
+      privacy: "This check only lists input endpoints. It does not open the microphone or record audio.",
+      nextSteps: voiceNextSteps({offline: globals.offline === true, openaiConfigured, microphone}),
+    });
+  });
+  voice.command("test-speaker").description("play a louder local test tone without using AI or API credits").action(async (_options: unknown, command: Command) => {
+    const globals = global(command);
+    const wav = createVoiceTestTone();
+    try {
+      await new SystemWavAudioPlayer().play(wav, new AbortController().signal);
+    } finally {
+      wav.fill(0);
+    }
+    emit(runtime.io, mode(globals), "voice.speaker-test", {
+      playerCompleted: true,
+      audibleConfirmationRequired: true,
+      message: "The local player completed. If you did not hear the test tone, unmute Windows, raise output volume, and select Speakers (Realtek(R) Audio) before trying again.",
+      usedNetwork: false,
+      usedApiCredits: false,
+    });
+  });
+}
+
+interface MicrophoneInspection {
+  readonly devices: readonly string[];
+  readonly error: string | null;
+}
+
+async function inspectMicrophones(): Promise<MicrophoneInspection> {
+  try {
+    return {devices: await listVoiceInputDevices(), error: null};
+  } catch (error) {
+    return {devices: [], error: sanitizeTerminal(error instanceof Error ? error.message : String(error), 240)};
+  }
+}
+
+function voiceNextSteps(options: {readonly offline: boolean; readonly openaiConfigured: boolean; readonly microphone: MicrophoneInspection}): readonly string[] {
+  const steps: string[] = [];
+  if (options.offline) steps.push("Relaunch without --offline; Nova transcription and speech use OpenAI.");
+  if (!options.openaiConfigured) steps.push("Open Software Agent, type /setup, choose OpenAI, and paste your API key into the masked field.");
+  if (options.microphone.devices.length === 0) {
+    steps.push(process.platform === "win32"
+      ? "Connect or enable a microphone, then open Windows Settings > Privacy & security > Microphone and allow desktop apps."
+      : "Connect or enable a microphone and allow your terminal to access it in operating-system privacy settings.");
+  }
+  steps.push(`Run '${CLI_NAME} voice test-speaker' and confirm that you personally hear the tone.`);
+  return steps;
+}
+
 function addUtilityCommands(program: Command, runtime: Runtime): void {
   program.command("commands [query]").description("search the shared command registry").action((query: string | undefined, _options: unknown, command: Command) => {
     const globals = global(command);
@@ -734,6 +813,8 @@ function addUtilityCommands(program: Command, runtime: Runtime): void {
       ...(globals.offline ? [] : Object.values(CONNECTOR_MAP).map((item) => item.probe())),
     ]);
     const providers = await loadUserProviderConfig(resolvePlatformPaths());
+    const microphone = await inspectMicrophones();
+    const openaiConfigured = providers.providers.openai?.enabled === true;
     emit(runtime.io, mode(globals), "doctor", {
       healthy: tools[0]?.exitCode === 0,
       node: process.version,
@@ -753,12 +834,18 @@ function addUtilityCommands(program: Command, runtime: Runtime): void {
       voice: {
         assistant: VOICE_ASSISTANT_NAME,
         mode: "explicit push-to-talk",
-        openaiConfigured: providers.providers.openai?.enabled === true,
-        availableInCurrentMode: globals.offline !== true && providers.providers.openai?.enabled === true,
+        openaiConfigured,
+        availableInCurrentMode: globals.offline !== true && openaiConfigured && microphone.devices.length > 0,
         blockedByOffline: globals.offline === true,
         transcriptionModel: DEFAULT_TRANSCRIPTION_MODEL,
         speechModel: DEFAULT_SPEECH_MODEL,
-        microphoneProbe: "not attempted (privacy: the microphone opens only after /voice or Ctrl+R)",
+        microphoneProbe: microphone.error === null
+          ? "device listing completed; microphone was not opened and no audio was recorded"
+          : `device listing failed; microphone was not opened: ${microphone.error}`,
+        microphoneReady: microphone.devices.length > 0,
+        microphoneDevices: microphone.devices,
+        speakerTestCommand: `${CLI_NAME} voice test-speaker`,
+        nextSteps: voiceNextSteps({offline: globals.offline === true, openaiConfigured, microphone}),
         capturePlatformSupported: ["win32", "darwin", "linux"].includes(process.platform),
         audioRetention: "in-memory recording is erased after transcription or cancellation",
         executesBeforeTranscriptConfirmation: false,
@@ -1221,6 +1308,9 @@ class CliError extends Error {
 
 function normalizeError(error: unknown): {code: string; message: string; exitCode: number; next?: string} {
   if (error instanceof CliError) return {code: error.code, message: error.message, exitCode: error.exitCode, ...(error.next ? {next: error.next} : {})};
+  if (error instanceof VoiceCapabilityError) {
+    return {code: error.code, message: error.message, exitCode: error.code === "VOICE_CANCELED" ? EXIT_CODES.CANCELED : EXIT_CODES.CAPABILITY_UNAVAILABLE, next: `${CLI_NAME} voice doctor`};
+  }
   if (error instanceof ControllerIpcError) {
     const exitCode = error.code === "APPROVAL_REQUIRED" ? EXIT_CODES.APPROVAL_REQUIRED : error.code.includes("NOT_FOUND") ? EXIT_CODES.USAGE : error.retryable ? EXIT_CODES.TRANSIENT_FAILURE : EXIT_CODES.ACTION_FAILED;
     return {code: error.code, message: error.message, exitCode, next: error.code === "APPROVAL_REQUIRED" ? `${CLI_NAME} approvals list` : `${CLI_NAME} doctor`};

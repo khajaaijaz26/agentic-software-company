@@ -34,7 +34,7 @@ Requirements: Node.js 22.14 or newer, npm, and Git. Node.js 24 LTS is recommende
 1. Install and verify the current release:
 
    ```powershell
-   npm install -g "https://github.com/khajaaijaz26/software-agent/releases/download/v0.7.0/software-agent-0.7.0.tgz"
+   npm install -g "https://github.com/khajaaijaz26/software-agent/releases/download/v0.7.1/software-agent-0.7.1.tgz"
    software-agent --version
    ```
 
@@ -65,7 +65,7 @@ GitHub repositories are edited through a normal local Git checkout, so every fil
 ### macOS or Linux
 
 ```bash
-npm install -g "https://github.com/khajaaijaz26/software-agent/releases/download/v0.7.0/software-agent-0.7.0.tgz"
+npm install -g "https://github.com/khajaaijaz26/software-agent/releases/download/v0.7.1/software-agent-0.7.1.tgz"
 cd /path/to/your-project
 software-agent
 ```
@@ -95,6 +95,7 @@ Without a configured provider, the deterministic offline adapter demonstrates or
 /api test openai
 /model openai/<model-id>
 /tokens balanced
+/usage
 /settings
 ```
 
@@ -119,15 +120,46 @@ Nova is the built-in push-to-talk voice assistant. Voice uses your configured Op
 It uses the official [Picovoice PvRecorder Node SDK](https://picovoice.ai/docs/quick-start/pvrecorder-nodejs/), [OpenAI transcription API](https://developers.openai.com/api/reference/resources/audio/subresources/transcriptions/methods/create), and [OpenAI speech API](https://developers.openai.com/api/reference/resources/audio/subresources/speech/methods/create).
 
 1. Open Software Agent and connect OpenAI once with `/setup`.
-2. Press `Ctrl+R` or type `/voice` **inside the project room**.
-3. Speak for up to two minutes, then press Enter.
+2. Press `Ctrl+R` or type `/voice` **inside the project room**. The popup means
+   Nova is listening; it does not speak immediately.
+3. Speak for up to two minutes, then press Enter to stop and transcribe.
 4. Review or edit the transcript that appears in the normal composer.
 5. Press Enter again to submit it for planning and execution.
-6. Nova reads the matching committed agent reply aloud.
+6. Wait for the matching agent reply to commit. Nova then reads that reply
+   aloud.
 
 Try saying: “Nova, tell me what every active agent is working on.” Use Tab or `/target` before recording when you want one specific agent to answer.
 
 The microphone is never always listening: it opens only after `Ctrl+R` or `/voice`. Captured PCM stays in memory, is capped at two minutes, and is erased after transcription or cancellation. Speech is sent to OpenAI for transcription, and replies use an AI-generated voice. The transcript is never executed until you confirm it with the second Enter. Nova fails closed under `--offline` before reading a credential or opening the microphone.
+
+If Nova opens a popup but does not record or speak, leave it open and use a
+second PowerShell window for these checks:
+
+```powershell
+software-agent voice doctor
+software-agent voice test-speaker
+```
+
+`voice doctor` does not open the microphone. It clearly reports whether OpenAI
+is connected and whether the operating system exposes a recording endpoint.
+`voice test-speaker` uses no network or API credits and plays a louder local
+tone. A completed player process is not treated as proof that you heard it: if
+the tone is silent, unmute the computer, raise the output volume, and select the
+intended speakers. On Windows, a missing microphone requires **Settings →
+Privacy & security → Microphone → Let desktop apps access your microphone** and
+an enabled input device. Run `software-agent voice doctor` again afterward.
+
+### Understand tokens and cost
+
+Inside Software Agent, type `/usage`. It explains the current provider, model,
+actual recorded usage, cost, and run limit in plain language. The important
+distinction is:
+
+- OpenAI or Anthropic supplies the AI credits and bills actual API use.
+- Software Agent's 25%/50%/100% number is a run safety limit, not free credit
+  and not the balance of the provider account.
+- Only specialists assigned to work call the model; waiting roles consume zero
+  model tokens.
 
 ### Chat naturally, then keep going
 
@@ -155,6 +187,7 @@ The terminal UI starts in Simple view so it feels like a familiar coding-agent c
 ❯_ ●─●─● ✓ SOFTWARE AGENT                    project @ main | WORKING
 READY | You are in control | runs independently in this terminal
 WORKING · Fix the login error                 2/5 steps finished
+NEXT › No action required; watch progress or keep chatting
 ┌─ CONVERSATION ──────────────────────┬─ TEAM ────────────────────────────────┐
 │ YOU › Fix the login error           │ ● Backend Engineer                   │
 │ Backend Engineer › Thinking...      │   Working on: repair authentication  │
@@ -162,7 +195,7 @@ WORKING · Fix the login error                 2/5 steps finished
 │ Backend Engineer › ✓ Login fixed    │   Waiting for your approval          │
 │                                     │ 2 working · 24 ready                 │
 └─────────────────────────────────────┴────────────────────────────────────────┘
-AI connected · openai | BALANCED | 1 approval | /details for more
+AI ON · openai/model | RUN LIMIT · BALANCED 50% | /usage explains cost
 YOU › Type your next message here
 Ctrl+R talk to Nova · / commands · Enter send
 ```
@@ -182,6 +215,8 @@ Simple view keeps the conversation and next action obvious. Detailed view retain
 | `DONE` / `FAILED` | The agent reached a terminal state. |
 | `LIVE SCROLL` | New committed events automatically remain visible. |
 | `SCROLL PAUSED` | Only automatic event scrolling is paused; the run and agents are unaffected. Press `Ctrl+F` or use `/follow` to resume. |
+| `AI OFFLINE DEMO` | No real model API is being called. Type `/setup` to connect one. |
+| `RUN LIMIT BALANCED 50%` | Software Agent may use up to half of the configured run allowance. This is not free credit or a provider balance. |
 
 ## Modern technology stack
 

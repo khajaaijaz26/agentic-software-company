@@ -29,12 +29,12 @@ For remote GitHub projects, connect once with `gh auth login`. You may skip both
 The public GitHub release is available now:
 
 ```powershell
-npm install -g "https://github.com/khajaaijaz26/software-agent/releases/download/v0.7.0/software-agent-0.7.0.tgz"
+npm install -g "https://github.com/khajaaijaz26/software-agent/releases/download/v0.7.1/software-agent-0.7.1.tgz"
 software-agent --version
 software-agent setup
 ```
 
-GitHub publishes the SHA-256 digest for `software-agent-0.7.0.tgz` on the release page so it can be checked independently after download.
+GitHub publishes the SHA-256 digest for `software-agent-0.7.1.tgz` on the release page so it can be checked independently after download.
 
 ## Global npm registry installation
 
@@ -188,7 +188,7 @@ Do not pass a raw key to `--credential`; it is rejected. Raw keys are accepted o
 ## macOS and Linux
 
 ```bash
-npm install -g "https://github.com/khajaaijaz26/software-agent/releases/download/v0.7.0/software-agent-0.7.0.tgz"
+npm install -g "https://github.com/khajaaijaz26/software-agent/releases/download/v0.7.1/software-agent-0.7.1.tgz"
 cd /path/to/your-project
 export OPENAI_API_KEY="your-key"
 software-agent providers add openai --model <model-id> --credential env://OPENAI_API_KEY
@@ -212,6 +212,29 @@ Press Enter again to send
 ```
 
 Nova then speaks the committed reply belonging to that exact request. Before recording, use Tab or `/target` if you want to ask one active agent rather than the whole Software Agent team.
+
+Opening the Nova popup starts listening; it does not play speech immediately.
+The spoken response happens only after you stop recording, review the
+transcript, press Enter to send it, and the matching agent reply finishes.
+
+Check each local requirement without opening the microphone:
+
+```powershell
+software-agent voice doctor
+```
+
+Test only speaker playback, with no provider call or API credits:
+
+```powershell
+software-agent voice test-speaker
+```
+
+If `voice doctor` reports `OpenAI: NOT CONNECTED`, open Software Agent and use
+`/setup`. If it reports `Microphone: NOT DETECTED` on Windows, connect or enable
+an input device and turn on **Settings → Privacy & security → Microphone → Let
+desktop apps access your microphone**. If the speaker test completes but is
+silent, unmute Windows, raise the output volume, and choose the intended output
+device. Run both commands again after changing the settings.
 
 The microphone opens only after an explicit `Ctrl+R` or `/voice`. Recording is capped at two minutes, held in memory, erased after transcription or cancellation, and never treated as a command before you review and submit its transcript. OpenAI receives the audio for transcription and generates the spoken reply; the voice is AI-generated. `--offline` blocks voice before credential or microphone access. `/voice` is an in-room command—do not type it at a PowerShell prompt before opening `software-agent`.
 

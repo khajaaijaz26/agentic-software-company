@@ -14,6 +14,47 @@ independent version lines.
 - Server-push event subscriptions and very-large-run snapshot compaction.
 - Signed export/import and an automated Python-state migration tool.
 
+## [npm 0.7.1] - 2026-08-19
+
+### Added
+
+- `/usage`, a plain-language in-room explanation of provider credits, actual
+  model billing, input/output/cached/reasoning tokens, and Software Agent's
+  separate run safety limit.
+- `software-agent voice doctor`, which lists microphone endpoints and reports
+  OpenAI, offline-mode, and hardware blockers without opening the microphone or
+  recording audio.
+- `software-agent voice test-speaker`, a louder local-only tone that verifies
+  the playback path without contacting a provider or using API credits.
+
+### Changed
+
+- Simple view now shows an explicit next action, recent files and tools, a
+  normalized AI model label, and `AI ON` versus `OFFLINE DEMO` instead of
+  exposing the internal deterministic adapter as if it were a real model.
+- Setup, settings, help, token panels, and the slash menu now distinguish
+  provider credits from the 25%/50%/100% run limit and explain that waiting
+  roles consume no model tokens.
+- Nova's UI now explains the complete sequence: the first popup listens rather
+  than speaks; speech occurs only after transcription, user review, submission,
+  and the matching committed agent reply.
+
+### Fixed
+
+- An absent recording endpoint now produces an actionable platform-specific
+  microphone error instead of passing through a cryptic native-device failure.
+- Voice readiness no longer reports available merely because OpenAI is
+  configured; a visible microphone input is also required.
+- Speaker diagnostics no longer claim sound was audible merely because the
+  operating-system player exited successfully; user confirmation is explicit.
+
+### Security
+
+- Voice diagnostics enumerate device names only. They do not open the
+  microphone, capture audio, resolve a provider secret, or contact the network.
+- The speaker test uses a generated in-memory tone, a private temporary WAV,
+  and no model API or provider credits.
+
 ## [npm 0.7.0] - 2026-08-19
 
 ### Added

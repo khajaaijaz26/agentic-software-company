@@ -367,6 +367,6 @@ describe("catalog, terminal safety, controller replay, and CLI ABI", () => {
     expect(doctor.data.connectors.every((item) => item.details[0]?.includes("probe not attempted"))).toBe(true);
     expect(doctor.data.runtime).toMatchObject({mode: "standalone", requiresEditor: false, requiresExternalCodingCli: false});
     expect(doctor.data.voice).toMatchObject({assistant: "Nova", mode: "explicit push-to-talk", executesBeforeTranscriptConfirmation: false, availableInCurrentMode: false, blockedByOffline: true});
-    expect(doctor.data.voice.microphoneProbe).toContain("not attempted");
+    expect(doctor.data.voice.microphoneProbe).toContain("microphone was not opened");
   });
 });

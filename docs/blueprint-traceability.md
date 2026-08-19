@@ -9,7 +9,7 @@ This matrix records what the Software Agent v0.7 implementation actually provide
 | Globally installable TypeScript CLI | Implemented | `software-agent` package/bin, strict TypeScript, Node.js 22.14+ |
 | Human/plain/JSON/NDJSON output | Implemented | CLI output envelopes and stable exit-code map; NDJSON event follow is polling, not server push |
 | Responsive project-room TUI | Implemented | Chat-first Simple default, optional complete 26-role Detailed view, actual final replies, guided setup, direct prompting, slash commands, approvals, tokens, targeted instructions, reconnect/resync, read-only mode, plain fallback |
-| Two-way Nova voice | Implemented bounded | Explicit `Ctrl+R`/`/voice`, two-minute in-memory capture, OpenAI transcription, editable confirmation, exact-task reply correlation, and generated speech; no wake word or partial live transcript |
+| Two-way Nova voice | Implemented bounded | Explicit `Ctrl+R`/`/voice`, two-minute in-memory capture, OpenAI transcription, editable confirmation, exact-task reply correlation, generated speech, non-recording device diagnostics, and local speaker testing; no wake word or partial live transcript |
 | Durable local controller | Implemented | Detached discovery plus embedded test mode; one authoritative SQLite-backed controller per workspace |
 | Authenticated local IPC | Implemented local | Four-byte framed JSON, Unix socket/Windows pipe only, private nonce and HMAC proof, frame limits, descriptors, heartbeat, cross-process start lock |
 | Single-writer enforcement | Implemented application-level | Controller lock and mutation lease/fence; the owning OS user can still alter files directly |

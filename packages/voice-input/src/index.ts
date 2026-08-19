@@ -16,6 +16,7 @@ export const VOICE_ASSISTANT_NAME = "Nova";
 export const DEFAULT_TRANSCRIPTION_MODEL = "gpt-4o-mini-transcribe";
 export const DEFAULT_SPEECH_MODEL = "gpt-4o-mini-tts";
 export const MAX_VOICE_RECORDING_MS = 120_000;
+export const VOICE_TEST_TONE_DURATION_MS = 700;
 
 const FRAME_LENGTH = 512;
 const MAX_TRANSCRIPT_BYTES = 256 * 1024;
@@ -364,7 +365,43 @@ class BufferedVoiceRecording implements VoiceRecordingSession {
 export class PvRecorderFactory implements PcmRecorderFactory {
   public async create(frameLength: number, deviceIndex: number, bufferedFramesCount: number): Promise<PcmRecorder> {
     const {PvRecorder} = await import("@picovoice/pvrecorder-node");
+    const devices = PvRecorder.getAvailableDevices();
+    if (devices.length === 0) {
+      throw new VoiceCapabilityError(
+        "VOICE_MICROPHONE_UNAVAILABLE",
+        microphoneRecoveryMessage(),
+      );
+    }
     return new PvRecorder(frameLength, deviceIndex, bufferedFramesCount);
+  }
+}
+
+/** Lists input endpoints without opening or recording from the microphone. */
+export async function listVoiceInputDevices(): Promise<readonly string[]> {
+  const {PvRecorder} = await import("@picovoice/pvrecorder-node");
+  return PvRecorder.getAvailableDevices().map((device) => sanitizeTerminal(device, 160));
+}
+
+/** Generates a short local-only tone used to verify the operating-system speaker path. */
+export function createVoiceTestTone(
+  durationMs = VOICE_TEST_TONE_DURATION_MS,
+  sampleRate = 16_000,
+  frequencyHz = 523.25,
+): Uint8Array {
+  boundedInteger(durationMs, 100, 2_000, "voice test tone duration");
+  boundedInteger(sampleRate, 8_000, 48_000, "voice test tone sample rate");
+  if (!Number.isFinite(frequencyHz) || frequencyHz < 100 || frequencyHz > 2_000) {
+    throw new Error("voice test tone frequency must be from 100 to 2000 Hz");
+  }
+  const samples = new Int16Array(Math.floor(sampleRate * durationMs / 1_000));
+  for (let index = 0; index < samples.length; index += 1) {
+    const envelope = Math.min(1, index / 240, (samples.length - index) / 240);
+    samples[index] = Math.round(Math.sin(2 * Math.PI * frequencyHz * index / sampleRate) * 14_000 * envelope);
+  }
+  try {
+    return pcm16FramesToWav([samples], sampleRate);
+  } finally {
+    samples.fill(0);
   }
 }
 
@@ -543,4 +580,14 @@ function canceled(): VoiceCapabilityError {
 
 function boundedErrorMessage(error: unknown): string {
   return sanitizeTerminal(error instanceof Error ? error.message : String(error), 240);
+}
+
+function microphoneRecoveryMessage(): string {
+  if (process.platform === "win32") {
+    return "No Windows microphone input is visible. Connect or enable a microphone, then open Settings > Privacy & security > Microphone and allow desktop apps. Run 'software-agent voice doctor' to check again.";
+  }
+  if (process.platform === "darwin") {
+    return "No microphone input is visible. Connect or enable a microphone, allow your terminal under System Settings > Privacy & Security > Microphone, then run 'software-agent voice doctor'.";
+  }
+  return "No microphone input is visible. Connect or enable an input device, check its recording permission, then run 'software-agent voice doctor'.";
 }

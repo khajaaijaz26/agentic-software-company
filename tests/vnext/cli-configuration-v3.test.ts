@@ -90,6 +90,25 @@ describe("Software Agent setup CLI", () => {
     });
   });
 
+  it("explains Nova readiness without opening the microphone", async () => {
+    const home = temporaryDirectory("software-agent-voice-home-");
+    process.env.SOFTWARE_AGENT_HOME = home;
+    const output: string[] = [];
+    const io = {stdout: (value: string) => output.push(value), stderr: () => undefined};
+
+    expect(await runCli(["node", "software-agent", "--json", "voice", "doctor"], io)).toBe(0);
+    const report = JSON.parse(output.join("")).data as {
+      openai: string;
+      privacy: string;
+      speakerTestCommand: string;
+      nextSteps: string[];
+    };
+    expect(report.openai).toBe("NOT CONNECTED");
+    expect(report.privacy).toContain("does not open the microphone");
+    expect(report.speakerTestCommand).toBe("software-agent voice test-speaker");
+    expect(report.nextSteps.join(" ")).toContain("/setup");
+  });
+
   it("opens local workspaces and existing GitHub checkouts in the project room", async () => {
     const home = temporaryDirectory("software-agent-cli-home-");
     const localWorkspace = temporaryDirectory("software-agent-cli-local-");
@@ -100,7 +119,7 @@ describe("Software Agent setup CLI", () => {
     const io = {stdout: (value: string) => output.push(value), stderr: () => undefined};
 
     expect(await runCli(["node", "software-agent", "--plain", "open", localWorkspace], io)).toBe(0);
-    expect(output.join("\n")).toContain("WELCOME");
+    expect(output.join("\n")).toContain("START HERE");
     expect(output.join("\n")).toContain("/agents shows all 26");
     expect(output.join("\n")).toContain("standalone local controller");
     expect(readFileSync(join(localWorkspace, ".software-agent", "project.toml"), "utf8")).toContain("software-agent.project/v2");

@@ -24,6 +24,7 @@ const implemented = new Set([
   "changes status", "changes diff", "changes files",
   "providers list", "providers add", "providers show", "providers test", "providers enable", "providers disable", "providers remove",
   "models list", "models use", "tokens mode", "tokens status", "secrets list", "secrets test", "setup",
+  "voice doctor", "voice test-speaker",
 ]);
 
 const mutationPrefixes = [
@@ -65,6 +66,7 @@ const catalog: ReadonlyArray<readonly [string, string]> = [
   ...family("providers", ["list", "add", "show", "test", "enable", "disable", "remove"]),
   ...family("models", ["list", "use", "test", "aliases", "policy"]),
   ...family("tokens", ["mode", "status"]),
+  ...family("voice", ["doctor", "test-speaker"]),
   ...family("config", ["path", "get", "set", "unset", "edit", "validate", "export"]),
   ...family("policy", ["show", "validate", "explain"]),
   ...family("secrets", ["list", "add", "test", "remove"]),

@@ -5,6 +5,7 @@ import type {CredentialBackend, SecretBroker, SecretLease, SecretReference} from
 import {ConfiguredVoiceAssistant} from "../../apps/cli/src/voice-assistant.js";
 import {
   OpenAiVoiceAssistant,
+  createVoiceTestTone,
   pcm16FramesToWav,
   type PcmRecorder,
   type PcmRecorderFactory,
@@ -81,6 +82,16 @@ describe("Nova voice input", () => {
     expect(wav.readUInt16LE(34)).toBe(16);
     expect(wav.readUInt32LE(40)).toBe(6);
     expect([wav.readInt16LE(44), wav.readInt16LE(46), wav.readInt16LE(48)]).toEqual([1, -2, 3]);
+  });
+
+  it("creates an audible local-only speaker test WAV", () => {
+    const wav = Buffer.from(createVoiceTestTone());
+    expect(wav.toString("ascii", 0, 4)).toBe("RIFF");
+    expect(wav.readUInt32LE(24)).toBe(16_000);
+    expect(wav.readUInt32LE(40)).toBe(16_000 * 700 / 1_000 * 2);
+    let peak = 0;
+    for (let offset = 44; offset < wav.length; offset += 2) peak = Math.max(peak, Math.abs(wav.readInt16LE(offset)));
+    expect(peak).toBeGreaterThan(10_000);
   });
 
   it("records in memory, transcribes through the saved OpenAI credential, and erases the lease", async () => {

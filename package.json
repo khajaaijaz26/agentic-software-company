@@ -1,6 +1,6 @@
 {
   "name": "software-agent",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "A visible, governed, voice-enabled team of AI software agents in your terminal",
   "type": "module",
   "license": "Apache-2.0",

@@ -172,6 +172,7 @@ export type ProjectRoomOverlay =
   | {readonly kind: "none"}
   | {readonly kind: "setup"; readonly selected: "openai" | "anthropic" | "offline"}
   | {readonly kind: "help"}
+  | {readonly kind: "usage"}
   | {readonly kind: "search"; readonly query: string}
   | {readonly kind: "palette"; readonly query: string; readonly selected: number}
   | {readonly kind: "leave"; readonly selected: LeaveDisposition}
@@ -244,6 +245,7 @@ export type ProjectRoomAction =
   | {readonly type: "overlay.close"}
   | {readonly type: "overlay.setup"}
   | {readonly type: "overlay.help"}
+  | {readonly type: "overlay.usage"}
   | {readonly type: "overlay.search"}
   | {readonly type: "overlay.palette"}
   | {readonly type: "overlay.leave"}
@@ -304,6 +306,7 @@ const PALETTE_ACTIONS = [
   "Compose instruction",
   "Talk to Nova",
   "Guided AI setup",
+  "Explain tokens and cost",
   "Switch to simple view",
   "Open detailed control room",
   "Open settings",
@@ -328,6 +331,7 @@ const SLASH_COMMANDS: readonly SlashCommandSuggestion[] = [
   {command: "/setup", usage: "/setup", description: "Connect your AI in a guided setup", category: "Start here", completion: "/setup", runOnSelect: true},
   {command: "/voice", usage: "/voice", description: "Talk to Nova and review the transcript before sending", category: "Start here", completion: "/voice", runOnSelect: true},
   {command: "/help", usage: "/help", description: "Learn the few controls you need", category: "Start here", completion: "/help", runOnSelect: true},
+  {command: "/usage", usage: "/usage", description: "Explain AI credits, tokens, limits, and current cost", category: "Start here", completion: "/usage", runOnSelect: true},
   {command: "/simple", usage: "/simple", description: "Use the clean chat-first screen", category: "Start here", completion: "/simple", runOnSelect: true},
   {command: "/details", usage: "/details", description: "Open the complete multi-agent control room", category: "Start here", completion: "/details", runOnSelect: true},
   {command: "/status", usage: "/status", description: "Explain what is happening right now", category: "View", completion: "/status", runOnSelect: true},
@@ -429,6 +433,8 @@ export function projectRoomReducer(state: ProjectRoomState, action: ProjectRoomA
       return {...state, overlay: {kind: "setup", selected: "openai"}, notice: null};
     case "overlay.help":
       return {...state, overlay: {kind: "help"}, notice: null};
+    case "overlay.usage":
+      return {...state, overlay: {kind: "usage"}, notice: null};
     case "overlay.search":
       return {...state, overlay: {kind: "search", query: ""}, notice: null};
     case "overlay.palette":
@@ -651,6 +657,7 @@ export function projectRoomInput(state: ProjectRoomState, input: string, key: Pr
       if (key.downArrow || key.rightArrow) return {type: "selection.move", delta: 1};
       return null;
     case "help":
+    case "usage":
     case "settings":
       return input === "?" || key.return ? {type: "overlay.close"} : null;
     case "search":
@@ -890,6 +897,7 @@ function confirmOverlay(state: ProjectRoomState): ProjectRoomState {
       }, {kind: "none"});
     }
     case "help":
+    case "usage":
     case "settings":
     case "approval-detail":
       return {...state, overlay: {kind: "none"}};
@@ -959,7 +967,7 @@ function validSlashInvocation(command: string): boolean {
   const root = parts[0] ?? "";
   const action = parts[1];
   const provider = parts[2];
-  if (["/setup", "/voice", "/help", "/simple", "/details", "/search", "/follow", "/leave", "/target", "/settings", "/agents", "/approvals", "/events", "/status", "/clear", "/project"].includes(root)) {
+  if (["/setup", "/voice", "/help", "/usage", "/simple", "/details", "/search", "/follow", "/leave", "/target", "/settings", "/agents", "/approvals", "/events", "/status", "/clear", "/project"].includes(root)) {
     return parts.length === 1;
   }
   if (root === "/open" || root === "/github") return true;
@@ -983,6 +991,7 @@ function executeSlashCommand(state: ProjectRoomState, command: string): ProjectR
     case "/setup": return {...state, ...clearComposer, overlay: {kind: "setup", selected: "openai"}, notice: null};
     case "/voice": return beginVoiceInput({...state, ...clearComposer});
     case "/help": return {...state, ...clearComposer, overlay: {kind: "help"}, notice: null};
+    case "/usage": return {...state, ...clearComposer, overlay: {kind: "usage"}, notice: null};
     case "/simple": return {...state, ...clearComposer, viewMode: "simple", notice: "Simple chat view enabled. Type naturally and press Enter."};
     case "/details": return {...state, ...clearComposer, viewMode: "detailed", notice: "Detailed multi-agent control room enabled. Use /simple whenever you want the clean chat view."};
     case "/search": return {...state, ...clearComposer, overlay: {kind: "search", query: ""}, notice: null};
@@ -1077,11 +1086,17 @@ function parseUiTokenMode(value: string): "economy" | "balanced" | "quality" | n
 }
 
 function runStatusNotice(run: ProjectRoomRun | null): string {
-  if (run === null) return "No run is active. Type a prompt to create one.";
+  if (run === null) return "Ready: no work is running. Type what you want Software Agent to do and press Enter.";
   const passed = run.tasks.filter((task) => task.state === "PASSED").length;
-  const working = run.agents.filter((agent) => /RUNNING|PLANNING/u.test(agent.state)).length;
-  const status = run.state === "SUCCEEDED" ? "Finished" : run.state === "FAILED" ? "Needs attention" : run.state === "PAUSED" ? "Paused" : "Working";
-  return `${status}: ${passed} of ${run.tasks.length} steps finished; ${working} specialist${working === 1 ? " is" : "s are"} working now.`;
+  const working = run.agents.filter((agent) => /RUNNING|PLANNING/u.test(agent.state));
+  const failed = run.agents.find((agent) => /FAILED/u.test(agent.state));
+  if (run.state === "SUCCEEDED") return `Finished: ${passed} of ${run.tasks.length} steps completed. Review the result, then type a follow-up or a new request.`;
+  if (run.state === "FAILED" || failed !== undefined) return `Needs attention: ${failed?.displayName ?? "the team"} reported ${failed?.blocker ?? failed?.activity ?? "a failed step"}. Type how you want it fixed, or use /details for evidence.`;
+  if (run.state === "PAUSED") return `Paused: ${passed} of ${run.tasks.length} steps finished. Your work is saved; type a follow-up to continue.`;
+  const active = working[0];
+  return active === undefined
+    ? `Preparing: ${passed} of ${run.tasks.length} steps finished. The controller is assigning the next specialist.`
+    : `Working: ${passed} of ${run.tasks.length} steps finished. ${active.displayName} is working on ${active.taskTitle}: ${active.activity}.`;
 }
 
 function executePalette(state: ProjectRoomState): ProjectRoomState {
@@ -1092,6 +1107,7 @@ function executePalette(state: ProjectRoomState): ProjectRoomState {
     case "Compose instruction": return projectRoomReducer({...state, overlay: {kind: "none"}}, {type: "overlay.composer"});
     case "Talk to Nova": return beginVoiceInput({...state, overlay: {kind: "none"}});
     case "Guided AI setup": return {...state, overlay: {kind: "setup", selected: "openai"}};
+    case "Explain tokens and cost": return {...state, overlay: {kind: "usage"}};
     case "Switch to simple view": return {...state, overlay: {kind: "none"}, viewMode: "simple", notice: "Simple chat view enabled."};
     case "Open detailed control room": return {...state, overlay: {kind: "none"}, viewMode: "detailed", notice: "Detailed multi-agent control room enabled."};
     case "Open settings": return {...state, overlay: {kind: "settings"}};

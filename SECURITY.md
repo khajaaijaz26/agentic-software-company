@@ -59,6 +59,11 @@ credentials and synthetic data.
   temporary WAV for playback, and removed immediately afterward.
 - `--offline` rejects Nova before provider configuration, credential resolution,
   microphone access, or an audio network request.
+- `software-agent voice doctor` lists input endpoint names without opening the
+  microphone, resolving a provider credential, recording audio, or contacting
+  the network. `voice test-speaker` uses a generated local tone and the same
+  private temporary-WAV cleanup path as generated speech; it uses no API key or
+  provider credits.
 - Attachment content is untrusted data. Local ingestion does not authorize
   upload, execution, or instruction following.
 - Artifacts are addressed by SHA-256 and verified on read. Runtime files are

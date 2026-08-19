@@ -300,9 +300,10 @@ describe("Software Agent v0.7 project room", () => {
     let state = readyState();
     state = input(state, "/");
     expect(state.overlay.kind).toBe("composer");
-    expect(slashCommandSuggestions("/")).toHaveLength(29);
+    expect(slashCommandSuggestions("/")).toHaveLength(30);
     expect(slashCommandSuggestions("/").map((command) => command.command)).toEqual(expect.arrayContaining([
       "/setup",
+      "/usage",
       "/voice",
       "/help",
       "/simple",
@@ -320,7 +321,7 @@ describe("Software Agent v0.7 project room", () => {
     const menu = renderProjectRoomText(state, {width: 120, height: 36, ascii: true, noColor: true});
     expect(menu).toContain("SOFTWARE AGENT COMMANDS");
     expect(menu).toContain("Project: C:\\work\\demo");
-    expect(menu).toContain("Model: openai/gpt-test | Tokens: balanced | API: openai");
+    expect(menu).toContain("AI: openai/gpt-test | Run limit: BALANCED 50% | Provider: openai");
     expect(menu).toContain("[Start here] /setup");
     expect(menu).toContain("Type filter | Up/Down choose | Tab complete | Enter run");
 
@@ -432,6 +433,15 @@ describe("Software Agent v0.7 project room", () => {
     state = input(state, "tokens 25");
     state = input(state, "", key({return: true}));
     expect(state.pendingCommand?.command).toMatchObject({type: "tokens.mode", mode: "economy"});
+
+    state = readyState();
+    state = input(state, "/usage");
+    state = input(state, "", key({return: true}));
+    expect(state.overlay.kind).toBe("usage");
+    const usage = renderProjectRoomText(state, {width: 120, height: 32, ascii: true, noColor: true});
+    expect(usage).toContain("AI TOKENS, CREDITS & COST");
+    expect(usage).toContain("Software Agent does not create free tokens");
+    expect(usage).toContain("safety cap, not credits");
 
     state = readyState();
     state = input(state, "/");
@@ -571,7 +581,7 @@ describe("Software Agent v0.7 project room", () => {
     expect(live).toContain("TEAM NOW");
     expect(live).toContain("1 working | 1 need attention | 0 finished | 24 ready");
     expect(live).toContain("Applying a bounded UI patch");
-    expect(live).toContain("AI connected (openai)");
+    expect(live).toContain("AI ON (openai/gpt-test)");
     expect(live).toContain("YOUR DECISION IS NEEDED");
     expect(live).toContain("/details More");
     expect(live).not.toContain("cursor 12");
@@ -599,7 +609,7 @@ describe("Software Agent v0.7 project room", () => {
       createInitialProjectRoomState({width: 80, height: 24, now: Date.parse(NOW)}),
       {type: "snapshot.received", snapshot: snapshot({run: null, approvals: [], importantEvents: []})},
     );
-    expect(renderProjectRoomText(empty, {width: 80, height: 24, ascii: true, noColor: true})).toContain("READY — WHAT WOULD YOU LIKE TO DO?");
+    expect(renderProjectRoomText(empty, {width: 80, height: 24, ascii: true, noColor: true})).toContain("READY — TYPE WHAT YOU WANT SOFTWARE AGENT TO DO");
 
     const failed = projectRoomReducer(stale, {type: "connection.error", message: "resync failed"});
     expect(renderProjectRoomText(failed, {width: 80, height: 24, ascii: true, noColor: true})).toContain("CONNECTION PROBLEM");

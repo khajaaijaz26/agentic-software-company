@@ -434,7 +434,7 @@ export function renderProjectRoomText(state: ProjectRoomState, options: ProjectR
     lines.push(clip(` ${formatUsage(run.tokens)} | ${formatCost(run.costUsd)} | budget ${run.tokenBudget.used}/${formatToken(run.tokenBudget.limit)}`, width, ascii));
   }
   const settings = state.snapshot?.settings;
-  lines.push(clip(`SETTINGS | model ${settings?.defaultModel ?? "deterministic/local"} | tokens ${settings?.tokenMode ?? "balanced"} | API ${settings?.providers.filter((provider) => provider.enabled).map((provider) => provider.providerId).join(",") || "offline"}`, width, ascii));
+  lines.push(clip(`SETTINGS | AI ${uiModelLabel(settings)} | run limit ${tokenModeLabel(settings?.tokenMode)} | /usage explains billing`, width, ascii));
   if (interactive) lines.push(clip(`CHAT [to: ${targetLabel(state.composerTarget)}] > ${state.overlay.kind === "composer" ? state.composerText : "type to chat, Ctrl+R voice, or / commands"}`, width, ascii));
   if (state.notice !== null) lines.push(clip(`NOTICE: ${state.notice}`, width, ascii));
   if (interactive) {
@@ -474,10 +474,10 @@ function renderSimpleProjectRoomText(state: ProjectRoomState, options: ProjectRo
   }
   if (run === null) {
     lines.push(
-      provider === undefined ? "WELCOME — CONNECT AI OR START IN DEMO MODE" : "READY — WHAT WOULD YOU LIKE TO DO?",
-      provider === undefined ? "1. Type /setup to connect OpenAI or Anthropic securely." : "Type what you want to build, fix, review, research, or explain.",
-      provider === undefined ? "2. Then type your request normally and press Enter." : "Software Agent will choose the right specialists automatically.",
-      provider === undefined ? "Real answers require your own API key; offline mode is a demonstration." : "",
+      provider === undefined ? "START HERE — CONNECT REAL AI" : "READY — TYPE WHAT YOU WANT SOFTWARE AGENT TO DO",
+      provider === undefined ? "1. Type /setup and choose OpenAI or Anthropic." : "Type what you want to build, fix, review, research, or explain.",
+      provider === undefined ? "2. Paste your own API key into the masked secure field." : "Software Agent will choose the right specialists automatically.",
+      provider === undefined ? "3. Type your request and press Enter. /usage explains credits, limits, and cost." : "",
     );
   } else {
     const progress = summarizeTasks(run.tasks);
@@ -495,6 +495,7 @@ function renderSimpleProjectRoomText(state: ProjectRoomState, options: ProjectRo
       clip(`${glyph(run.state, ascii)} ${simpleRunLabel(run)} | ${run.objective}`, width, ascii),
       clip(`${progressBar(progress.passed, progress.total, 16, ascii)} ${progress.percent}% | ${progress.passed}/${progress.total} steps finished`, width, ascii),
       clip(progressMessage, width, ascii),
+      clip(`NEXT > ${simpleRunNextAction(run, run.state === "FAILED" || run.agents.some((agent) => /FAILED/u.test(agent.state)))}`, width, ascii),
     );
   }
   const pending = state.snapshot?.approvals.filter((approval) => approval.status === "PENDING") ?? [];
@@ -505,6 +506,10 @@ function renderSimpleProjectRoomText(state: ProjectRoomState, options: ProjectRo
   for (const event of chatAndWorkEvents(state.events).slice(-10)) {
     lines.push(clip(`${simpleEventSpeaker(event, run)} > ${simpleEventMessage(event, ascii)}`, width, ascii));
   }
+  const files = [...new Set((run?.agents ?? []).flatMap((agent) => agent.requestedFiles))].slice(-4);
+  const tools = [...new Set((run?.agents ?? []).flatMap((agent) => agent.requestedTools))].slice(-3);
+  if (files.length > 0) lines.push(clip(`FILES IN THIS WORK > ${files.join(" | ")}`, width, ascii));
+  if (tools.length > 0) lines.push(clip(`TOOLS USED > ${tools.join(" | ")}`, width, ascii));
   const roster = state.snapshot?.roster ?? [];
   const terminal = run !== null && ["SUCCEEDED", "FAILED", "CANCELED"].includes(run.state);
   const working = run === null || terminal ? [] : roster.filter((agent) => agent.state === "WORKING");
@@ -517,7 +522,7 @@ function renderSimpleProjectRoomText(state: ProjectRoomState, options: ProjectRo
   for (const agent of visible) lines.push(clip(` ${glyph(agent.state, ascii)} ${agent.displayName} — ${simpleRosterStatus(agent)}`, width, ascii));
   lines.push(`${working.length} working | ${blocked.length} need attention | ${done.length} finished | ${ready} ready | /agents shows all ${roster.length}`);
   const budget = run === null ? "no tokens used" : `${run.tokenBudget.used}/${formatToken(run.tokenBudget.limit)} tokens`;
-  lines.push(clip(`AI ${provider === undefined ? "not connected (offline demo)" : `connected (${provider.providerId})`} | ${(settings?.tokenMode ?? "balanced").toUpperCase()} | ${budget} | ${pending.length} approvals`, width, ascii));
+  lines.push(clip(`AI ${provider === undefined ? "OFFLINE DEMO (no real model calls)" : `ON (${uiModelLabel(settings)})`} | RUN LIMIT ${tokenModeLabel(settings?.tokenMode)} | ${budget} | ${pending.length} approvals | /usage explains cost`, width, ascii));
   if (interactive) lines.push(clip(`YOU > ${state.overlay.kind === "composer" ? state.composerText : "Type a request · Ctrl+R Nova voice · / commands"}`, width, ascii));
   if (state.notice !== null) lines.push(clip(`NOTICE: ${state.notice}`, width, ascii));
   if (interactive) {
@@ -680,17 +685,18 @@ function SimpleWorkspace({state, run, layout, noColor, ascii, interactive}: {
       ) : null}
       {run === null ? (
         <Box flexDirection="column" borderStyle={ascii ? "classic" : "single"} paddingX={1} marginTop={1} {...borderColorProp(noColor ? undefined : connectedProvider === undefined ? "yellow" : "cyan")}>
-          <Text bold>{connectedProvider === undefined ? "WELCOME — CONNECT AI OR START IN DEMO MODE" : "READY — WHAT WOULD YOU LIKE TO DO?"}</Text>
+          <Text bold>{connectedProvider === undefined ? "START HERE — CONNECT REAL AI" : "READY — TYPE WHAT YOU WANT SOFTWARE AGENT TO DO"}</Text>
           {connectedProvider === undefined ? (
             <>
-              <Text>1. Type <Text bold>/setup</Text> to connect OpenAI or Anthropic securely.</Text>
-              <Text>2. Then type your request normally and press Enter.</Text>
-              <Text dimColor>You can explore offline now, but real answers require your own API key.</Text>
+              <Text>1. Type <Text bold>/setup</Text> and choose OpenAI or Anthropic.</Text>
+              <Text>2. Paste your own API key into the masked secure field.</Text>
+              <Text>3. Type your request normally and press Enter.</Text>
+              <Text dimColor>Offline demo does not call real AI. The token limit is not free credit; type /usage for a plain explanation.</Text>
             </>
           ) : (
             <>
               <Text>Type what you want to build, fix, review, research, or explain.</Text>
-              <Text dimColor>Software Agent will choose the right specialists and show their work here.</Text>
+              <Text dimColor>Software Agent will plan it, choose specialists, show file/tool activity, verify the result, and keep the conversation here.</Text>
             </>
           )}
         </Box>
@@ -723,11 +729,13 @@ function SimpleRunProgress({run, noColor, ascii}: {
         : active === undefined
           ? "Preparing the next step..."
           : `${active.displayName} is working — ${active.activity}`;
+  const nextAction = simpleRunNextAction(run, run.state === "FAILED" || run.agents.some((agent) => /FAILED/u.test(agent.state)));
   return (
     <Box flexDirection="column" marginTop={1} paddingX={1}>
       <Text bold {...textColorProp(noColor ? undefined : stateTone(run.state))}>{glyph(run.state, ascii)} {simpleRunLabel(run)} · {safe(run.objective, 120)}</Text>
       <Text wrap="truncate">{safe(message, 180)}</Text>
       <Text dimColor>{progressBar(progress.passed, progress.total, 16, ascii)} {progress.percent}% · {progress.passed}/{progress.total} steps finished</Text>
+      <Text dimColor>NEXT › {nextAction}</Text>
     </Box>
   );
 }
@@ -744,6 +752,8 @@ function SimpleConversationPanel({state, run, width, noColor, ascii, interactive
   const active = run === null || ["SUCCEEDED", "FAILED", "CANCELED"].includes(run.state)
     ? undefined
     : run.agents.find((agent) => isAgentWorking(agent.state));
+  const files = [...new Set((run?.agents ?? []).flatMap((agent) => agent.requestedFiles))].slice(-4);
+  const tools = [...new Set((run?.agents ?? []).flatMap((agent) => agent.requestedTools))].slice(-3);
   return (
     <Box flexDirection="column" borderStyle={ascii ? "classic" : "single"} paddingX={1} {...widthProp(width)} {...borderColorProp(noColor ? undefined : "cyan")}>
       <Box justifyContent="space-between"><Text bold>CONVERSATION</Text><Text>{state.followEvents ? "LIVE" : "PAUSED"}</Text></Box>
@@ -760,6 +770,8 @@ function SimpleConversationPanel({state, run, width, noColor, ascii, interactive
       ))}
       {run !== null && events.length === 0 ? <Text dimColor>The team is preparing your work...</Text> : null}
       {active === undefined ? null : <Text wrap="truncate"><Text {...textColorProp(noColor ? undefined : "green")}>WORKING NOW › </Text>{active.displayName}: {safe(active.activity, 180)}</Text>}
+      {files.length === 0 ? null : <Text wrap="truncate"><Text bold>FILES IN THIS WORK › </Text>{files.join(" · ")}</Text>}
+      {tools.length === 0 ? null : <Text wrap="truncate"><Text bold>TOOLS USED › </Text>{tools.join(" · ")}</Text>}
     </Box>
   );
 }
@@ -816,13 +828,13 @@ function SimpleWorkspaceStatus({state, run, noColor, ascii}: {
   const settings = state.snapshot?.settings;
   const provider = settings?.providers.find((item) => item.enabled);
   const approvals = state.snapshot?.approvals.filter((approval) => approval.status === "PENDING").length ?? 0;
-  const ai = provider === undefined ? "AI not connected — offline demo" : `AI connected · ${provider.providerId}`;
+  const ai = provider === undefined ? "AI OFFLINE DEMO · no real model calls" : `AI ON · ${uiModelLabel(settings)}`;
   const budget = run === null ? "no tokens used" : `${run.tokenBudget.used}/${formatToken(run.tokenBudget.limit)} tokens`;
   return (
     <Box borderStyle={ascii ? "classic" : "single"} paddingX={1} justifyContent="space-between" {...borderColorProp(noColor ? undefined : provider === undefined ? "yellow" : "gray")}>
       <Text>{ai}</Text>
-      <Text>{(settings?.tokenMode ?? "balanced").toUpperCase()} · {budget}</Text>
-      <Text>{approvals} approval{approvals === 1 ? "" : "s"} · /details for more</Text>
+      <Text>RUN LIMIT · {tokenModeLabel(settings?.tokenMode)} · {budget}</Text>
+      <Text>{approvals} approval{approvals === 1 ? "" : "s"} · /usage explains cost</Text>
     </Box>
   );
 }
@@ -938,8 +950,8 @@ function WorkspaceStatusStrip({state, run, noColor, ascii}: {
   return (
     <Box borderStyle={ascii ? "classic" : "single"} paddingX={1} justifyContent="space-between" {...borderColorProp(noColor ? undefined : approvals > 0 ? "yellow" : "gray")}>
       <Text>{glyph(approvals > 0 ? "PENDING" : "APPROVED", ascii)} {approvals} APPROVALS</Text>
-      <Text wrap="truncate">MODEL {settings?.defaultModel ?? "deterministic/local"}</Text>
-      <Text>TOKENS {(settings?.tokenMode ?? "balanced").toUpperCase()} · {budget}</Text>
+      <Text wrap="truncate">AI {uiModelLabel(settings)}</Text>
+      <Text>RUN LIMIT {tokenModeLabel(settings?.tokenMode)} · {budget}</Text>
       <Text>API {providers}</Text>
     </Box>
   );
@@ -952,6 +964,32 @@ function simpleRunLabel(run: ProjectRoomRun | null): string {
   if (run.state === "CANCELED") return "STOPPED";
   if (run.state === "PAUSED") return "PAUSED";
   return "WORKING";
+}
+
+function simpleRunNextAction(run: ProjectRoomRun, hasFailure: boolean): string {
+  if (hasFailure || run.state === "FAILED") return "Read the problem above, then type how you want it fixed; /details shows technical evidence.";
+  if (run.state === "SUCCEEDED") return "Review the answer and changed files, then type a follow-up or a new request.";
+  if (run.state === "CANCELED") return "Type a new request whenever you are ready.";
+  if (run.state === "PAUSED") return "Type a follow-up to continue the saved work.";
+  return "No action is required. Watch live progress or keep chatting while specialists work.";
+}
+
+function tokenModeLabel(mode: ProjectRoomSnapshot["settings"]["tokenMode"] | undefined): string {
+  if (mode === "economy") return "ECONOMY 25%";
+  if (mode === "quality") return "QUALITY 100%";
+  return "BALANCED 50%";
+}
+
+function tokenModeExplanation(mode: ProjectRoomSnapshot["settings"]["tokenMode"] | undefined): string {
+  if (mode === "economy") return "up to 25%";
+  if (mode === "quality") return "up to 100%";
+  return "up to 50%";
+}
+
+function uiModelLabel(settings: ProjectRoomSnapshot["settings"] | undefined): string {
+  const provider = settings?.providers.find((item) => item.enabled);
+  if (provider === undefined) return "OFFLINE DEMO (no real AI)";
+  return provider.model.startsWith(`${provider.providerId}/`) ? provider.model : `${provider.providerId}/${provider.model}`;
 }
 
 function isPersonalHomeWorkspace(value: string): boolean {
@@ -1155,8 +1193,9 @@ function TokenPanel({usage, costUsd, budget, focused, width, noColor, ascii}: {
     <Box flexDirection="column" borderStyle={ascii ? "classic" : "single"} paddingX={1} {...widthProp(width)} {...borderColorProp(noColor ? undefined : focused ? "magenta" : "cyan")}>
       <Text bold>TOKENS & COST</Text>
       <Text>{formatUsage(usage)}</Text>
-      <Text>{formatCost(costUsd)}</Text>
-      <Text>Budget {budget.used}/{formatToken(budget.limit)}</Text>
+      <Text>Recorded provider cost: {formatCost(costUsd)}</Text>
+      <Text>Run safety limit: {budget.used}/{formatToken(budget.limit)} tokens</Text>
+      <Text dimColor>This limit is not free credit or your provider balance. Only working agents call the model. Type /usage for details.</Text>
     </Box>
   );
 }
@@ -1181,48 +1220,72 @@ function Overlay({state, noColor, ascii}: {readonly state: ProjectRoomState; rea
   const borderColor = noColor ? undefined : "magenta";
   if (overlay.kind === "setup") {
     const choices = [
-      {id: "openai", title: "OpenAI", detail: "Use your OpenAI API key"},
-      {id: "anthropic", title: "Anthropic", detail: "Use your Anthropic API key"},
-      {id: "offline", title: "Offline demo", detail: "Explore without real AI replies"},
+      {id: "openai", title: "OpenAI", detail: "Real AI using your OpenAI API account and credits"},
+      {id: "anthropic", title: "Anthropic", detail: "Real AI using your Anthropic API account and credits"},
+      {id: "offline", title: "Offline demo", detail: "Interface demonstration only; no real AI model calls"},
     ] as const;
     return (
       <Box flexDirection="column" borderStyle={ascii ? "classic" : "double"} paddingX={1} {...borderColorProp(borderColor)}>
         <Text bold>SET UP SOFTWARE AGENT</Text>
-        <Text>Choose how Software Agent should think. It runs independently; only the selected model API is contacted.</Text>
+        <Text>Choose the AI provider that will power the team. Software Agent does not provide or resell model credits.</Text>
         {choices.map((choice) => (
           <Text key={choice.id} inverse={choice.id === overlay.selected}>
             {choice.id === overlay.selected ? ">" : " "} <Text bold>{choice.title}</Text> — {choice.detail}
           </Text>
         ))}
-        <Text dimColor>↑↓ choose · Enter continue · Esc cancel · keys are stored by your operating system</Text>
+        <Text dimColor>Your provider bills actual API usage · Software Agent enforces a separate run limit · keys are stored by your operating system</Text>
+        <Text dimColor>↑↓ choose · Enter continue · Esc cancel</Text>
       </Box>
     );
   }
   if (overlay.kind === "help") return (
     <Box flexDirection="column" borderStyle={ascii ? "classic" : "double"} paddingX={1} {...borderColorProp(borderColor)}>
       <Text bold>SOFTWARE AGENT HELP</Text>
-      <Text>Just type what you need and press Enter. Continue naturally with follow-up messages.</Text>
-      <Text><Text bold>/voice</Text> or <Text bold>Ctrl+R</Text> talk to Nova · review transcript · Enter sends · Nova speaks the matching committed reply</Text>
-      <Text><Text bold>/setup</Text> connect AI · <Text bold>/status</Text> explain current work · <Text bold>/agents</Text> show all specialists</Text>
+      <Text>1. Type what you need and press Enter, just like an AI coding chat.</Text>
+      <Text>2. Watch NEXT, CONVERSATION, TEAM, FILES, and TOOLS for live understandable progress.</Text>
+      <Text>3. Continue naturally with follow-up messages; Software Agent keeps the project conversation.</Text>
+      <Text><Text bold>/voice</Text> or <Text bold>Ctrl+R</Text> starts listening (it does not speak immediately) · Enter transcribes · review · Enter sends · Nova then speaks the reply</Text>
+      <Text><Text bold>/setup</Text> connect AI · <Text bold>/status</Text> explain current work · <Text bold>/usage</Text> explain tokens and cost</Text>
+      <Text><Text bold>/agents</Text> show all specialists · <Text bold>/details</Text> show technical events, exact tasks, approvals, and evidence</Text>
       <Text><Text bold>/simple</Text> clean chat view · <Text bold>/details</Text> complete control room · <Text bold>/settings</Text> model and budget</Text>
       <Text>When a decision is required, a yellow approval message tells you exactly what needs attention.</Text>
       <Text dimColor>Advanced: 1 Agents · 2 Events · 3 Approvals · 4 Tokens · Ctrl+F live scroll · Esc leave</Text>
     </Box>
   );
+  if (overlay.kind === "usage") {
+    const settings = state.snapshot?.settings;
+    const run = state.snapshot?.run ?? null;
+    const provider = settings?.providers.find((item) => item.enabled);
+    const budget = run?.tokenBudget;
+    return (
+      <Box flexDirection="column" borderStyle={ascii ? "classic" : "double"} paddingX={1} {...borderColorProp(borderColor)}>
+        <Text bold>AI TOKENS, CREDITS & COST — PLAIN EXPLANATION</Text>
+        <Text><Text bold>AI connection:</Text> {provider === undefined ? "OFFLINE DEMO — no real model API is being called" : `${uiModelLabel(settings)} — connected to your provider account`}</Text>
+        <Text><Text bold>Who supplies credits:</Text> OpenAI or Anthropic. Software Agent does not create free tokens or hold an API balance.</Text>
+        <Text><Text bold>Who bills usage:</Text> Your connected provider bills the actual input and output tokens used by working agents.</Text>
+        <Text><Text bold>Software Agent limit:</Text> {tokenModeLabel(settings?.tokenMode)} allows {tokenModeExplanation(settings?.tokenMode)} of the configured run allowance. It is a safety cap, not money or credits.</Text>
+        <Text><Text bold>This run:</Text> {run === null ? "No active run; no run tokens have been used." : `${formatUsage(run.tokens)} · ${formatCost(run.costUsd)} · ${budget?.used ?? 0}/${formatToken(budget?.limit ?? "UNKNOWN")} safety limit`}</Text>
+        <Text><Text bold>How it saves tokens:</Text> Only assigned specialists call the model; waiting roles use zero model tokens. Context is bounded and cached usage is shown separately.</Text>
+        <Text dimColor>/tokens economy = 25% · /tokens balanced = 50% recommended · /tokens quality = 100% · Enter/Esc close</Text>
+      </Box>
+    );
+  }
   if (overlay.kind === "settings") {
     const settings = state.snapshot?.settings;
     return (
       <Box flexDirection="column" borderStyle={ascii ? "classic" : "double"} paddingX={1} {...borderColorProp(borderColor)}>
         <Text bold>SOFTWARE AGENT SETTINGS</Text>
         <Text wrap="truncate">Project: {settings?.workspace ?? "Loading"}</Text>
-        <Text>Model: {settings?.defaultModel ?? "deterministic/local"} | Tokens: {settings?.tokenMode ?? "balanced"}</Text>
+        <Text>AI model: {uiModelLabel(settings)} | Run limit: {tokenModeLabel(settings?.tokenMode)}</Text>
         {(settings?.providers.length ?? 0) === 0
           ? <Text dimColor>No AI connected. Type /setup for the guided connection, or continue with the offline demo.</Text>
           : settings?.providers.map((provider) => (
               <Text key={provider.providerId}>{glyph(provider.enabled ? "CONNECTED" : "PAUSED", ascii)} {provider.providerId} | {provider.model} | {provider.enabled ? "CONNECTED" : "DISABLED"} | {provider.credentialReference}</Text>
             ))}
-        <Text>Nova voice: {settings?.providers.some((provider) => provider.providerId === "openai" && provider.enabled) === true ? "READY (push-to-talk, AI-generated spoken replies)" : "CONNECT OPENAI TO ENABLE"}</Text>
-        <Text dimColor>/setup guided connection | /voice push-to-talk | /model provider/model | /tokens economy|balanced|quality | Enter/Esc close</Text>
+        <Text>Nova voice API: {settings?.providers.some((provider) => provider.providerId === "openai" && provider.enabled) === true ? "OPENAI CONNECTED" : "NOT READY — CONNECT OPENAI"}</Text>
+        <Text>Hardware check: run <Text bold>software-agent voice doctor</Text> · audible test: <Text bold>software-agent voice test-speaker</Text></Text>
+        <Text>Credits and billing: supplied by your API provider; Software Agent's run limit is not an account balance.</Text>
+        <Text dimColor>/setup guided connection | /usage plain token explanation | /model provider/model | /tokens economy|balanced|quality | Enter/Esc close</Text>
       </Box>
     );
   }
@@ -1243,21 +1306,23 @@ function Overlay({state, noColor, ascii}: {readonly state: ProjectRoomState; rea
     const voiceColor = noColor ? undefined : overlay.phase === "recording" ? "red" : overlay.phase === "error" ? "yellow" : "magenta";
     return (
       <Box flexDirection="column" borderStyle={ascii ? "classic" : "double"} paddingX={1} {...borderColorProp(voiceColor)}>
-        <Text bold>NOVA VOICE {overlay.phase === "recording" ? "[REC]" : overlay.phase.toUpperCase()}</Text>
-        {overlay.phase === "starting" ? <Text>Opening your default microphone...</Text> : null}
+        <Text bold>{overlay.phase === "error" ? "NOVA VOICE NOT READY" : `NOVA VOICE ${overlay.phase === "recording" ? "[REC]" : overlay.phase.toUpperCase()}`}</Text>
+        {overlay.phase === "starting" ? <Text>Checking OpenAI and opening your default microphone...</Text> : null}
         {overlay.phase === "recording" ? (
           <>
             <Text>Listening on {overlay.deviceName ?? "default microphone"} | {formatVoiceDuration(elapsedMs)} / {formatVoiceDuration(overlay.maxDurationMs)}</Text>
-            <Text>Speak naturally. Nova will write your words into the chat composer.</Text>
+            <Text>Speak naturally. Nova is listening now; it will not speak until after you review and send the transcript.</Text>
             <Text bold>Press Enter to stop and transcribe | Esc cancels without sending</Text>
           </>
         ) : null}
-        {overlay.phase === "transcribing" ? <Text>Recording stopped. Creating an editable transcript with OpenAI...</Text> : null}
+        {overlay.phase === "transcribing" ? <Text>Recording stopped. Creating editable text with OpenAI; no spoken reply is expected yet.</Text> : null}
         {overlay.phase === "cancelling" ? <Text>Discarding the in-memory recording...</Text> : null}
         {overlay.phase === "error" ? (
           <>
             <Text wrap="wrap">{overlay.message ?? "Voice input could not be completed."}</Text>
-            <Text>Type /setup to connect OpenAI, or check Windows microphone permission and try /voice again.</Text>
+            <Text>No audio will play until OpenAI is connected, a microphone is detected, and speaker output is audible.</Text>
+            <Text>In another PowerShell window run: <Text bold>software-agent voice doctor</Text></Text>
+            <Text>Then run: <Text bold>software-agent voice test-speaker</Text></Text>
             <Text bold>Enter or Esc returns to your unchanged draft.</Text>
           </>
         ) : null}
@@ -1336,7 +1401,7 @@ function SlashCommandMenu({state, noColor, ascii}: {
     <Box flexDirection="column" borderStyle={ascii ? "classic" : "double"} paddingX={1} {...borderColorProp(noColor ? undefined : "magenta")}>
       <Text bold>SOFTWARE AGENT COMMANDS</Text>
       <Text wrap="truncate">Project: {settings?.workspace ?? "Loading"}</Text>
-      <Text>Model: {settings?.defaultModel ?? "deterministic/local"} | Tokens: {settings?.tokenMode ?? "balanced"} | API: {providers}</Text>
+      <Text>AI: {uiModelLabel(settings)} | Run limit: {tokenModeLabel(settings?.tokenMode)} | Provider: {providers}</Text>
       <Text>Type a word to search · {suggestions.length} matching command{suggestions.length === 1 ? "" : "s"}</Text>
       {page.items.map(({suggestion, index}) => (
         <Text key={suggestion.command} inverse={index === page.selected}>
@@ -1416,7 +1481,7 @@ function renderOverlayText(state: ProjectRoomState, width: number, ascii: boolea
     return [
       "SOFTWARE AGENT COMMANDS",
       clip(`Project: ${settings?.workspace ?? "Loading"}`, width, ascii),
-      clip(`Model: ${settings?.defaultModel ?? "deterministic/local"} | Tokens: ${settings?.tokenMode ?? "balanced"} | API: ${providers}`, width, ascii),
+      clip(`AI: ${uiModelLabel(settings)} | Run limit: ${tokenModeLabel(settings?.tokenMode)} | Provider: ${providers}`, width, ascii),
       `Type a word to search | ${suggestions.length} matching command${suggestions.length === 1 ? "" : "s"}`,
       ...page.items.map(({suggestion, index}) => clip(`${index === page.selected ? ">" : " "} [${suggestion.category}] ${suggestion.usage} — ${suggestion.description}`, width, ascii)),
       suggestions.length === 0 ? "No command matches. Keep typing or press Esc." : `Type filter | Up/Down choose | Tab complete | Enter run | ${page.start + 1}-${page.end} of ${suggestions.length}`,
@@ -1424,29 +1489,49 @@ function renderOverlayText(state: ProjectRoomState, width: number, ascii: boolea
   }
   if (overlay.kind === "setup") return [
     "SET UP SOFTWARE AGENT",
-    "Choose how Software Agent should think. It does not depend on another coding app.",
-    `${overlay.selected === "openai" ? ">" : " "} OpenAI — use your OpenAI API key`,
-    `${overlay.selected === "anthropic" ? ">" : " "} Anthropic — use your Anthropic API key`,
-    `${overlay.selected === "offline" ? ">" : " "} Offline demo — explore without real AI replies`,
+    "Choose the AI provider that powers the team. Software Agent does not provide model credits.",
+    `${overlay.selected === "openai" ? ">" : " "} OpenAI — real AI using your OpenAI account and credits`,
+    `${overlay.selected === "anthropic" ? ">" : " "} Anthropic — real AI using your Anthropic account and credits`,
+    `${overlay.selected === "offline" ? ">" : " "} Offline demo — interface only; no real model calls`,
+    "Your provider bills actual usage | Software Agent enforces a separate safety limit",
     "Arrows choose | Enter continue | Esc cancel",
   ];
   if (overlay.kind === "help") return [
     "SOFTWARE AGENT HELP",
-    "Type what you need and press Enter. Keep chatting naturally with follow-up messages.",
-    "/voice or Ctrl+R Talk to Nova | review transcript | Enter sends | Nova speaks the reply",
-    "/setup Connect AI | /status Explain current work | /agents Show all specialists",
+    "1. Type what you need and press Enter, just like an AI coding chat.",
+    "2. Watch NEXT, CONVERSATION, TEAM, FILES, and TOOLS for live progress.",
+    "3. Continue naturally with follow-up messages; the project conversation is retained.",
+    "/voice or Ctrl+R starts listening (not speaking) | Enter transcribes | review and send | Nova then speaks",
+    "/setup Connect AI | /status Explain current work | /usage Explain tokens and cost",
+    "/agents Show all specialists | /details Show exact tasks, events, approvals, and evidence",
     "/simple Clean chat | /details Full control room | /settings Model and budget",
     "Yellow approval messages tell you exactly when a decision is needed.",
   ];
+  if (overlay.kind === "usage") {
+    const settings = state.snapshot?.settings;
+    const run = state.snapshot?.run ?? null;
+    const provider = settings?.providers.find((item) => item.enabled);
+    return [
+      "AI TOKENS, CREDITS & COST — PLAIN EXPLANATION",
+      clip(`AI connection: ${provider === undefined ? "OFFLINE DEMO — no real model calls" : `${uiModelLabel(settings)} — your provider account`}`, width, ascii),
+      "Credits: OpenAI or Anthropic supplies and bills them. Software Agent does not create free tokens or hold a balance.",
+      `Run limit: ${tokenModeLabel(settings?.tokenMode)} uses ${tokenModeExplanation(settings?.tokenMode)} of the configured allowance; this is a safety cap, not credits.`,
+      clip(`This run: ${run === null ? "no active run; no run tokens used" : `${formatUsage(run.tokens)} | ${formatCost(run.costUsd)} | ${run.tokenBudget.used}/${formatToken(run.tokenBudget.limit)} safety limit`}`, width, ascii),
+      "Savings: only working specialists call the model; waiting roles use zero model tokens.",
+      "/tokens economy 25% | /tokens balanced 50% recommended | /tokens quality 100% | Enter/Esc close",
+    ];
+  }
   if (overlay.kind === "settings") {
     const settings = state.snapshot?.settings;
     return [
       "SOFTWARE AGENT SETTINGS",
       `Project: ${settings?.workspace ?? "Loading"}`,
-      `Model: ${settings?.defaultModel ?? "deterministic/local"} | Tokens: ${settings?.tokenMode ?? "balanced"}`,
+      `AI model: ${uiModelLabel(settings)} | Run limit: ${tokenModeLabel(settings?.tokenMode)}`,
       ...((settings?.providers ?? []).map((provider) => `${provider.providerId}: ${provider.model} | ${provider.enabled ? "CONNECTED" : "DISABLED"} | ${provider.credentialReference}`)),
-      `Nova voice: ${settings?.providers.some((provider) => provider.providerId === "openai" && provider.enabled) === true ? "READY" : "CONNECT OPENAI TO ENABLE"}`,
-      "/voice | /api connect <provider> [model] | /model provider/model | /tokens 25|50|100",
+      `Nova voice API: ${settings?.providers.some((provider) => provider.providerId === "openai" && provider.enabled) === true ? "OPENAI CONNECTED" : "NOT READY — CONNECT OPENAI"}`,
+      "Hardware: software-agent voice doctor | Audible test: software-agent voice test-speaker",
+      "Credits are supplied and billed by your API provider; the run limit is not an account balance.",
+      "/voice | /usage | /api connect <provider> [model] | /model provider/model | /tokens 25|50|100",
     ];
   }
   if (overlay.kind === "api-key") return [
@@ -1458,15 +1543,15 @@ function renderOverlayText(state: ProjectRoomState, width: number, ascii: boolea
   if (overlay.kind === "voice") {
     const elapsedMs = overlay.startedAt === null ? 0 : Math.max(0, Math.min(overlay.maxDurationMs, state.now - overlay.startedAt));
     return [
-      `NOVA VOICE | ${overlay.phase.toUpperCase()}`,
+      overlay.phase === "error" ? "NOVA VOICE NOT READY" : `NOVA VOICE | ${overlay.phase.toUpperCase()}`,
       overlay.phase === "recording"
         ? `Listening on ${overlay.deviceName ?? "default microphone"} | ${formatVoiceDuration(elapsedMs)} / ${formatVoiceDuration(overlay.maxDurationMs)}`
         : overlay.phase === "error"
           ? clip(overlay.message ?? "Voice input failed.", width, ascii)
           : overlay.phase === "transcribing"
-            ? "Recording stopped. Creating an editable transcript with OpenAI..."
+            ? "Recording stopped. Creating editable text; Nova speaks only after you review and send it..."
             : overlay.phase === "cancelling" ? "Discarding the in-memory recording..." : "Opening your default microphone...",
-      overlay.phase === "recording" ? "Speak naturally | Enter transcribe | Esc discard" : overlay.phase === "error" ? "Enter/Esc return | /setup connects OpenAI" : "Esc cancel",
+      overlay.phase === "recording" ? "Speak naturally | Enter transcribe | Esc discard" : overlay.phase === "error" ? "Run: software-agent voice doctor | then: software-agent voice test-speaker" : "Esc cancel",
       "Push-to-talk only | audio stays in memory | review text before Enter executes | AI-generated spoken replies",
     ];
   }
