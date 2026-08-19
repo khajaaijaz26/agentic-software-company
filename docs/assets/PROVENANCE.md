@@ -15,6 +15,18 @@ with the repository under its Apache-2.0 license.
 - SHA-256 (SVG): `de7858376575ed9b2e108ebf2667f3f58fd26826f1024ec5d77dc36cbc2e4b74`
 - SHA-256 (PNG): `206afdaf3ff7d360b7f059c051a59f56152e89c2004de87d509d9dce9163d66c`
 
+## Terminal mark
+
+- Form: `❯_ ●─●─● ✓ SOFTWARE AGENT` with `>_ o-o-o [OK] SOFTWARE AGENT`
+  as the ASCII fallback.
+- Source: code-native translation of this repository's original vector logo;
+  the prompt, three agent nodes, and verified check retain the same meaning.
+- Rendering: React/Ink text segments use the established cyan, violet, and
+  mint palette, adapt at narrow widths, and remain readable without color or
+  Unicode.
+- No raster image, escape-sequence art, or third-party terminal logo is
+  embedded in the CLI.
+
 ## README hero
 
 - File: `docs/images/software-agent-hero.png` (1536x1024).

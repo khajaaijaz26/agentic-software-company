@@ -12,6 +12,7 @@ import {
   createTerminalRestorer,
   projectRoomLayout,
   renderProjectRoomText,
+  terminalLogoText,
 } from "../../apps/operator-console/src/project-room.js";
 
 const NO_KEY: ProjectRoomKey = {
@@ -94,14 +95,35 @@ function snapshot(overrides: Partial<ProjectRoomSnapshot> = {}): ProjectRoomSnap
           requestedTools: [],
           evidence: [],
         },
+        {
+          id: "agent_orchestrator",
+          role: "Master Orchestrator",
+          displayName: "Master Orchestrator",
+          state: "IDLE",
+          taskId: "task_plan",
+          taskTitle: "Create the bounded plan",
+          activity: "Plan committed and handed off",
+          activitySince: null,
+          lastEventAt: "2026-08-19T11:59:30.000Z",
+          provider: "openai",
+          model: "gpt-test",
+          tokens: {input: 60, output: 20, cached: 10, reasoning: 5},
+          costUsd: 0.0042,
+          blocker: null,
+          approvalId: null,
+          requestedFiles: ["README.md"],
+          requestedTools: ["search_code"],
+          evidence: ["artifact_plan"],
+        },
       ],
       tasks: [
         {id: "task_build", title: "Build the project room", state: "RUNNING", agentId: "agent_engineer"},
         {id: "task_review", title: "Review the terminal", state: "WAITING_APPROVAL", agentId: "agent_reviewer"},
+        {id: "task_plan", title: "Create the bounded plan", state: "PASSED", agentId: "agent_orchestrator"},
       ],
-      tokens: {input: 200, output: 52, cached: 20, reasoning: 10},
-      costUsd: 0.0123,
-      tokenBudget: {used: 282, limit: 2_000},
+      tokens: {input: 260, output: 72, cached: 30, reasoning: 15},
+      costUsd: 0.0165,
+      tokenBudget: {used: 377, limit: 2_000},
     },
     approvals: [
       {
@@ -244,6 +266,11 @@ describe("Software Agent v0.3 project room", () => {
       text: "Add focused tests",
       target: {kind: "agent", id: "agent_engineer"},
     });
+    const commandId = state.pendingCommand?.id;
+    expect(commandId).toBeTypeOf("number");
+    state = projectRoomReducer(state, {type: "command.started", id: commandId ?? 0});
+    state = projectRoomReducer(state, {type: "command.succeeded", id: commandId ?? 0});
+    expect(state.notice).toContain("active schedulable turn");
   });
 
   it("changes composer targets explicitly and preserves escaped slash input", () => {
@@ -284,12 +311,17 @@ describe("Software Agent v0.3 project room", () => {
 
   it("renders truthful live panels plus ASCII, stale, reconnect, and empty states", () => {
     const live = renderProjectRoomText(readyState(), {width: 120, height: 32, ascii: true, noColor: true});
-    expect(live).toContain("SOFTWARE AGENT");
+    expect(live).toContain(">_ o-o-o [OK] SOFTWARE AGENT");
+    expect(live).toContain("RUN WORKING (RUNNING)");
+    expect(live).toContain("WORKING NOW");
+    expect(live).toContain("Tasks [");
     expect(live).toContain("Applying a bounded UI patch");
     expect(live).toContain("openai/gpt-test");
     expect(live).toContain("TOKENS & COST");
     expect(live).toContain("APPROVALS");
     expect(live).toContain("EVENTS");
+    expect(live).toContain("f Live Scroll");
+    expect(live).not.toContain("active UNKNOWN");
     expect(live).not.toContain("\u001b");
 
     let stale = projectRoomReducer(readyState(), {type: "clock.tick", now: Date.parse(NOW) + 31_000});
@@ -329,5 +361,11 @@ describe("Software Agent v0.3 project room", () => {
     restorer.restore();
     restorer.uninstall();
     expect(writes).toEqual(["\u001b[?25l", "\u001b[0m\u001b[?25h"]);
+  });
+
+  it("renders a compact terminal translation of the established logo", () => {
+    expect(terminalLogoText(false)).toBe("❯_ ●─●─● ✓ SOFTWARE AGENT");
+    expect(terminalLogoText(true)).toBe(">_ o-o-o [OK] SOFTWARE AGENT");
+    expect(terminalLogoText(false, true)).toBe("❯_ SA ✓");
   });
 });

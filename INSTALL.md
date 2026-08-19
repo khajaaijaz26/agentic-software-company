@@ -2,6 +2,8 @@
 
 Software Agent's primary runtime is a TypeScript/Node.js terminal application. The Python package in this repository is optional compatibility support for existing MCP integrations.
 
+> Copy only commands shown inside code blocks. Labels such as “Install the verified release” are documentation headings, not PowerShell commands. Do not copy the `PS C:\...>` prompt itself.
+
 ## Requirements
 
 - Node.js 22.14 or newer; Node.js 24 LTS is recommended.
@@ -22,12 +24,12 @@ git --version
 The public GitHub release is available now:
 
 ```powershell
-npm install -g https://github.com/khajaaijaz26/software-agent/releases/download/v0.3.1/software-agent-0.3.1.tgz
+npm install -g "https://github.com/khajaaijaz26/software-agent/releases/download/v0.3.2/software-agent-0.3.2.tgz"
 software-agent --version
 software-agent setup
 ```
 
-GitHub publishes the SHA-256 digest for `software-agent-0.3.1.tgz` on the release page so it can be checked independently after download.
+GitHub publishes the SHA-256 digest for `software-agent-0.3.2.tgz` on the release page so it can be checked independently after download.
 
 ## Global npm registry installation
 
@@ -89,6 +91,8 @@ Or provide the first objective immediately:
 software-agent start "Fix the issue, add tests, and update the documentation"
 ```
 
+If PowerShell already displays `PS C:\path\to\your-project>`, do not type another heading or prompt marker. Enter only the `software-agent start "..."` command.
+
 On first use, Software Agent creates:
 
 - `.software-agent/project.toml` for project, model, runtime, budget, and UI settings;
@@ -132,7 +136,7 @@ Do not pass a raw key to `--credential`; it is rejected. On Windows, the built-i
 ## macOS and Linux
 
 ```bash
-npm install -g software-agent
+npm install -g "https://github.com/khajaaijaz26/software-agent/releases/download/v0.3.2/software-agent-0.3.2.tgz"
 cd /path/to/your-project
 export OPENAI_API_KEY="your-key"
 software-agent providers add openai --model <model-id> --credential env://OPENAI_API_KEY
@@ -189,6 +193,17 @@ The live room supports three responsive layouts and a plain fallback. Common key
 - compose an instruction and target a run, task, or agent;
 - inspect an approval packet, then explicitly approve, deny, or request changes;
 - leave while the durable controller continues, pause the run, or cancel it.
+
+Agent and event labels are deliberately literal:
+
+| Label | Meaning |
+| --- | --- |
+| `WORKING NOW` | This agent currently has an executing turn. |
+| `WAITING FOR INPUT` / `WAITING FOR HANDOFF` | A named dependency must arrive before the agent can continue. |
+| `IDLE - NOT WORKING` | The session is present but is not executing; `Last:` describes historical activity. |
+| `DONE` / `FAILED` | The agent is terminal. |
+| `LIVE SCROLL` | The event panel automatically follows new committed events. |
+| `SCROLL PAUSED` | Only the event view stopped following; agent execution is not paused. Press `f` to resume live scrolling. |
 
 For CI or scripts:
 

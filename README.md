@@ -23,35 +23,48 @@
 
 Software Agent is a local-first, event-sourced coding platform—not a single chatbot with several role labels. A durable controller coordinates three logical specialists, streams their activity into a responsive terminal room, protects tools with leases and approvals, and records evidence in SQLite so a run can survive terminal disconnects and controller restarts.
 
-## Install
+## Install and run
 
 Requirements: Node.js 22.14 or newer, npm, and Git. Node.js 24 LTS is recommended.
 
+> **Copy only commands inside the code blocks.** Do not type headings such as “Install Software Agent,” and do not copy the `PS C:\...>` prompt shown by PowerShell.
+
+### Windows PowerShell — three steps
+
+1. Install and verify the current release:
+
+   ```powershell
+   npm install -g "https://github.com/khajaaijaz26/software-agent/releases/download/v0.3.2/software-agent-0.3.2.tgz"
+   software-agent --version
+   ```
+
+2. Enter the repository you want the agents to edit:
+
+   ```powershell
+   Set-Location C:\path\to\your-project
+   ```
+
+3. Give the team its first objective:
+
+   ```powershell
+   software-agent start "Understand this project, find errors, fix them, and run all tests"
+   ```
+
+If the terminal already shows `PS C:\path\to\your-project>`, run only step 3. The first launch creates private `.software-agent/` state and opens the live project room.
+
+### macOS or Linux
+
 ```bash
-npm install -g https://github.com/khajaaijaz26/software-agent/releases/download/v0.3.1/software-agent-0.3.1.tgz
-software-agent --version
+npm install -g "https://github.com/khajaaijaz26/software-agent/releases/download/v0.3.2/software-agent-0.3.2.tgz"
+cd /path/to/your-project
+software-agent start "Understand this project, find errors, fix them, and run all tests"
 ```
 
-This is the verified GitHub `v0.3.1` release asset; GitHub publishes its SHA-256 digest on the release page. The shorter `npm install -g software-agent` command becomes available after the package owner completes npm registry authentication. Contributors can also use the [source installation steps](INSTALL.md#install-from-this-checkout).
+The verified GitHub release works now; GitHub publishes its SHA-256 digest on the release page. The shorter `npm install -g software-agent` command becomes available after the package owner completes npm registry authentication. Contributors can use the [source installation steps](INSTALL.md#install-from-this-checkout).
 
-## Start in under a minute
+### Connect a real AI model
 
-Open the repository you want the agents to work on:
-
-```bash
-cd path/to/your-project
-software-agent
-```
-
-The first launch creates private local state in `.software-agent/` and opens the project room. You can also start with an objective:
-
-```bash
-software-agent start "Add authentication, tests, and documentation"
-```
-
-Without a provider, Software Agent uses its deterministic offline adapter so setup and orchestration can be evaluated safely. To use your own model account, configure only a secret reference—never the raw key.
-
-PowerShell:
+Without a configured provider, the deterministic offline adapter demonstrates orchestration and finishes quickly. For real repository work, configure a reference to your own API key—never store the key in the repository:
 
 ```powershell
 $env:OPENAI_API_KEY = "your-key"
@@ -61,34 +74,50 @@ software-agent models use openai/<model-id>
 software-agent start "Implement the requested change and verify it"
 ```
 
-macOS or Linux:
-
-```bash
-export ANTHROPIC_API_KEY="your-key"
-software-agent providers add anthropic --model <model-id> --credential env://ANTHROPIC_API_KEY
-software-agent providers test anthropic
-software-agent models use anthropic/<model-id>
-software-agent start "Implement the requested change and verify it"
-```
-
-Run `software-agent setup` at any time to print the secure setup sequence.
+Anthropic Messages is supported in the same way with `ANTHROPIC_API_KEY` and `anthropic/<model-id>`. Run `software-agent setup` at any time for the secure setup sequence.
 
 ## The project room
 
 The terminal UI is designed around work, not chat bubbles. It stays attached to committed controller state and shows the three specialists side by side on wide terminals:
 
 ```text
+❯_ ●─●─● ✓ SOFTWARE AGENT                         project @ main       RUNNING
+● RUN WORKING (RUNNING)  Tasks [██████░░░░░░] 2/5 passed  1 working  2 idle
 ┌ MASTER ORCHESTRATOR ─────┬ SOFTWARE ENGINEER ──────┬ REVIEWER & QA ─────────┐
-│ PLANNING                 │ RUNNING                  │ REVIEW                 │
-│ maps scope and task DAG  │ search_code → read_file │ tests, risks, evidence │
-│ model / tokens / cost    │ files changed / tools   │ independent findings   │
+│ IDLE - NOT WORKING  1/1  │ WORKING NOW        1/2  │ WAITING FOR HANDOFF 0/2│
+│ Last: plan committed     │ Now: search_code → read │ Last: review queued     │
+│ model / tokens / cost    │ files / tools / evidence│ blocker / approval      │
 ├──────────────────────────┴──────────────────────────┴────────────────────────┤
-│ COMMITTED EVENTS          APPROVALS          TOKEN BUDGET: 18,420 / 50,000 │
-│ #184 tool.completed       A3 npm test         balanced · 50% mode           │
+│ EVENTS: LIVE SCROLL       APPROVALS          TOKEN BUDGET: 18,420 / 50,000 │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
 The UI includes responsive wide, medium, narrow, and plain-text layouts; keyboard navigation; event search/follow; targeted instructions; exact approval packets; reconnect/resync states; and a read-only fallback when another terminal owns the mutation lease.
+
+| Screen label | Exact meaning |
+| --- | --- |
+| `WORKING NOW` | The agent currently owns an executing turn. |
+| `WAITING FOR INPUT/HANDOFF` | The agent cannot continue until the named dependency arrives. |
+| `IDLE - NOT WORKING` | The session exists, but no turn is executing. The card shows its last activity. |
+| `DONE` / `FAILED` | The agent reached a terminal state. |
+| `LIVE SCROLL` | New committed events automatically remain visible. |
+| `SCROLL PAUSED` | Only automatic event scrolling is paused; the run and agents are unaffected. Press `f` to resume. |
+
+## Modern technology stack
+
+Software Agent uses a current, widely adopted stack while keeping the installed CLI local and self-contained:
+
+| Layer | Technologies | Purpose |
+| --- | --- | --- |
+| Primary runtime | TypeScript 5.9, Node.js 22/24, modern ESM | Type-safe controller, CLI, workers, and adapters compiled to JavaScript. |
+| Terminal experience | React 19, Ink 6, ANSI-safe responsive rendering | Live multi-panel project room with keyboard control and plain-output fallback. |
+| Commands and validation | Commander 14, Zod 4, JSON Schema Draft 2020-12 | Stable CLI grammar and versioned machine contracts. |
+| Durable coordination | Built-in SQLite, WAL, event sourcing, idempotency receipts | Restartable runs, tasks, leases, approvals, evidence, and replay. |
+| AI providers | OpenAI Responses API, Anthropic Messages API, BYOK secret references | Native model calls, tool results, streaming normalization, usage, and cost. |
+| Repository retrieval | Bounded file listing, literal code search, exact SHA-256 reads | RAG-style selective context without forcing a heavy vector database into every install. |
+| Security boundary | HMAC-SHA-256 local IPC, named pipes/Unix sockets, lease fencing | Keeps credentials and mutation authority in the controller. |
+| Compatibility | Python 3.10–3.14 and MCP compatibility package | Preserves existing Python/MCP integrations without making Python the primary runtime. |
+| Quality and delivery | Vitest, ESLint, tsup, GitHub Actions | Tests, static checks, builds, package smoke tests, and Windows/macOS/Linux verification. |
 
 ## Why it is different
 
@@ -102,6 +131,21 @@ The UI includes responsive wide, medium, narrow, and plain-text layouts; keyboar
 | Lower token use | Defaults to balanced mode at 50% of the full run allowance, with per-agent allocation, reservation, reconciliation, and live usage views. |
 | Durable operation | Persists events, command receipts, leases, attempts, budgets, approvals, and evidence in a local SQLite WAL database. |
 | Automation-ready | Offers stable human, plain, JSON, and NDJSON outputs plus documented exit codes and JSON Schemas. |
+
+### Compared with a typical single-agent terminal CLI
+
+This is an architectural comparison, not a claim that every other tool behaves identically:
+
+| Area | Typical single-agent CLI | Software Agent |
+| --- | --- | --- |
+| Work display | One conversation or activity stream | Three visible specialist cards plus run/task progress and committed events |
+| Coordination | One model handles planning, coding, and review sequentially | Durable orchestrator, engineer, and independent reviewer sessions with handoffs |
+| Restart behavior | Terminal session often owns transient state | Controller and SQLite event log survive UI disconnects and support deterministic replay |
+| Tool authority | Broad confirmation or process-level permission | Exact actor/action/resource/environment binding, expiry, and single-use approval consumption |
+| Context use | Large prompt dumps can repeatedly resend repository text | Search-first retrieval and exact file reads feed only relevant context into each turn |
+| Model choice | One provider or model for the whole session | OpenAI or Anthropic defaults plus per-role routing and controller-owned BYOK secrets |
+| Token controls | Provider totals shown after calls | 25%/50%/100% modes, reservations, per-agent attribution, reconciliation, warnings, and cost |
+| Automation | Human-formatted output is the main interface | Human TUI plus versioned JSON, NDJSON, schemas, exit codes, and idempotent commands |
 
 ## Governed agent workflow
 

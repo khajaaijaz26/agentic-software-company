@@ -19,8 +19,10 @@ import {
   type ProjectRoomEvent,
   type ProjectRoomFocus,
   type ProjectRoomKey,
+  type ProjectRoomRun,
   type ProjectRoomSnapshot,
   type ProjectRoomState,
+  type ProjectRoomTask,
   type ProjectRoomTokenUsage,
 } from "./project-room-state.js";
 
@@ -80,6 +82,11 @@ export function projectRoomLayout(width: number, height = 24): ProjectRoomLayout
   if (width < 90) return "narrow";
   if (width < 120) return "two-card";
   return "three-card";
+}
+
+export function terminalLogoText(ascii = false, compact = false): string {
+  if (ascii) return compact ? ">_ SA [OK]" : ">_ o-o-o [OK] SOFTWARE AGENT";
+  return compact ? "❯_ SA ✓" : "❯_ ●─●─● ✓ SOFTWARE AGENT";
 }
 
 export function createTerminalRestorer(output: TerminalOutput): TerminalRestorer {
@@ -218,8 +225,8 @@ export function ProjectRoomView({state, width, height, noColor = false, ascii = 
   return (
     <Box flexDirection="column" paddingX={1} width={width} height={height} overflow="hidden">
       <Box borderStyle={ascii ? "classic" : "round"} paddingX={1} justifyContent="space-between" {...borderColorProp(connectionColor)}>
-        <Text bold {...textColorProp(noColor ? undefined : "cyan")}>SOFTWARE AGENT</Text>
-        <Text wrap="truncate">{safe(state.snapshot?.projectName ?? "Loading workspace", 42)} @ {safe(state.snapshot?.branch ?? "unknown", 24)}</Text>
+        <TerminalLogo ascii={ascii} noColor={noColor} compact={layout === "narrow"}/>
+        <Text wrap="truncate">{safe(state.snapshot?.projectName ?? "Loading workspace", layout === "narrow" ? 24 : 42)} @ {safe(state.snapshot?.branch ?? "unknown", layout === "narrow" ? 16 : 24)}</Text>
         <Text>{run?.state ?? "NO ACTIVE RUN"}</Text>
       </Box>
       <ConnectionBanner state={state} noColor={noColor}/>
@@ -230,18 +237,20 @@ export function ProjectRoomView({state, width, height, noColor = false, ascii = 
         </Box>
       ) : (
         <>
-          <Box justifyContent="space-between" marginTop={1}>
+          <RunProgressSummary run={run} width={width} noColor={noColor} ascii={ascii}/>
+          <Box justifyContent="space-between">
             <Text bold>AGENTS</Text>
             <Text dimColor>{safe(run.objective, Math.max(30, width - 20))}</Text>
           </Box>
           {layout === "narrow" ? (
-            <CompactAgentList agents={agents} selectedAgentId={state.selectedAgentId} focused={state.focus === "agents"} noColor={noColor} ascii={ascii}/>
+            <CompactAgentList agents={agents} tasks={run.tasks} selectedAgentId={state.selectedAgentId} focused={state.focus === "agents"} noColor={noColor} ascii={ascii}/>
           ) : (
             <Box flexDirection="row" flexWrap="wrap" gap={1}>
               {agents.map((agent) => (
                 <AgentCard
                   key={agent.id}
                   agent={agent}
+                  tasks={run.tasks.filter((task) => task.agentId === agent.id)}
                   width={cardWidth}
                   selected={agent.id === state.selectedAgentId && state.focus === "agents"}
                   now={state.now}
@@ -292,16 +301,16 @@ export function renderProjectRoomText(state: ProjectRoomState, options: ProjectR
   const access = state.snapshot?.controller.mode ?? "READ_ONLY";
   const status = [state.connection.toUpperCase(), access, state.stale ? "STALE" : null, `cursor ${state.cursor}`].filter((value) => value !== null).join(" | ");
   const lines = [
-    clip(`SOFTWARE AGENT | ${state.snapshot?.projectName ?? "Loading workspace"} @ ${state.snapshot?.branch ?? "unknown"} | ${run?.state ?? "NO ACTIVE RUN"}`, width, ascii),
+    clip(`${terminalLogoText(ascii)} | ${state.snapshot?.projectName ?? "Loading workspace"} @ ${state.snapshot?.branch ?? "unknown"} | ${run?.state ?? "NO ACTIVE RUN"}`, width, ascii),
     clip(`[${status}]${state.connectionMessage === null ? "" : ` ${state.connectionMessage}`}`, width, ascii),
     "-".repeat(Math.max(1, Math.min(width, 120))),
   ];
   if (run === null) {
     lines.push("No active run.", interactive ? "Press c to compose a new objective; no work is simulated before committed controller events." : "This snapshot contains no active run.");
   } else {
-    lines.push(clip(`Objective: ${run.objective}`, width, ascii), "AGENTS");
+    lines.push(clip(`Objective: ${run.objective}`, width, ascii), clip(runProgressText(run, ascii), width, ascii), "AGENTS");
     const columnCount = projectRoomLayout(width, height) === "three-card" ? 3 : projectRoomLayout(width, height) === "two-card" ? 2 : 1;
-    lines.push(...agentTextGrid(run.agents, columnCount, width, state, ascii));
+    lines.push(...agentTextGrid(run.agents, run.tasks, columnCount, width, state, ascii));
     lines.push("TASKS");
     for (const task of run.tasks.slice(0, 5)) lines.push(clip(` ${glyph(task.state, ascii)} [${task.state}] ${task.title}`, width, ascii));
     lines.push("EVENTS");
@@ -386,34 +395,78 @@ async function pumpProjectRoom(
   }
 }
 
+function TerminalLogo({ascii, noColor, compact}: {
+  readonly ascii: boolean;
+  readonly noColor: boolean;
+  readonly compact: boolean;
+}): React.JSX.Element {
+  return (
+    <Box>
+      <Text bold {...textColorProp(noColor ? undefined : "cyan")}>{ascii ? ">_" : "❯_"}</Text>
+      <Text bold {...textColorProp(noColor ? undefined : "magenta")}>{compact ? " SA" : ascii ? " o-o-o" : " ●─●─●"}</Text>
+      <Text bold {...textColorProp(noColor ? undefined : "green")}>{ascii ? " [OK]" : " ✓"}</Text>
+      {compact ? null : <Text bold> SOFTWARE AGENT</Text>}
+    </Box>
+  );
+}
+
+function RunProgressSummary({run, width, noColor, ascii}: {
+  readonly run: ProjectRoomRun;
+  readonly width: number;
+  readonly noColor: boolean;
+  readonly ascii: boolean;
+}): React.JSX.Element {
+  const progress = summarizeTasks(run.tasks);
+  const agents = summarizeAgents(run.agents);
+  const runLabel = operationalRunLabel(run, progress, agents.working);
+  const failures = progress.failed === 0 ? "" : ` | ${progress.failed} failed`;
+  return (
+    <Box
+      flexDirection={width < 100 ? "column" : "row"}
+      justifyContent="space-between"
+      marginTop={1}
+      paddingX={1}
+      {...borderColorProp(noColor ? undefined : stateTone(run.state))}
+    >
+      <Text bold {...textColorProp(noColor ? undefined : stateTone(run.state))}>{glyph(run.state, ascii)} RUN {runLabel} ({run.state})</Text>
+      <Text>Tasks {progressBar(progress.passed, progress.total, 12, ascii)} {progress.passed}/{progress.total} passed | {progress.percent}%{failures}</Text>
+      <Text>{agents.working} working | {agents.waiting} waiting | {agents.idle} idle | {agents.done} done</Text>
+    </Box>
+  );
+}
+
 function ConnectionBanner({state, noColor}: {readonly state: ProjectRoomState; readonly noColor: boolean}): React.JSX.Element {
   const access = state.snapshot?.controller.mode ?? "READ_ONLY";
   const values = [state.connection.toUpperCase(), access, state.stale ? "STALE" : null, `cursor ${state.cursor}`].filter((value) => value !== null);
   return (
     <Box justifyContent="space-between">
       <Text {...textColorProp(noColor ? undefined : connectionTone(state.connection))}>{values.join(" | ")}</Text>
-      <Text wrap="truncate">{state.connectionMessage ?? "Committed-event projection"}</Text>
+      <Text wrap="truncate">{state.connectionMessage ?? "Live committed controller state"}</Text>
     </Box>
   );
 }
 
-function AgentCard({agent, width, selected, now, noColor, ascii}: {
+function AgentCard({agent, tasks, width, selected, now, noColor, ascii}: {
   readonly agent: ProjectRoomAgent;
+  readonly tasks: readonly ProjectRoomTask[];
   readonly width: number;
   readonly selected: boolean;
   readonly now: number;
   readonly noColor: boolean;
   readonly ascii: boolean;
 }): React.JSX.Element {
+  const progress = summarizeTasks(tasks);
+  const working = isAgentWorking(agent.state);
+  const status = operationalAgentLabel(agent.state);
   return (
     <Box flexDirection="column" width={width} borderStyle={ascii ? "classic" : "single"} paddingX={1} {...borderColorProp(noColor ? undefined : selected ? "magenta" : stateTone(agent.state))}>
       <Text bold inverse={selected}>{glyph(agent.state, ascii)} {safe(agent.displayName, Math.max(12, width - 6))}</Text>
-      <Text>{agent.state} | {safe(agent.role, Math.max(12, width - 12))}</Text>
+      <Text {...textColorProp(noColor ? undefined : stateTone(agent.state))}>{status} ({agent.state}) | {progressBar(progress.passed, progress.total, 6, ascii)} {progress.passed}/{progress.total}</Text>
       <Text wrap="truncate">Task: {safe(agent.taskTitle, Math.max(12, width - 8))}</Text>
-      <Text wrap="truncate">Now: {safe(agent.activity, Math.max(12, width - 7))}</Text>
-      <Text>{safe(`${agent.provider}/${agent.model}`, Math.max(12, width - 2))}</Text>
+      <Text wrap="truncate">{working ? "Now" : "Last"}: {safe(agent.activity, Math.max(12, width - 8))}</Text>
+      <Text>Model: {safe(`${agent.provider}/${agent.model}`, Math.max(12, width - 9))}</Text>
       <Text>{formatUsage(agent.tokens)} | {formatCost(agent.costUsd)}</Text>
-      <Text dimColor>active {formatAge(agent.activitySince, now)} | event {formatAge(agent.lastEventAt, now)}</Text>
+      <Text dimColor>{agentTimingText(agent, now)}</Text>
       {agent.blocker === null ? null : <Text {...textColorProp(noColor ? undefined : "yellow")}>Blocked: {safe(agent.blocker, Math.max(12, width - 11))}</Text>}
       {agent.approvalId === null ? null : <Text {...textColorProp(noColor ? undefined : "yellow")}>Approval: {safe(agent.approvalId, Math.max(12, width - 12))}</Text>}
       <Text dimColor>files {agent.requestedFiles.length} | tools {agent.requestedTools.length} | evidence {agent.evidence.length}</Text>
@@ -421,8 +474,9 @@ function AgentCard({agent, width, selected, now, noColor, ascii}: {
   );
 }
 
-function CompactAgentList({agents, selectedAgentId, focused, noColor, ascii}: {
+function CompactAgentList({agents, tasks, selectedAgentId, focused, noColor, ascii}: {
   readonly agents: readonly ProjectRoomAgent[];
+  readonly tasks: readonly ProjectRoomTask[];
   readonly selectedAgentId: string | null;
   readonly focused: boolean;
   readonly noColor: boolean;
@@ -432,7 +486,7 @@ function CompactAgentList({agents, selectedAgentId, focused, noColor, ascii}: {
     <Box flexDirection="column" borderStyle={ascii ? "classic" : "single"} paddingX={1} {...borderColorProp(noColor ? undefined : focused ? "magenta" : undefined)}>
       {agents.length === 0 ? <Text dimColor>No active agent sessions.</Text> : agents.map((agent) => (
         <Text key={agent.id} inverse={focused && agent.id === selectedAgentId} wrap="truncate">
-          {glyph(agent.state, ascii)} {agent.displayName} [{agent.state}] | {safe(agent.taskTitle, 24)} | {safe(agent.activity, 28)}{agent.approvalId === null ? "" : ` | approval ${safe(agent.approvalId, 18)}`}
+          {glyph(agent.state, ascii)} {agent.displayName} [{operationalAgentLabel(agent.state)}] {agentTaskProgressText(tasks, agent.id, ascii)} | {safe(agent.taskTitle, 24)} | {isAgentWorking(agent.state) ? "Now" : "Last"}: {safe(agent.activity, 24)}{agent.approvalId === null ? "" : ` | approval ${safe(agent.approvalId, 18)}`}
         </Text>
       ))}
     </Box>
@@ -450,7 +504,7 @@ function EventPanel({events, selectedEventId, focused, follow, width, noColor, a
 }): React.JSX.Element {
   return (
     <Box flexDirection="column" borderStyle={ascii ? "classic" : "single"} paddingX={1} {...widthProp(width)} {...borderColorProp(noColor ? undefined : focused ? "magenta" : undefined)}>
-      <Box justifyContent="space-between"><Text bold>EVENTS</Text><Text>{follow ? "FOLLOW" : "PAUSED"}</Text></Box>
+      <Box justifyContent="space-between"><Text bold>EVENTS</Text><Text>{follow ? "LIVE SCROLL" : "SCROLL PAUSED"}</Text></Box>
       {events.length === 0 ? <Text dimColor>No committed events yet.</Text> : events.slice(-5).reverse().map((event) => (
         <Text key={event.eventId} inverse={event.eventId === selectedEventId} wrap="truncate">
           {glyph(event.severity, ascii)} {event.sequence.toString().padStart(5, "0")} {safe(event.summary, 90)}
@@ -553,7 +607,8 @@ function Overlay({state, noColor, ascii}: {readonly state: ProjectRoomState; rea
     <Box flexDirection="column" borderStyle={ascii ? "classic" : "double"} paddingX={1} {...borderColorProp(borderColor)}>
       <Text bold>SOFTWARE AGENT HELP</Text>
       <Text>1 Agents | 2 Events | 3 Approvals | 4 Tokens | Tab focus | j/k move</Text>
-      <Text>c Compose | / Search | Ctrl+K Palette | f Follow | q or Ctrl+C Leave | ? Close</Text>
+      <Text>c Compose | / Search | Ctrl+K Palette | f Live scroll | q or Ctrl+C Leave | ? Close</Text>
+      <Text>IDLE means not executing. SCROLL PAUSED affects only the event view, never the run.</Text>
       <Text>Approval: Enter detail, then a approve / d deny / r request changes, then Enter confirms.</Text>
     </Box>
   );
@@ -629,7 +684,7 @@ function Footer({state}: {readonly state: ProjectRoomState}): React.JSX.Element 
 function footerText(state: ProjectRoomState): string {
   if (state.overlay.kind === "composer") return "Composer: type | Tab target | Enter submit | Esc close";
   if (state.overlay.kind !== "none") return "Overlay: arrows move | Enter confirm | Esc close";
-  return "1 Agents  2 Events  3 Approvals  4 Tokens  Tab Focus  c Compose  / Search  Ctrl+K Palette  f Follow  ? Help  q Leave";
+  return "1 Agents  2 Events  3 Approvals  4 Tokens  Tab Focus  c Compose  / Search  Ctrl+K Palette  f Live Scroll  ? Help  q Leave";
 }
 
 function plainFooterText(state: ProjectRoomState): string {
@@ -641,7 +696,11 @@ function plainFooterText(state: ProjectRoomState): string {
 function renderOverlayText(state: ProjectRoomState, width: number, ascii: boolean): readonly string[] {
   const overlay = state.overlay;
   if (overlay.kind === "none" || overlay.kind === "composer") return [];
-  if (overlay.kind === "help") return ["SOFTWARE AGENT HELP", "1-4 focus | Tab cycle | j/k move | c compose | / search | Ctrl+K palette | f follow | q leave | Esc close"];
+  if (overlay.kind === "help") return [
+    "SOFTWARE AGENT HELP",
+    "1-4 focus | Tab cycle | j/k move | c compose | / search | Ctrl+K palette | f live scroll | q leave | Esc close",
+    "IDLE means not executing. SCROLL PAUSED affects only the event view, never the run.",
+  ];
   if (overlay.kind === "search") return [`SEARCH COMMITTED EVENTS > ${clip(overlay.query, Math.max(10, width - 28), ascii)}`];
   if (overlay.kind === "palette") return ["SOFTWARE AGENT COMMAND PALETTE", ...filteredPaletteActions(overlay.query).slice(0, 6).map((action, index) => `${index === overlay.selected ? ">" : " "} ${action}`)];
   if (overlay.kind === "target") return ["SELECT EXPLICIT TARGET", ...targetCandidates(state.snapshot).slice(0, 8).map((target, index) => `${index === overlay.selected ? ">" : " "} ${targetLabel(target)}`)];
@@ -659,18 +718,26 @@ function renderOverlayText(state: ProjectRoomState, width: number, ascii: boolea
   ];
 }
 
-function agentTextGrid(agents: readonly ProjectRoomAgent[], columns: number, width: number, state: ProjectRoomState, ascii: boolean): readonly string[] {
+function agentTextGrid(
+  agents: readonly ProjectRoomAgent[],
+  tasks: readonly ProjectRoomTask[],
+  columns: number,
+  width: number,
+  state: ProjectRoomState,
+  ascii: boolean,
+): readonly string[] {
   if (agents.length === 0) return [" No active agent sessions."];
   const visible = visibleAgents(agents, state.selectedAgentId, columns);
   const gap = " | ";
   const columnWidth = Math.max(20, Math.floor((width - gap.length * (columns - 1)) / columns));
   const cards = visible.map((agent) => [
-    `${agent.id === state.selectedAgentId ? ">" : " "}${glyph(agent.state, ascii)} ${agent.displayName} [${agent.state}]`,
+    `${agent.id === state.selectedAgentId ? ">" : " "}${glyph(agent.state, ascii)} ${agent.displayName} [${operationalAgentLabel(agent.state)}]`,
+    ` ${agentTaskProgressText(tasks, agent.id, ascii)}`,
     ` ${agent.taskTitle}`,
-    ` ${agent.activity}`,
-    ` ${agent.provider}/${agent.model}`,
+    ` ${isAgentWorking(agent.state) ? "Now" : "Last"}: ${agent.activity}`,
+    ` Model: ${agent.provider}/${agent.model}`,
     ` ${formatUsage(agent.tokens)} | ${formatCost(agent.costUsd)}`,
-    ` active ${formatAge(agent.activitySince, state.now)} | event ${formatAge(agent.lastEventAt, state.now)}`,
+    ` ${agentTimingText(agent, state.now)}`,
   ].map((line) => pad(clip(line, columnWidth, ascii), columnWidth)));
   const rows: string[] = [];
   const rowCount = Math.max(...cards.map((card) => card.length));
@@ -691,6 +758,97 @@ function targetLabel(target: ComposerTarget): string {
 
 function targetKey(target: ComposerTarget): string {
   return target.kind === "objective" ? "objective" : `${target.kind}:${target.id}`;
+}
+
+interface TaskProgressSummary {
+  readonly total: number;
+  readonly passed: number;
+  readonly failed: number;
+  readonly running: number;
+  readonly waiting: number;
+  readonly percent: number;
+}
+
+interface AgentProgressSummary {
+  readonly working: number;
+  readonly waiting: number;
+  readonly idle: number;
+  readonly done: number;
+}
+
+function summarizeTasks(tasks: readonly ProjectRoomTask[]): TaskProgressSummary {
+  const passed = tasks.filter((task) => task.state === "PASSED").length;
+  const failed = tasks.filter((task) => task.state === "FAILED" || task.state === "CANCELED").length;
+  const running = tasks.filter((task) => task.state === "RUNNING").length;
+  const waiting = tasks.filter((task) => task.state === "READY" || task.state === "BLOCKED").length;
+  const total = tasks.length;
+  return {total, passed, failed, running, waiting, percent: total === 0 ? 0 : Math.round((passed / total) * 100)};
+}
+
+function summarizeAgents(agents: readonly ProjectRoomAgent[]): AgentProgressSummary {
+  return {
+    working: agents.filter((agent) => isAgentWorking(agent.state)).length,
+    waiting: agents.filter((agent) => /WAITING|PAUSED/u.test(agent.state)).length,
+    idle: agents.filter((agent) => agent.state === "IDLE").length,
+    done: agents.filter((agent) => /SUCCEEDED|FAILED|STOPPED/u.test(agent.state)).length,
+  };
+}
+
+function operationalRunLabel(run: ProjectRoomRun, progress: TaskProgressSummary, workingAgents: number): string {
+  if (run.state === "SUCCEEDED") return "DONE";
+  if (run.state === "FAILED") return "FAILED";
+  if (run.state === "CANCELED") return "CANCELED";
+  if (run.state === "PAUSED" || run.state === "PAUSING") return "PAUSED";
+  if (run.state === "RECOVERING") return "RECOVERING";
+  if (workingAgents > 0 || progress.running > 0) return "WORKING";
+  if (progress.total > 0 && progress.passed === progress.total) return "FINALIZING";
+  return "SCHEDULING";
+}
+
+function operationalAgentLabel(state: string): string {
+  if (isAgentWorking(state)) return "WORKING NOW";
+  if (/WAITING_INPUT/u.test(state)) return "WAITING FOR INPUT";
+  if (/WAITING_HANDOFF/u.test(state)) return "WAITING FOR HANDOFF";
+  if (/PAUSED/u.test(state)) return "PAUSED";
+  if (/SUCCEEDED/u.test(state)) return "DONE";
+  if (/FAILED/u.test(state)) return "FAILED";
+  if (/STOPPED/u.test(state)) return "STOPPED";
+  return "IDLE - NOT WORKING";
+}
+
+function isAgentWorking(state: string): boolean {
+  return /RUNNING|CLAIMED|PLANNING/u.test(state);
+}
+
+function progressBar(completed: number, total: number, width: number, ascii: boolean): string {
+  const safeTotal = Math.max(0, total);
+  const ratio = safeTotal === 0 ? 0 : Math.min(1, Math.max(0, completed / safeTotal));
+  const filled = Math.round(ratio * width);
+  return `[${(ascii ? "#" : "█").repeat(filled)}${(ascii ? "-" : "░").repeat(width - filled)}]`;
+}
+
+function agentTaskProgressText(tasks: readonly ProjectRoomTask[], agentId: string, ascii: boolean): string {
+  const progress = summarizeTasks(tasks.filter((task) => task.agentId === agentId));
+  return `Tasks ${progressBar(progress.passed, progress.total, 6, ascii)} ${progress.passed}/${progress.total} passed`;
+}
+
+function agentTimingText(agent: ProjectRoomAgent, now: number): string {
+  if (isAgentWorking(agent.state)) {
+    return `Working for ${agePhrase(agent.activitySince, now)} | last update ${agePhrase(agent.lastEventAt, now)} ago`;
+  }
+  return `Not executing | last update ${agePhrase(agent.lastEventAt, now)} ago`;
+}
+
+function agePhrase(timestamp: string | null, now: number): string {
+  const age = formatAge(timestamp, now);
+  return age === "UNKNOWN" ? "unknown" : age;
+}
+
+function runProgressText(run: ProjectRoomRun, ascii: boolean): string {
+  const progress = summarizeTasks(run.tasks);
+  const agents = summarizeAgents(run.agents);
+  const failures = progress.failed === 0 ? "" : ` | ${progress.failed} failed`;
+  return `${glyph(run.state, ascii)} RUN ${operationalRunLabel(run, progress, agents.working)} (${run.state}) | Tasks ${progressBar(progress.passed, progress.total, 12, ascii)} ${progress.passed}/${progress.total} passed | ${progress.percent}%${failures} | Agents: ${agents.working} working, ${agents.waiting} waiting, ${agents.idle} idle, ${agents.done} done`;
 }
 
 function glyph(state: string, ascii: boolean): string {

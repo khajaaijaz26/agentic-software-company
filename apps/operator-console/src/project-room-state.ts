@@ -324,7 +324,7 @@ export function projectRoomReducer(state: ProjectRoomState, action: ProjectRoomA
       return state.pendingCommand?.id === action.id ? {...state, commandInFlight: true, notice: "Sending committed command..."} : state;
     case "command.succeeded":
       return state.pendingCommand?.id === action.id
-        ? {...state, pendingCommand: null, commandInFlight: false, notice: "Command accepted; waiting for a committed event."}
+        ? {...state, pendingCommand: null, commandInFlight: false, notice: commandSuccessNotice(state.pendingCommand.command)}
         : state;
     case "command.failed":
       return state.pendingCommand?.id === action.id
@@ -642,6 +642,19 @@ function queueCommand(state: ProjectRoomState, command: ProjectRoomCommand, over
     nextCommandId: state.nextCommandId + 1,
     notice: "Command ready for the controller.",
   };
+}
+
+function commandSuccessNotice(command: ProjectRoomCommand): string {
+  switch (command.type) {
+    case "objective.create":
+      return "Objective committed. The scheduler is assigning work; watch RUN PROGRESS and agent status.";
+    case "instruction.submit":
+      return "Instruction committed. It will run when the selected target has an active schedulable turn.";
+    case "approval.decide":
+      return "Approval decision committed. Waiting work can now continue if policy permits it.";
+    case "session.leave":
+      return `Session disposition committed: ${command.disposition}.`;
+  }
 }
 
 function defaultComposerTarget(snapshot: ProjectRoomSnapshot | null, selectedAgentId: string | null): ComposerTarget {

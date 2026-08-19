@@ -14,6 +14,28 @@ independent version lines.
 - Server-push event subscriptions and very-large-run snapshot compaction.
 - Signed export/import and an automated Python-state migration tool.
 
+## [npm 0.3.2] - 2026-08-19
+
+### Added
+
+- A compact terminal translation of the established Software Agent logo using
+  the prompt, agent-node, and verified-check motifs from the vector mark.
+- Explicit run progress with passed/total tasks, percentage, failures, and
+  working/waiting/idle/done agent counts.
+- Per-agent task progress plus plain-language `WORKING NOW`, waiting, done, and
+  `IDLE - NOT WORKING` labels in wide, compact, and plain terminal layouts.
+- A copy-paste-first GitHub setup guide, modern technology inventory, status
+  legend, and evidence-based comparison with a typical single-agent CLI.
+
+### Changed
+
+- Inactive activity is labeled `Last` instead of `Now`, unknown active time no
+  longer appears for idle sessions, and event follow is labeled `LIVE SCROLL`
+  or `SCROLL PAUSED` to distinguish it from run pausing.
+- Command acknowledgements now explain whether the scheduler is assigning a
+  new objective, waiting for a schedulable instruction target, or resuming
+  approval-blocked work.
+
 ## [npm 0.3.1] - 2026-08-19
 
 ### Fixed
