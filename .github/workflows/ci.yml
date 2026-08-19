@@ -18,8 +18,8 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
         node-version: ["22", "24"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ matrix.node-version }}
           cache: npm
@@ -35,8 +35,8 @@ jobs:
     needs: terminal-platform
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
@@ -45,7 +45,7 @@ jobs:
         run: |
           npm run prepack
           npm pack --ignore-scripts --json > npm-pack.json
-          node -e "const fs=require('fs'); const [{filename}]=JSON.parse(fs.readFileSync('npm-pack.json','utf8')); fs.appendFileSync(process.env.GITHUB_ENV, `SOFTWARE_AGENT_TARBALL=${filename}\n`)"
+          node -e 'const fs=require("fs"); const [{filename}]=JSON.parse(fs.readFileSync("npm-pack.json","utf8")); fs.appendFileSync(process.env.GITHUB_ENV, "SOFTWARE_AGENT_TARBALL="+filename+"\n")'
       - name: Test global installation
         run: |
           npm install --global "./${SOFTWARE_AGENT_TARBALL}"
@@ -67,8 +67,8 @@ jobs:
       PYTHONPATH: src
       SOFTWARE_AGENT_REQUIRE_MCP: "1"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install package with MCP extra
@@ -90,8 +90,8 @@ jobs:
     name: Build and installed-wheel smoke test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Build distributions
