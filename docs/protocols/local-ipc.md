@@ -114,7 +114,7 @@ receives:
   "requestId": "rpc_0123456789abcdef0123456789abcdef",
   "protocolVersion": 2,
   "instanceId": "ctl_0123456789abcdef0123456789abcdef",
-  "buildVersion": "0.4.0",
+  "buildVersion": "0.4.1",
   "serverTime": "2026-08-19T12:00:00.000Z"
 }
 ```

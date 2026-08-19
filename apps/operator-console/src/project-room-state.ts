@@ -198,6 +198,7 @@ export interface ProjectRoomState {
   readonly selectedApprovalId: string | null;
   readonly composerText: string;
   readonly composerTarget: ComposerTarget;
+  readonly slashSelected: number;
   readonly followEvents: boolean;
   readonly notice: string | null;
   readonly pendingCommand: PendingProjectRoomCommand | null;
@@ -228,6 +229,7 @@ export type ProjectRoomAction =
   | {readonly type: "overlay.composer"; readonly prefill?: string}
   | {readonly type: "overlay.settings"}
   | {readonly type: "overlay.target"}
+  | {readonly type: "slash.complete"}
   | {readonly type: "text.append"; readonly text: string}
   | {readonly type: "text.backspace"}
   | {readonly type: "input.confirm"}
@@ -276,6 +278,58 @@ const PALETTE_ACTIONS = [
   "Leave session",
 ] as const;
 
+export interface SlashCommandSuggestion {
+  readonly command: string;
+  readonly usage: string;
+  readonly description: string;
+  readonly category: "View" | "AI & models" | "Run" | "Workspace" | "Session";
+  readonly completion: string;
+  readonly runOnSelect: boolean;
+}
+
+const SLASH_COMMANDS: readonly SlashCommandSuggestion[] = [
+  {command: "/help", usage: "/help", description: "Open keyboard and workflow help", category: "View", completion: "/help", runOnSelect: true},
+  {command: "/status", usage: "/status", description: "Show the current run and working-agent count", category: "View", completion: "/status", runOnSelect: true},
+  {command: "/agents", usage: "/agents", description: "Focus the complete 26-role agent wall", category: "View", completion: "/agents", runOnSelect: true},
+  {command: "/settings", usage: "/settings", description: "Show project, model, token, and API settings", category: "View", completion: "/settings", runOnSelect: true},
+  {command: "/approvals", usage: "/approvals", description: "Focus pending approval packets", category: "View", completion: "/approvals", runOnSelect: true},
+  {command: "/events", usage: "/events", description: "Focus committed controller activity", category: "View", completion: "/events", runOnSelect: true},
+  {command: "/search", usage: "/search", description: "Search committed events", category: "View", completion: "/search", runOnSelect: true},
+  {command: "/api", usage: "/api", description: "Show connected API providers", category: "AI & models", completion: "/api", runOnSelect: true},
+  {command: "/api connect openai", usage: "/api connect openai [model]", description: "Connect OpenAI using masked secure-key entry", category: "AI & models", completion: "/api connect openai ", runOnSelect: true},
+  {command: "/api connect anthropic", usage: "/api connect anthropic [model]", description: "Connect Anthropic using masked secure-key entry", category: "AI & models", completion: "/api connect anthropic ", runOnSelect: true},
+  {command: "/api test openai", usage: "/api test openai", description: "Test the saved OpenAI credential", category: "AI & models", completion: "/api test openai", runOnSelect: true},
+  {command: "/api test anthropic", usage: "/api test anthropic", description: "Test the saved Anthropic credential", category: "AI & models", completion: "/api test anthropic", runOnSelect: true},
+  {command: "/api remove openai", usage: "/api remove openai", description: "Remove the saved OpenAI connection", category: "AI & models", completion: "/api remove openai", runOnSelect: true},
+  {command: "/api remove anthropic", usage: "/api remove anthropic", description: "Remove the saved Anthropic connection", category: "AI & models", completion: "/api remove anthropic", runOnSelect: true},
+  {command: "/model", usage: "/model provider/model", description: "Select the project model for new turns", category: "AI & models", completion: "/model ", runOnSelect: false},
+  {command: "/tokens economy", usage: "/tokens economy", description: "Use the low-cost 25% token allowance", category: "AI & models", completion: "/tokens economy", runOnSelect: true},
+  {command: "/tokens balanced", usage: "/tokens balanced", description: "Use the recommended 50% token allowance", category: "AI & models", completion: "/tokens balanced", runOnSelect: true},
+  {command: "/tokens quality", usage: "/tokens quality", description: "Use the full 100% token allowance", category: "AI & models", completion: "/tokens quality", runOnSelect: true},
+  {command: "/target", usage: "/target", description: "Choose the agent, task, or run for the next message", category: "Run", completion: "/target", runOnSelect: true},
+  {command: "/follow", usage: "/follow", description: "Toggle live committed-event scrolling", category: "Run", completion: "/follow", runOnSelect: true},
+  {command: "/clear", usage: "/clear", description: "Clear this local view without deleting durable history", category: "Run", completion: "/clear", runOnSelect: true},
+  {command: "/project", usage: "/project", description: "Show the active project and how to switch", category: "Workspace", completion: "/project", runOnSelect: true},
+  {command: "/open", usage: "/open <path-or-github-url>", description: "Show the safe command for opening another project", category: "Workspace", completion: "/open ", runOnSelect: false},
+  {command: "/github", usage: "/github OWNER/REPO", description: "Show the command for opening a GitHub repository", category: "Workspace", completion: "/github ", runOnSelect: false},
+  {command: "/leave", usage: "/leave", description: "Leave, pause, or cancel the active session", category: "Session", completion: "/leave", runOnSelect: true},
+] as const;
+
+export function slashCommandSuggestions(query: string): readonly SlashCommandSuggestion[] {
+  const normalized = query.trim().toLowerCase();
+  if (normalized === "" || normalized === "/") return SLASH_COMMANDS;
+  const terms = normalized.replace(/^\//u, "").split(/\s+/u).filter((term) => term !== "");
+  const syntaxMatches = SLASH_COMMANDS.filter((suggestion) => {
+    const syntax = suggestion.usage.toLowerCase();
+    return terms.every((term) => syntax.includes(term));
+  });
+  if (syntaxMatches.length > 0) return syntaxMatches;
+  return SLASH_COMMANDS.filter((suggestion) => {
+    const searchable = `${suggestion.usage} ${suggestion.description} ${suggestion.category}`.toLowerCase();
+    return terms.every((term) => searchable.includes(term));
+  });
+}
+
 export function createInitialProjectRoomState(options: InitialProjectRoomStateOptions = {}): ProjectRoomState {
   return {
     snapshot: null,
@@ -296,6 +350,7 @@ export function createInitialProjectRoomState(options: InitialProjectRoomStateOp
     selectedApprovalId: null,
     composerText: "",
     composerTarget: {kind: "objective", label: "new objective"},
+    slashSelected: 0,
     followEvents: true,
     notice: null,
     pendingCommand: null,
@@ -338,10 +393,13 @@ export function projectRoomReducer(state: ProjectRoomState, action: ProjectRoomA
         overlay: {kind: "composer"},
         composerText: action.prefill ?? state.composerText,
         composerTarget: state.overlay.kind === "target" ? state.composerTarget : defaultComposerTarget(state.snapshot, state.selectedAgentId),
+        slashSelected: 0,
         notice: null,
       };
     case "overlay.target":
       return {...state, overlay: {kind: "target", selected: targetIndex(state)}, notice: null};
+    case "slash.complete":
+      return completeSlashSelection(state);
     case "text.append":
       return appendText(state, action.text);
     case "text.backspace":
@@ -401,6 +459,9 @@ export function projectRoomInput(state: ProjectRoomState, input: string, key: Pr
       return printable(input, key) ? {type: "text.append", text: input} : null;
     case "composer":
       if (key.return) return {type: "input.confirm"};
+      if (slashMenuVisible(state) && key.tab) return {type: "slash.complete"};
+      if (slashMenuVisible(state) && key.upArrow) return {type: "selection.move", delta: -1};
+      if (slashMenuVisible(state) && key.downArrow) return {type: "selection.move", delta: 1};
       if (key.tab) return {type: "overlay.target"};
       if (key.backspace || key.delete) return {type: "text.backspace"};
       return printable(input, key) ? {type: "text.append", text: input} : null;
@@ -538,7 +599,7 @@ function appendText(state: ProjectRoomState, text: string): ProjectRoomState {
   const clean = terminalText(text, 8_192);
   if (clean === "") return state;
   if (state.overlay.kind === "composer") {
-    return {...state, composerText: `${state.composerText}${clean}`.slice(0, 8_192), notice: null};
+    return {...state, composerText: `${state.composerText}${clean}`.slice(0, 8_192), slashSelected: 0, notice: null};
   }
   if (state.overlay.kind === "search") {
     return {...state, overlay: {kind: "search", query: `${state.overlay.query}${clean}`.slice(0, 256)}};
@@ -550,7 +611,7 @@ function appendText(state: ProjectRoomState, text: string): ProjectRoomState {
 }
 
 function backspaceText(state: ProjectRoomState): ProjectRoomState {
-  if (state.overlay.kind === "composer") return {...state, composerText: dropLastCodePoint(state.composerText)};
+  if (state.overlay.kind === "composer") return {...state, composerText: dropLastCodePoint(state.composerText), slashSelected: 0};
   if (state.overlay.kind === "api-key") return {...state, overlay: {...state.overlay, value: dropLastCodePoint(state.overlay.value)}};
   if (state.overlay.kind === "search") return {...state, overlay: {kind: "search", query: dropLastCodePoint(state.overlay.query)}};
   if (state.overlay.kind === "palette") return {...state, overlay: {...state.overlay, query: dropLastCodePoint(state.overlay.query), selected: 0}};
@@ -614,7 +675,7 @@ function confirmOverlay(state: ProjectRoomState): ProjectRoomState {
 function submitComposer(state: ProjectRoomState): ProjectRoomState {
   const trimmed = state.composerText.trim();
   if (trimmed === "") return {...state, notice: "Enter an objective or targeted instruction before submitting."};
-  if (trimmed.startsWith("/") && !trimmed.startsWith("//")) return executeSlashCommand(state, trimmed);
+  if (trimmed.startsWith("/") && !trimmed.startsWith("//")) return submitSlashComposer(state, trimmed);
   if (isReadOnly(state)) return {...state, notice: "This Software Agent session is read-only; instructions are disabled."};
   const text = trimmed.startsWith("//") ? trimmed.slice(1) : trimmed;
   if (state.composerTarget.kind === "objective") {
@@ -629,6 +690,51 @@ function submitComposer(state: ProjectRoomState): ProjectRoomState {
     target: state.composerTarget,
     expectedCursor: state.cursor,
   }, {kind: "none"});
+}
+
+export function slashMenuVisible(state: ProjectRoomState): boolean {
+  return state.overlay.kind === "composer" && state.composerText.startsWith("/") && !state.composerText.startsWith("//");
+}
+
+function submitSlashComposer(state: ProjectRoomState, command: string): ProjectRoomState {
+  if (validSlashInvocation(command)) return executeSlashCommand(state, command);
+  const suggestions = slashCommandSuggestions(command);
+  const selected = suggestions[clampIndex(state.slashSelected, suggestions.length)];
+  if (selected === undefined) return executeSlashCommand(state, command);
+  if (!selected.runOnSelect) return completeSlashSelection(state);
+  return executeSlashCommand(state, selected.command);
+}
+
+function completeSlashSelection(state: ProjectRoomState): ProjectRoomState {
+  if (!slashMenuVisible(state)) return state;
+  const suggestions = slashCommandSuggestions(state.composerText);
+  const selected = suggestions[clampIndex(state.slashSelected, suggestions.length)];
+  if (selected === undefined) return {...state, notice: "No implemented slash command matches this text."};
+  return {
+    ...state,
+    composerText: selected.completion,
+    slashSelected: 0,
+    notice: selected.completion.endsWith(" ") ? `Complete ${selected.usage}, then press Enter.` : null,
+  };
+}
+
+function validSlashInvocation(command: string): boolean {
+  const parts = command.trim().toLowerCase().split(/\s+/u);
+  const root = parts[0] ?? "";
+  const action = parts[1];
+  const provider = parts[2];
+  if (["/help", "/search", "/follow", "/leave", "/target", "/settings", "/agents", "/approvals", "/events", "/status", "/clear", "/project"].includes(root)) {
+    return parts.length === 1;
+  }
+  if (root === "/open" || root === "/github") return true;
+  if (root === "/model") return parts.length <= 2;
+  if (root === "/tokens") {
+    return parts.length === 1 || (parts.length === 2 && ["status", "25", "25%", "economy", "50", "50%", "balanced", "100", "100%", "quality"].includes(action ?? ""));
+  }
+  if (root !== "/api") return false;
+  if (parts.length === 1 || ((action === "status" || action === "list") && parts.length === 2)) return true;
+  if (!["connect", "test", "remove"].includes(action ?? "") || !["openai", "anthropic"].includes(provider ?? "")) return false;
+  return action === "connect" ? parts.length <= 4 : parts.length === 3;
 }
 
 function executeSlashCommand(state: ProjectRoomState, command: string): ProjectRoomState {
@@ -769,6 +875,10 @@ function beginApprovalDecision(state: ProjectRoomState, decision: ApprovalDecisi
 }
 
 function moveSelection(state: ProjectRoomState, delta: -1 | 1): ProjectRoomState {
+  if (slashMenuVisible(state)) {
+    const count = slashCommandSuggestions(state.composerText).length;
+    return {...state, slashSelected: wrapIndex(state.slashSelected + delta, count)};
+  }
   if (state.overlay.kind === "palette") {
     const count = filteredPaletteActions(state.overlay.query).length;
     return {...state, overlay: {...state.overlay, selected: wrapIndex(state.overlay.selected + delta, count)}};

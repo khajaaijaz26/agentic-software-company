@@ -14,6 +14,21 @@ independent version lines.
 - Server-push event subscriptions and very-large-run snapshot compaction.
 - Signed export/import and an automated Python-state migration tool.
 
+## [npm 0.4.1] - 2026-08-19
+
+### Added
+
+- Pressing `/` now opens a complete searchable slash-command menu with the
+  active project, model, token mode, and API connection status.
+- The menu exposes all 25 implemented command forms, filters while typing,
+  supports arrow-key browsing and Tab completion, and runs the selected
+  command with Enter.
+
+### Changed
+
+- Slash-command syntax is ranked ahead of descriptive text so partial provider
+  commands resolve predictably without hiding related settings.
+
 ## [npm 0.4.0] - 2026-08-19
 
 ### Added

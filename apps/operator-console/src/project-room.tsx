@@ -9,7 +9,10 @@ import {
   isContiguousUpdate,
   projectRoomInput,
   projectRoomReducer,
+  slashCommandSuggestions,
+  slashMenuVisible,
   targetCandidates,
+  type SlashCommandSuggestion,
   type ComposerTarget,
   type LeaveDisposition,
   type ProjectRoomAgent,
@@ -728,7 +731,8 @@ function ComposerLine({state, noColor, ascii}: {readonly state: ProjectRoomState
 
 function Overlay({state, noColor, ascii}: {readonly state: ProjectRoomState; readonly noColor: boolean; readonly ascii: boolean}): React.JSX.Element | null {
   const overlay = state.overlay;
-  if (overlay.kind === "none" || overlay.kind === "composer") return null;
+  if (overlay.kind === "none") return null;
+  if (overlay.kind === "composer") return slashMenuVisible(state) ? <SlashCommandMenu state={state} noColor={noColor} ascii={ascii}/> : null;
   const borderColor = noColor ? undefined : "magenta";
   if (overlay.kind === "help") return (
     <Box flexDirection="column" borderStyle={ascii ? "classic" : "double"} paddingX={1} {...borderColorProp(borderColor)}>
@@ -826,6 +830,49 @@ function Overlay({state, noColor, ascii}: {readonly state: ProjectRoomState; rea
   );
 }
 
+function SlashCommandMenu({state, noColor, ascii}: {
+  readonly state: ProjectRoomState;
+  readonly noColor: boolean;
+  readonly ascii: boolean;
+}): React.JSX.Element {
+  const suggestions = slashCommandSuggestions(state.composerText);
+  const page = slashCommandPage(suggestions, state.slashSelected, Math.max(5, Math.min(10, state.height - 23)));
+  const settings = state.snapshot?.settings;
+  const providers = settings?.providers.filter((provider) => provider.enabled).map((provider) => provider.providerId).join(", ") || "offline";
+  return (
+    <Box flexDirection="column" borderStyle={ascii ? "classic" : "double"} paddingX={1} {...borderColorProp(noColor ? undefined : "magenta")}>
+      <Text bold>SOFTWARE AGENT SLASH COMMANDS</Text>
+      <Text wrap="truncate">Project: {settings?.workspace ?? "Loading"}</Text>
+      <Text>Model: {settings?.defaultModel ?? "deterministic/local"} | Tokens: {settings?.tokenMode ?? "balanced"} | API: {providers}</Text>
+      <Text>Filter: {state.composerText} | {suggestions.length} matching command{suggestions.length === 1 ? "" : "s"}</Text>
+      {page.items.map(({suggestion, index}) => (
+        <Text key={suggestion.command} inverse={index === page.selected}>
+          {index === page.selected ? ">" : " "} <Text bold>{suggestion.usage}</Text> <Text dimColor>— {suggestion.description}</Text>
+        </Text>
+      ))}
+      {suggestions.length === 0 ? <Text>No command matches. Keep typing or press Esc.</Text> : null}
+      <Text dimColor>Type to filter | ↑↓ choose | Tab complete | Enter run | Esc close{suggestions.length === 0 ? "" : ` | ${page.start + 1}-${page.end} of ${suggestions.length}`}</Text>
+    </Box>
+  );
+}
+
+function slashCommandPage(suggestions: readonly SlashCommandSuggestion[], selected: number, capacity: number): {
+  readonly items: readonly {readonly suggestion: SlashCommandSuggestion; readonly index: number}[];
+  readonly selected: number;
+  readonly start: number;
+  readonly end: number;
+} {
+  const boundedSelected = Math.max(0, Math.min(selected, Math.max(0, suggestions.length - 1)));
+  const start = Math.max(0, Math.min(boundedSelected - capacity + 1, Math.max(0, suggestions.length - capacity)));
+  const end = Math.min(suggestions.length, start + capacity);
+  return {
+    items: suggestions.slice(start, end).map((suggestion, offset) => ({suggestion, index: start + offset})),
+    selected: boundedSelected,
+    start,
+    end,
+  };
+}
+
 function OverlayBox({title, value, hint, color, ascii}: {readonly title: string; readonly value: string; readonly hint: string; readonly color: string | undefined; readonly ascii: boolean}): React.JSX.Element {
   return (
     <Box flexDirection="column" borderStyle={ascii ? "classic" : "double"} paddingX={1} {...borderColorProp(color)}>
@@ -839,6 +886,7 @@ function Footer({state}: {readonly state: ProjectRoomState}): React.JSX.Element 
 }
 
 function footerText(state: ProjectRoomState): string {
+  if (slashMenuVisible(state)) return "Slash commands: type to filter | ↑↓ choose | Tab complete | Enter run | Esc close";
   if (state.overlay.kind === "composer") return "Chat: type a prompt or /command | Tab target | Enter send | Esc close";
   if (state.overlay.kind === "api-key") return "Secure key entry: paste | Enter connect | Esc discard";
   if (state.overlay.kind !== "none") return "Overlay: arrows move | Enter confirm | Esc close";
@@ -846,6 +894,7 @@ function footerText(state: ProjectRoomState): string {
 }
 
 function plainFooterText(state: ProjectRoomState): string {
+  if (slashMenuVisible(state)) return "Slash: type filter | Up/Down choose | Tab complete | Enter run | Esc close";
   if (state.overlay.kind === "composer") return "Type prompt or /command | Tab Target | Enter Send | Esc Close";
   if (state.overlay.kind === "api-key") return "Paste key | Enter Connect | Esc Discard";
   if (state.overlay.kind !== "none") return "Arrows Move | Enter Confirm | Esc Close";
@@ -854,7 +903,22 @@ function plainFooterText(state: ProjectRoomState): string {
 
 function renderOverlayText(state: ProjectRoomState, width: number, ascii: boolean): readonly string[] {
   const overlay = state.overlay;
-  if (overlay.kind === "none" || overlay.kind === "composer") return [];
+  if (overlay.kind === "none") return [];
+  if (overlay.kind === "composer") {
+    if (!slashMenuVisible(state)) return [];
+    const suggestions = slashCommandSuggestions(state.composerText);
+    const page = slashCommandPage(suggestions, state.slashSelected, Math.max(5, Math.min(10, state.height - 23)));
+    const settings = state.snapshot?.settings;
+    const providers = settings?.providers.filter((provider) => provider.enabled).map((provider) => provider.providerId).join(", ") || "offline";
+    return [
+      "SOFTWARE AGENT SLASH COMMANDS",
+      clip(`Project: ${settings?.workspace ?? "Loading"}`, width, ascii),
+      clip(`Model: ${settings?.defaultModel ?? "deterministic/local"} | Tokens: ${settings?.tokenMode ?? "balanced"} | API: ${providers}`, width, ascii),
+      `Filter: ${state.composerText} | ${suggestions.length} matching command${suggestions.length === 1 ? "" : "s"}`,
+      ...page.items.map(({suggestion, index}) => clip(`${index === page.selected ? ">" : " "} ${suggestion.usage} — ${suggestion.description}`, width, ascii)),
+      suggestions.length === 0 ? "No command matches. Keep typing or press Esc." : `Type filter | Up/Down choose | Tab complete | Enter run | ${page.start + 1}-${page.end} of ${suggestions.length}`,
+    ];
+  }
   if (overlay.kind === "help") return [
     "SOFTWARE AGENT HELP",
     "1 Agents | 2 Chat/work | 3 Approvals | 4 Tokens | 5 Settings | Type to chat | / Slash commands",

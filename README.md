@@ -34,7 +34,7 @@ Requirements: Node.js 22.14 or newer, npm, and Git. Node.js 24 LTS is recommende
 1. Install and verify the current release:
 
    ```powershell
-   npm install -g "https://github.com/khajaaijaz26/software-agent/releases/download/v0.4.0/software-agent-0.4.0.tgz"
+   npm install -g "https://github.com/khajaaijaz26/software-agent/releases/download/v0.4.1/software-agent-0.4.1.tgz"
    software-agent --version
    ```
 
@@ -65,7 +65,7 @@ GitHub repositories are edited through a normal local Git checkout, so every fil
 ### macOS or Linux
 
 ```bash
-npm install -g "https://github.com/khajaaijaz26/software-agent/releases/download/v0.4.0/software-agent-0.4.0.tgz"
+npm install -g "https://github.com/khajaaijaz26/software-agent/releases/download/v0.4.1/software-agent-0.4.1.tgz"
 cd /path/to/your-project
 software-agent start "Understand this project, find errors, fix them, and run all tests"
 ```
@@ -74,7 +74,7 @@ The verified GitHub release works now; GitHub publishes its SHA-256 digest on th
 
 ### Connect a real AI model
 
-Without a configured provider, the deterministic offline adapter demonstrates orchestration and finishes quickly. For real repository work, open `software-agent`, press `/`, and enter one of these commands **inside the Software Agent chat box**:
+Without a configured provider, the deterministic offline adapter demonstrates orchestration and finishes quickly. For real repository work, open `software-agent` and press `/` **inside the Software Agent chat box**. A searchable menu opens with the current project, model, token mode, API status, and every implemented slash command. Type to filter, use ↑/↓ to choose, Tab to complete, or Enter to run:
 
 ```text
 /api connect openai <model-id>

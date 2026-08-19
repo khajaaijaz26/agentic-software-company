@@ -3,7 +3,7 @@
 ## Version
 
 This document defines the preview ABI for `software-agent` 0.4.x. The CLI
-reports code version `0.4.0`, schema version `1`, and plugin API version `1`.
+reports code version `0.4.1`, schema version `1`, and plugin API version `1`.
 Preview contracts can grow compatibly; incompatible changes require a new
 schema identifier and release note.
 

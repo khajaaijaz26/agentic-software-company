@@ -4,6 +4,7 @@ import {
   createInitialProjectRoomState,
   projectRoomInput,
   projectRoomReducer,
+  slashCommandSuggestions,
   type ProjectRoomKey,
   type ProjectRoomSnapshot,
   type ProjectRoomState,
@@ -292,6 +293,45 @@ describe("Software Agent v0.4 project room", () => {
     state = input(state, "Fix the failing tests");
     expect(state.overlay.kind).toBe("composer");
     expect(state.composerText).toBe("Fix the failing tests");
+  });
+
+  it("opens a complete, filterable slash-command menu with live settings", () => {
+    let state = readyState();
+    state = input(state, "/");
+    expect(state.overlay.kind).toBe("composer");
+    expect(slashCommandSuggestions("/")).toHaveLength(25);
+    expect(slashCommandSuggestions("/").map((command) => command.command)).toEqual(expect.arrayContaining([
+      "/help",
+      "/agents",
+      "/settings",
+      "/api connect openai",
+      "/api connect anthropic",
+      "/model",
+      "/tokens balanced",
+      "/target",
+      "/open",
+      "/leave",
+    ]));
+    const menu = renderProjectRoomText(state, {width: 120, height: 36, ascii: true, noColor: true});
+    expect(menu).toContain("SOFTWARE AGENT SLASH COMMANDS");
+    expect(menu).toContain("Project: C:\\work\\demo");
+    expect(menu).toContain("Model: openai/gpt-test | Tokens: balanced | API: openai");
+    expect(menu).toContain("/api connect openai [model]");
+    expect(menu).toContain("Type filter | Up/Down choose | Tab complete | Enter run");
+
+    state = input(state, "api connect anth");
+    expect(slashCommandSuggestions(state.composerText).map((command) => command.command)).toEqual(["/api connect anthropic"]);
+    state = input(state, "", key({tab: true}));
+    expect(state.composerText).toBe("/api connect anthropic ");
+    state = input(state, "", key({return: true}));
+    expect(state.overlay).toMatchObject({kind: "api-key", providerId: "anthropic"});
+
+    state = readyState();
+    state = input(state, "/");
+    state = input(state, "", key({downArrow: true}));
+    expect(state.slashSelected).toBe(1);
+    state = input(state, "", key({return: true}));
+    expect(state.notice).toContain("Run RUNNING");
   });
 
   it("uses chat slash commands for secure API setup, models, tokens, settings, and the 26-role wall", () => {
