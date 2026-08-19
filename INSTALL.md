@@ -11,6 +11,7 @@ Software Agent's primary runtime is a TypeScript/Node.js terminal application. T
 - Git.
 - GitHub CLI (`gh`) only when opening a GitHub URL or `OWNER/REPO`; it is not needed for local folders.
 - Windows Terminal, iTerm2, or another modern terminal for the best live UI.
+- A microphone and OS microphone permission only when using Nova voice input.
 
 Check the tools:
 
@@ -28,12 +29,12 @@ For remote GitHub projects, connect once with `gh auth login`. You may skip both
 The public GitHub release is available now:
 
 ```powershell
-npm install -g "https://github.com/khajaaijaz26/software-agent/releases/download/v0.6.0/software-agent-0.6.0.tgz"
+npm install -g "https://github.com/khajaaijaz26/software-agent/releases/download/v0.7.0/software-agent-0.7.0.tgz"
 software-agent --version
 software-agent setup
 ```
 
-GitHub publishes the SHA-256 digest for `software-agent-0.6.0.tgz` on the release page so it can be checked independently after download.
+GitHub publishes the SHA-256 digest for `software-agent-0.7.0.tgz` on the release page so it can be checked independently after download.
 
 ## Global npm registry installation
 
@@ -187,7 +188,7 @@ Do not pass a raw key to `--credential`; it is rejected. Raw keys are accepted o
 ## macOS and Linux
 
 ```bash
-npm install -g "https://github.com/khajaaijaz26/software-agent/releases/download/v0.6.0/software-agent-0.6.0.tgz"
+npm install -g "https://github.com/khajaaijaz26/software-agent/releases/download/v0.7.0/software-agent-0.7.0.tgz"
 cd /path/to/your-project
 export OPENAI_API_KEY="your-key"
 software-agent providers add openai --model <model-id> --credential env://OPENAI_API_KEY
@@ -196,6 +197,23 @@ software-agent start "Describe the software change"
 ```
 
 Linux `keychain://` support uses Secret Service when `secret-tool` is installed. macOS can resolve existing Keychain entries. Environment references work consistently on all platforms.
+
+## Use Nova voice chat
+
+Nova voice input requires an enabled OpenAI provider. The coding agents can still use OpenAI, Anthropic, or per-role model routes independently.
+
+```text
+/setup
+Connect OpenAI in the masked key box
+Press Ctrl+R, or type /voice
+Speak, then press Enter
+Edit the transcript if needed
+Press Enter again to send
+```
+
+Nova then speaks the committed reply belonging to that exact request. Before recording, use Tab or `/target` if you want to ask one active agent rather than the whole Software Agent team.
+
+The microphone opens only after an explicit `Ctrl+R` or `/voice`. Recording is capped at two minutes, held in memory, erased after transcription or cancellation, and never treated as a command before you review and submit its transcript. OpenAI receives the audio for transcription and generates the spoken reply; the voice is AI-generated. `--offline` blocks voice before credential or microphone access. `/voice` is an in-room command—do not type it at a PowerShell prompt before opening `software-agent`.
 
 ## Select models by agent role
 
@@ -279,6 +297,7 @@ Useful in-room slash commands:
 | Command | Result |
 | --- | --- |
 | `/setup` | Guided OpenAI/Anthropic secure connection. |
+| `/voice` | Start Nova push-to-talk; Enter stops, then review and Enter sends. |
 | `/simple` | Return to the clean conversation-first screen. |
 | `/details` | Open the complete multi-agent control room. |
 | `/agents` | Focus the wall and report the 26 named roles. |
@@ -315,7 +334,7 @@ software-agent integrations test vercel --json
 software-agent integrations test supabase --json
 ```
 
-These adapters currently discover status and produce governed mutation plans. Software Agent v0.6 does not silently execute remote pushes, deployments, or database migrations.
+These adapters currently discover status and produce governed mutation plans. Software Agent v0.7 does not silently execute remote pushes, deployments, or database migrations.
 
 ## Controller lifecycle
 
@@ -384,6 +403,10 @@ python -m compileall -q src tests
 | `PROJECT_NOT_INITIALIZED` | Run `software-agent init` in the target repository. |
 | `SECRET_UNAVAILABLE` | Set the referenced environment variable in the same terminal before launch. |
 | `PROVIDER_DISABLED` | Run `software-agent providers enable <provider>`. |
+| Nova says OpenAI is not connected | Open the room, type `/setup`, and connect OpenAI in the masked key box. |
+| Nova cannot open the microphone | Allow microphone access for the terminal in OS privacy settings, close other exclusive microphone apps, and retry `/voice`. |
+| Voice recording is empty or too short | Start `/voice`, speak clearly for at least a moment, then press Enter once to transcribe. |
+| Nova's text reply appears but no audio plays | Check the selected audio output. On Linux, install `aplay`, `paplay`, or `ffplay`; the text reply remains available. |
 | Exit code `4` | Inspect the exact approval in the project room or with `software-agent approvals list`. |
 | Session is read-only | Another terminal owns the short mutation lease; use that terminal or close it cleanly. |
 | Controller descriptor is stale | Run `software-agent doctor --json`; stop only the verified stale process, then retry. |

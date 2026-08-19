@@ -4,7 +4,7 @@
 
 | Distribution | Version | Security fixes |
 | --- | --- | --- |
-| npm `software-agent` | 0.4.x preview | Yes |
+| npm `software-agent` | 0.7.x preview | Yes |
 | Python `software-agent` | 1.x compatibility | Yes |
 | Earlier/unreleased snapshots | other | No |
 
@@ -37,9 +37,9 @@ credentials and synthetic data.
   single-use.
 - Unknown connector operations are denied. A5 operations are denied by
   default, with hard denials for selected production/destructive cases.
-- Remote connector mutations are planning-only in v0.6; provider probes and
+- Remote connector mutations are planning-only in v0.7; provider probes and
   inventories are read-only.
-- Model credentials are supplied through explicit `env://` or supported
+- Coding-model credentials are supplied through explicit `env://` or supported
   secure-store references, resolved only by the controller, leased for the
   shortest scope, redacted, and never persisted in
   events, model prompts, artifacts, command lines, or generated reports.
@@ -47,6 +47,18 @@ credentials and synthetic data.
   Manager, macOS Keychain, or Linux Secret Service before controller IPC.
   Windows secret bytes travel over stdin; validated target identifiers are
   bound into an encoded PowerShell program, and native buffers are zeroed.
+- Nova never opens the microphone until the operator presses `Ctrl+R` or runs
+  `/voice`. Capture is bounded to two minutes, microphone PCM is held in
+  process memory, and buffers are zeroed after transcription, cancellation,
+  validation failure, or abort. The editable transcript requires a separate
+  Enter before it becomes a controller command.
+- Nova is the narrow exception to controller-side credential resolution: the
+  local CLI resolves the configured OpenAI secret only for the bounded audio
+  request and clear the lease afterward. Spoken output is generated audio,
+  correlated to the exact committed task, stored only in a private random
+  temporary WAV for playback, and removed immediately afterward.
+- `--offline` rejects Nova before provider configuration, credential resolution,
+  microphone access, or an audio network request.
 - Attachment content is untrusted data. Local ingestion does not authorize
   upload, execution, or instruction following.
 - Artifacts are addressed by SHA-256 and verified on read. Runtime files are
@@ -65,7 +77,7 @@ credentials and synthetic data.
 
 - Authenticated IPC and detached controller discovery are active. Windows
   runtime/pipe ACLs and OS peer identity are not independently verified in
-  v0.6; protect the account and runtime directory.
+  v0.7; protect the account and runtime directory.
 - Attempt/lease fencing and child-process boundaries for approved verification
   commands are implemented, but lease extension, automatic retries, OS
   sandboxing/network isolation, and complete orphan recovery are not.
@@ -73,6 +85,10 @@ credentials and synthetic data.
 - Native OpenAI Responses and Anthropic Messages adapters send selected prompt,
   tool, and repository context to the configured provider. Egress restrictions
   and data-governance review remain the operator's responsibility.
+- Nova sends recorded speech to the configured OpenAI transcription endpoint
+  and sends the selected committed reply to OpenAI speech generation. It is
+  push-to-talk, not a local/offline speech recognizer or always-on wake word.
+  OS microphone drivers and native playback tools remain trusted components.
 - Python MCP HTTP transports need external TLS, authentication, authorization,
   rate limiting, and network policy before non-local exposure.
 - Pattern scanners reduce accidental exposure but are not complete malware,
@@ -83,7 +99,7 @@ abuse cases, and residual risk.
 
 ## Secure deployment guidance
 
-1. Keep the CLI and state on a trusted single-user workstation during v0.6.
+1. Keep the CLI and state on a trusted single-user workstation during v0.7.
 2. Restrict project and platform data directories with OS permissions and disk
    encryption.
 3. Never commit `.software-agent/`, `.agent-company/`, `.agentic_company/`, `.env`, provider
@@ -110,6 +126,8 @@ abuse cases, and residual risk.
   framing, RPC validation, and controller lifecycle.
 - `packages/worker-supervisor/` and `apps/worker-runtime/`: process boundary,
   lease/attempt binding, limits, and result validation.
+- `packages/voice-input/` and `apps/cli/src/voice-assistant.ts`: bounded
+  microphone capture, audio-provider calls, buffer erasure, and playback.
 - `src/agentic_company/`: Python/MCP compatibility controls.
 
 Security changes require tests, a threat-model update where applicable, and the

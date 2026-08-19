@@ -323,7 +323,7 @@ describe("catalog, terminal safety, controller replay, and CLI ABI", () => {
     }
   });
 
-  it("uses versioned machine envelopes for a complete headless v0.6 run", async () => {
+  it("uses versioned machine envelopes for a complete headless v0.7 run", async () => {
     const workspace = temporaryDirectory();
     const output: string[] = [];
     const error: string[] = [];
@@ -361,9 +361,12 @@ describe("catalog, terminal safety, controller replay, and CLI ABI", () => {
     const doctor = JSON.parse(output.join("")) as {data: {
       connectors: Array<{details: string[]}>;
       runtime: {mode: string; requiresEditor: boolean; requiresExternalCodingCli: boolean};
+      voice: {assistant: string; mode: string; microphoneProbe: string; executesBeforeTranscriptConfirmation: boolean; availableInCurrentMode: boolean; blockedByOffline: boolean};
     }};
     expect(doctor.data.connectors).toHaveLength(3);
     expect(doctor.data.connectors.every((item) => item.details[0]?.includes("probe not attempted"))).toBe(true);
     expect(doctor.data.runtime).toMatchObject({mode: "standalone", requiresEditor: false, requiresExternalCodingCli: false});
+    expect(doctor.data.voice).toMatchObject({assistant: "Nova", mode: "explicit push-to-talk", executesBeforeTranscriptConfirmation: false, availableInCurrentMode: false, blockedByOffline: true});
+    expect(doctor.data.voice.microphoneProbe).toContain("not attempted");
   });
 });

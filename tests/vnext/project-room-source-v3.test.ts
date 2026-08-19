@@ -1,3 +1,4 @@
+import {createHash} from "node:crypto";
 import {mkdtemp, readFile, rm} from "node:fs/promises";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
@@ -140,6 +141,10 @@ describe("Software Agent project-room IPC adapter", () => {
 
   it("binds objective creation and resume to one renewable UI control lease", async () => {
     const calls: Array<{method: string; params: unknown}> = [];
+    const createdRun: SoftwareAgentRunView = {
+      ...run,
+      tasks: [{...(run.tasks[0] as SoftwareAgentRunView["tasks"][number]), id: "task_orchestrator", role: "master-orchestrator"}],
+    };
     const request = vi.fn(async (method: string, params: unknown) => {
       calls.push({method, params});
       if (method === "mutation.acquire") return {
@@ -151,7 +156,7 @@ describe("Software Agent project-room IPC adapter", () => {
         state: "ACTIVE",
       };
       if (method === "snapshot.get") return {...snapshot([]), cursor: 3, recentEvents: []};
-      if (method === "run.create") return run;
+      if (method === "run.create") return createdRun;
       if (method === "run.resume") return {schema: "software-agent.command-receipt/v2", accepted: true, runId: run.id, revision: 6};
       if (method === "mutation.release") return {leaseId: "lease_ui", attachmentId: "ui_test", fence: 7, acquiredAt: "2026-08-19T00:00:00.000Z", expiresAt: "2026-08-19T00:00:01.000Z", state: "RELEASED"};
       if (method === "listApprovals") return [];
@@ -163,7 +168,7 @@ describe("Software Agent project-room IPC adapter", () => {
       tokenMode: "economy",
     });
     await source.initialize();
-    await source.execute({type: "objective.create", text: "Improve the application", expectedCursor: 3}, new AbortController().signal);
+    const result = await source.execute({type: "objective.create", text: "Improve the application", expectedCursor: 3}, new AbortController().signal);
     await source.dispose();
 
     const create = calls.find(({method}) => method === "run.create")?.params as Record<string, unknown>;
@@ -176,6 +181,7 @@ describe("Software Agent project-room IPC adapter", () => {
     });
     expect(create.mutationLease).toEqual({leaseId: "lease_ui", fence: 7});
     expect(resume).toMatchObject({expectedRunRevision: 5, runId: "run_one"});
+    expect(result.replyTaskId).toBe("task_orchestrator");
     expect(calls.map(({method}) => method)).toContain("mutation.release");
   });
 
@@ -224,6 +230,8 @@ describe("Software Agent project-room IPC adapter", () => {
     expect(calls.find(({method}) => method === "run.resume")?.params).toMatchObject({expectedRunRevision: 8, runId: run.id});
     expect(result.message).toContain("Message sent to Software Engineer");
     expect(result.message).toContain("final reply");
+    const commandId = submitted.commandId as string;
+    expect(result.replyTaskId).toBe(`tsk_${createHash("sha256").update(`${commandId}:conversation`, "utf8").digest("hex").slice(0, 32)}`);
   });
 
   it("rebases chat safely when live agent events advance the run revision", async () => {

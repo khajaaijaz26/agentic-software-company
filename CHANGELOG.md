@@ -14,6 +14,44 @@ independent version lines.
 - Server-push event subscriptions and very-large-run snapshot compaction.
 - Signed export/import and an automated Python-state migration tool.
 
+## [npm 0.7.0] - 2026-08-19
+
+### Added
+
+- Nova, an explicit push-to-talk voice assistant available with `Ctrl+R` or
+  `/voice` in the project room.
+- Bounded local microphone capture through Picovoice PvRecorder, OpenAI
+  `gpt-4o-mini-transcribe` transcription, and OpenAI `gpt-4o-mini-tts` WAV
+  replies using the `nova` voice.
+- Editable voice transcripts: stopping a recording fills the normal composer
+  and requires a second Enter before the instruction is committed.
+- Cross-platform speech playback through Windows native WAV support, macOS
+  `afplay`, or bounded Linux `aplay`/`paplay`/`ffplay` fallbacks.
+- Voice capability and privacy details in setup, settings, help, and
+  `software-agent doctor --json`.
+
+### Changed
+
+- The command menu now contains 29 discoverable in-room commands, including a
+  Start-here Nova entry and the `Ctrl+R` shortcut.
+- Spoken output is correlated to the exact task created by the recorded
+  instruction so an unrelated background completion is never selected.
+- GitHub and installation documentation now explains the voice workflow,
+  provider requirement, OS permissions, technology stack, and troubleshooting.
+
+### Security
+
+- The microphone is dormant until an explicit user action, recording is capped
+  at two minutes, PCM remains in memory, and captured buffers are zeroed after
+  transcription, cancellation, validation failure, or abort.
+- Voice credentials are resolved only for the audio request and immediately
+  cleared; raw keys do not enter controller IPC, worker manifests, or project
+  files.
+- `--offline` rejects voice before configuration, credential, microphone, or
+  audio network access.
+- Generated speech uses a private random temporary WAV that is removed after
+  playback. Safety approvals remain unchanged and cannot be granted by voice.
+
 ## [npm 0.6.0] - 2026-08-19
 
 ### Added

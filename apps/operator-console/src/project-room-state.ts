@@ -150,6 +150,7 @@ export type ComposerTarget =
 
 export type ApprovalDecision = "APPROVED" | "DENIED" | "CHANGES_REQUESTED";
 export type LeaveDisposition = "continue" | "pause" | "cancel";
+export type VoicePhase = "starting" | "recording" | "transcribing" | "cancelling" | "error";
 
 export type ProjectRoomCommand =
   | {readonly type: "objective.create"; readonly text: string; readonly expectedCursor: number}
@@ -175,6 +176,15 @@ export type ProjectRoomOverlay =
   | {readonly kind: "palette"; readonly query: string; readonly selected: number}
   | {readonly kind: "leave"; readonly selected: LeaveDisposition}
   | {readonly kind: "composer"}
+  | {
+      readonly kind: "voice";
+      readonly phase: VoicePhase;
+      readonly sessionId: number;
+      readonly deviceName: string | null;
+      readonly startedAt: number | null;
+      readonly maxDurationMs: number;
+      readonly message: string | null;
+    }
   | {readonly kind: "settings"}
   | {readonly kind: "api-key"; readonly providerId: "openai" | "anthropic"; readonly model: string; readonly value: string}
   | {readonly kind: "target"; readonly selected: number}
@@ -201,6 +211,12 @@ export interface ProjectRoomState {
   readonly selectedApprovalId: string | null;
   readonly composerText: string;
   readonly composerTarget: ComposerTarget;
+  readonly voiceDraft: boolean;
+  readonly voiceReplyAfterCursor: number | null;
+  readonly voiceReplyTaskId: string | null;
+  readonly voiceReplyReady: boolean;
+  readonly voiceSpeaking: boolean;
+  readonly nextVoiceSessionId: number;
   readonly slashSelected: number;
   readonly followEvents: boolean;
   readonly notice: string | null;
@@ -232,12 +248,22 @@ export type ProjectRoomAction =
   | {readonly type: "overlay.palette"}
   | {readonly type: "overlay.leave"}
   | {readonly type: "overlay.composer"; readonly prefill?: string}
+  | {readonly type: "overlay.voice"}
   | {readonly type: "overlay.settings"}
   | {readonly type: "overlay.target"}
   | {readonly type: "slash.complete"}
   | {readonly type: "text.append"; readonly text: string}
   | {readonly type: "text.backspace"}
   | {readonly type: "input.confirm"}
+  | {readonly type: "voice.started"; readonly sessionId: number; readonly deviceName: string; readonly startedAt: number; readonly maxDurationMs: number}
+  | {readonly type: "voice.stop"}
+  | {readonly type: "voice.cancel"}
+  | {readonly type: "voice.canceled"; readonly sessionId: number}
+  | {readonly type: "voice.transcribed"; readonly sessionId: number; readonly text: string}
+  | {readonly type: "voice.failed"; readonly sessionId: number; readonly message: string}
+  | {readonly type: "voice.reply.started"; readonly eventId: string}
+  | {readonly type: "voice.reply.succeeded"; readonly eventId: string}
+  | {readonly type: "voice.reply.failed"; readonly eventId: string; readonly message: string}
   | {readonly type: "focus.next"; readonly reverse: boolean}
   | {readonly type: "focus.set"; readonly focus: ProjectRoomFocus}
   | {readonly type: "view.mode"; readonly mode: ProjectRoomViewMode}
@@ -248,7 +274,7 @@ export type ProjectRoomAction =
   | {readonly type: "approval.decision"; readonly decision: ApprovalDecision}
   | {readonly type: "mutation.blocked"}
   | {readonly type: "command.started"; readonly id: number}
-  | {readonly type: "command.succeeded"; readonly id: number; readonly message?: string}
+  | {readonly type: "command.succeeded"; readonly id: number; readonly message?: string; readonly replyTaskId?: string}
   | {readonly type: "command.failed"; readonly id: number; readonly message: string}
   | {readonly type: "notice.clear"};
 
@@ -276,6 +302,7 @@ const LEAVE_ORDER: readonly LeaveDisposition[] = ["continue", "pause", "cancel"]
 const SETUP_ORDER = ["openai", "anthropic", "offline"] as const;
 const PALETTE_ACTIONS = [
   "Compose instruction",
+  "Talk to Nova",
   "Guided AI setup",
   "Switch to simple view",
   "Open detailed control room",
@@ -299,6 +326,7 @@ export interface SlashCommandSuggestion {
 
 const SLASH_COMMANDS: readonly SlashCommandSuggestion[] = [
   {command: "/setup", usage: "/setup", description: "Connect your AI in a guided setup", category: "Start here", completion: "/setup", runOnSelect: true},
+  {command: "/voice", usage: "/voice", description: "Talk to Nova and review the transcript before sending", category: "Start here", completion: "/voice", runOnSelect: true},
   {command: "/help", usage: "/help", description: "Learn the few controls you need", category: "Start here", completion: "/help", runOnSelect: true},
   {command: "/simple", usage: "/simple", description: "Use the clean chat-first screen", category: "Start here", completion: "/simple", runOnSelect: true},
   {command: "/details", usage: "/details", description: "Open the complete multi-agent control room", category: "Start here", completion: "/details", runOnSelect: true},
@@ -364,6 +392,12 @@ export function createInitialProjectRoomState(options: InitialProjectRoomStateOp
     selectedApprovalId: null,
     composerText: "",
     composerTarget: {kind: "objective", label: "new objective"},
+    voiceDraft: false,
+    voiceReplyAfterCursor: null,
+    voiceReplyTaskId: null,
+    voiceReplyReady: false,
+    voiceSpeaking: false,
+    nextVoiceSessionId: 1,
     slashSelected: 0,
     followEvents: true,
     notice: null,
@@ -388,7 +422,7 @@ export function projectRoomReducer(state: ProjectRoomState, action: ProjectRoomA
     case "events.received":
       return receiveEvents(state, action.update);
     case "clock.tick":
-      return {...state, now: action.now, stale: isSnapshotStale(state.snapshot, action.now, state.staleAfterMs)};
+      return tickProjectRoomClock(state, action.now);
     case "overlay.close":
       return {...state, overlay: {kind: "none"}, notice: null};
     case "overlay.setup":
@@ -409,9 +443,12 @@ export function projectRoomReducer(state: ProjectRoomState, action: ProjectRoomA
         overlay: {kind: "composer"},
         composerText: action.prefill ?? state.composerText,
         composerTarget: state.overlay.kind === "target" ? state.composerTarget : defaultComposerTarget(state.snapshot, state.selectedAgentId),
+        voiceDraft: action.prefill === undefined ? state.voiceDraft : false,
         slashSelected: 0,
         notice: null,
       };
+    case "overlay.voice":
+      return beginVoiceInput(state);
     case "overlay.target":
       return {...state, overlay: {kind: "target", selected: targetIndex(state)}, notice: null};
     case "slash.complete":
@@ -422,6 +459,56 @@ export function projectRoomReducer(state: ProjectRoomState, action: ProjectRoomA
       return backspaceText(state);
     case "input.confirm":
       return confirmOverlay(state);
+    case "voice.started":
+      return state.overlay.kind === "voice" && state.overlay.sessionId === action.sessionId && state.overlay.phase === "starting"
+        ? {
+            ...state,
+            overlay: {
+              ...state.overlay,
+              phase: "recording",
+              deviceName: terminalText(action.deviceName, 160),
+              startedAt: action.startedAt,
+              maxDurationMs: action.maxDurationMs,
+              message: null,
+            },
+            notice: "Nova is listening. Press Enter when you finish speaking; nothing executes yet.",
+          }
+        : state;
+    case "voice.stop":
+      return state.overlay.kind === "voice" && state.overlay.phase === "recording"
+        ? {...state, overlay: {...state.overlay, phase: "transcribing", message: null}, notice: "Nova is turning your recording into editable text..."}
+        : state;
+    case "voice.cancel":
+      return state.overlay.kind === "voice" && state.overlay.phase !== "error"
+        ? {...state, overlay: {...state.overlay, phase: "cancelling", message: null}, notice: "Canceling voice input..."}
+        : state;
+    case "voice.canceled":
+      return state.overlay.kind === "voice" && state.overlay.sessionId === action.sessionId
+        ? {...state, overlay: {kind: "composer"}, notice: "Voice input canceled. Your existing draft was kept."}
+        : state;
+    case "voice.transcribed":
+      return receiveVoiceTranscript(state, action.sessionId, action.text);
+    case "voice.failed":
+      return state.overlay.kind === "voice" && state.overlay.sessionId === action.sessionId
+        ? {
+            ...state,
+            overlay: {...state.overlay, phase: "error", message: terminalText(action.message, 480)},
+            notice: "Nova could not complete voice input. No instruction was sent.",
+          }
+        : state;
+    case "voice.reply.started":
+      return {
+        ...state,
+        voiceReplyAfterCursor: null,
+        voiceReplyTaskId: null,
+        voiceReplyReady: false,
+        voiceSpeaking: true,
+        notice: `Nova is speaking the committed agent reply (${terminalText(action.eventId, 80)}).`,
+      };
+    case "voice.reply.succeeded":
+      return {...state, voiceSpeaking: false, notice: `Nova finished speaking the agent reply (${terminalText(action.eventId, 80)}).`};
+    case "voice.reply.failed":
+      return {...state, voiceSpeaking: false, notice: `The reply is visible, but Nova could not play audio: ${terminalText(action.message, 240)}`};
     case "focus.next":
       return {...state, focus: cycle(FOCUS_ORDER, state.focus, action.reverse ? -1 : 1), overlay: {kind: "none"}, notice: null};
     case "focus.set":
@@ -444,15 +531,102 @@ export function projectRoomReducer(state: ProjectRoomState, action: ProjectRoomA
       return state.pendingCommand?.id === action.id ? {...state, commandInFlight: true, notice: "Sending..."} : state;
     case "command.succeeded":
       return state.pendingCommand?.id === action.id
-        ? {...state, pendingCommand: null, commandInFlight: false, notice: action.message ?? commandSuccessNotice(state.pendingCommand.command)}
+        ? {
+            ...state,
+            pendingCommand: null,
+            commandInFlight: false,
+            voiceReplyAfterCursor: state.voiceReplyAfterCursor !== null && action.replyTaskId === undefined
+              ? null
+              : state.voiceReplyAfterCursor,
+            voiceReplyTaskId: state.voiceReplyAfterCursor === null ? state.voiceReplyTaskId : action.replyTaskId ?? null,
+            voiceReplyReady: state.voiceReplyAfterCursor === null ? state.voiceReplyReady : action.replyTaskId !== undefined,
+            notice: action.message ?? commandSuccessNotice(state.pendingCommand.command),
+          }
         : state;
     case "command.failed":
       return state.pendingCommand?.id === action.id
-        ? {...state, pendingCommand: null, commandInFlight: false, notice: `Could not complete that action: ${terminalText(action.message, 240)}`}
+        ? {
+            ...state,
+            pendingCommand: null,
+            commandInFlight: false,
+            voiceReplyAfterCursor: null,
+            voiceReplyTaskId: null,
+            voiceReplyReady: false,
+            notice: `Could not complete that action: ${terminalText(action.message, 240)}`,
+          }
         : state;
     case "notice.clear":
       return {...state, notice: null};
   }
+}
+
+export function pendingVoiceReplyEvent(state: ProjectRoomState): ProjectRoomEvent | null {
+  const after = state.voiceReplyAfterCursor;
+  const taskId = state.voiceReplyTaskId;
+  if (after === null || taskId === null || !state.voiceReplyReady || state.voiceSpeaking) return null;
+  return state.events.find((event) => event.sequence > after && (
+    event.type === "software-agent.turn.completed"
+    || /(?:turn|task|run)\.failed$/u.test(event.type)
+  ) && event.taskId === taskId) ?? null;
+}
+
+function beginVoiceInput(state: ProjectRoomState): ProjectRoomState {
+  if (state.voiceSpeaking) return {...state, notice: "Nova is speaking. Wait for the reply to finish, then press Ctrl+R or type /voice."};
+  if (state.pendingCommand !== null || state.commandInFlight) return {...state, notice: "Wait for the current message to be accepted before starting another voice message."};
+  const sessionId = state.nextVoiceSessionId;
+  return {
+    ...state,
+    overlay: {
+      kind: "voice",
+      phase: "starting",
+      sessionId,
+      deviceName: null,
+      startedAt: null,
+      maxDurationMs: 120_000,
+      message: null,
+    },
+    nextVoiceSessionId: sessionId + 1,
+    notice: "Starting Nova's microphone...",
+  };
+}
+
+function receiveVoiceTranscript(state: ProjectRoomState, sessionId: number, value: string): ProjectRoomState {
+  if (state.overlay.kind !== "voice" || state.overlay.sessionId !== sessionId) return state;
+  const transcript = terminalText(value.trim(), 8_192);
+  if (transcript === "") {
+    return {
+      ...state,
+      overlay: {...state.overlay, phase: "error", message: "Nova did not hear any words. Try again and speak before pressing Enter."},
+      notice: "No instruction was sent.",
+    };
+  }
+  const existing = state.composerText.trim();
+  const composerText = (existing === "" ? transcript : `${existing} ${transcript}`).slice(0, 8_192);
+  return {
+    ...state,
+    overlay: {kind: "composer"},
+    composerText,
+    voiceDraft: true,
+    slashSelected: 0,
+    notice: "Nova wrote your words below. Edit anything you want, then press Enter to plan and execute.",
+  };
+}
+
+function tickProjectRoomClock(state: ProjectRoomState, now: number): ProjectRoomState {
+  const ticked = {...state, now, stale: isSnapshotStale(state.snapshot, now, state.staleAfterMs)};
+  if (
+    ticked.overlay.kind === "voice"
+    && ticked.overlay.phase === "recording"
+    && ticked.overlay.startedAt !== null
+    && now - ticked.overlay.startedAt >= ticked.overlay.maxDurationMs
+  ) {
+    return {
+      ...ticked,
+      overlay: {...ticked.overlay, phase: "transcribing", message: null},
+      notice: "Nova reached the two-minute safety limit and is turning the recording into editable text...",
+    };
+  }
+  return ticked;
 }
 
 export function projectRoomInput(state: ProjectRoomState, input: string, key: ProjectRoomKey): ProjectRoomAction | null {
@@ -460,9 +634,15 @@ export function projectRoomInput(state: ProjectRoomState, input: string, key: Pr
     if (state.overlay.kind === "none") return {type: "overlay.leave"};
     if (state.overlay.kind === "target") return {type: "overlay.composer"};
     if (state.overlay.kind === "approval-confirm") return {type: "approval.open"};
+    if (state.overlay.kind === "voice") {
+      return state.overlay.phase === "error" ? {type: "voice.canceled", sessionId: state.overlay.sessionId} : {type: "voice.cancel"};
+    }
     return {type: "overlay.close"};
   }
   if (key.ctrl && input.toLowerCase() === "c") return {type: "overlay.leave"};
+  if (key.ctrl && input.toLowerCase() === "r" && (state.overlay.kind === "none" || state.overlay.kind === "composer")) {
+    return {type: "overlay.voice"};
+  }
 
   switch (state.overlay.kind) {
     case "setup":
@@ -488,6 +668,10 @@ export function projectRoomInput(state: ProjectRoomState, input: string, key: Pr
       if (key.tab) return {type: "overlay.target"};
       if (key.backspace || key.delete) return {type: "text.backspace"};
       return printable(input, key) ? {type: "text.append", text: input} : null;
+    case "voice":
+      if (state.overlay.phase === "recording" && key.return) return {type: "voice.stop"};
+      if (state.overlay.phase === "error" && key.return) return {type: "voice.canceled", sessionId: state.overlay.sessionId};
+      return null;
     case "api-key":
       if (key.return) return {type: "input.confirm"};
       if (key.backspace || key.delete) return {type: "text.backspace"};
@@ -709,6 +893,8 @@ function confirmOverlay(state: ProjectRoomState): ProjectRoomState {
     case "settings":
     case "approval-detail":
       return {...state, overlay: {kind: "none"}};
+    case "voice":
+      return state;
     case "none":
       return state;
   }
@@ -720,12 +906,20 @@ function submitComposer(state: ProjectRoomState): ProjectRoomState {
   if (trimmed.startsWith("/") && !trimmed.startsWith("//")) return submitSlashComposer(state, trimmed);
   if (isReadOnly(state)) return {...state, notice: "This Software Agent session is read-only; instructions are disabled."};
   const text = trimmed.startsWith("//") ? trimmed.slice(1) : trimmed;
+  const submittedState = {
+    ...state,
+    composerText: "",
+    voiceDraft: false,
+    voiceReplyAfterCursor: state.voiceDraft ? state.cursor : state.voiceReplyAfterCursor,
+    voiceReplyTaskId: state.voiceDraft ? null : state.voiceReplyTaskId,
+    voiceReplyReady: state.voiceDraft ? false : state.voiceReplyReady,
+  };
   if (state.composerTarget.kind === "objective") {
-    return queueCommand({...state, composerText: ""}, {type: "objective.create", text, expectedCursor: state.cursor}, {kind: "none"});
+    return queueCommand(submittedState, {type: "objective.create", text, expectedCursor: state.cursor}, {kind: "none"});
   }
   const runId = state.snapshot?.run?.id;
   if (runId === undefined) return {...state, notice: "The selected target has no active run; resync before submitting."};
-  return queueCommand({...state, composerText: ""}, {
+  return queueCommand(submittedState, {
     type: "instruction.submit",
     runId,
     text,
@@ -765,7 +959,7 @@ function validSlashInvocation(command: string): boolean {
   const root = parts[0] ?? "";
   const action = parts[1];
   const provider = parts[2];
-  if (["/setup", "/help", "/simple", "/details", "/search", "/follow", "/leave", "/target", "/settings", "/agents", "/approvals", "/events", "/status", "/clear", "/project"].includes(root)) {
+  if (["/setup", "/voice", "/help", "/simple", "/details", "/search", "/follow", "/leave", "/target", "/settings", "/agents", "/approvals", "/events", "/status", "/clear", "/project"].includes(root)) {
     return parts.length === 1;
   }
   if (root === "/open" || root === "/github") return true;
@@ -784,9 +978,10 @@ function executeSlashCommand(state: ProjectRoomState, command: string): ProjectR
   const root = parts[0]?.toLowerCase() ?? "";
   const action = parts[1]?.toLowerCase();
   const argument = parts[2];
-  const clearComposer = {composerText: "", overlay: {kind: "none"} as const};
+  const clearComposer = {composerText: "", voiceDraft: false, overlay: {kind: "none"} as const};
   switch (root) {
     case "/setup": return {...state, ...clearComposer, overlay: {kind: "setup", selected: "openai"}, notice: null};
+    case "/voice": return beginVoiceInput({...state, ...clearComposer});
     case "/help": return {...state, ...clearComposer, overlay: {kind: "help"}, notice: null};
     case "/simple": return {...state, ...clearComposer, viewMode: "simple", notice: "Simple chat view enabled. Type naturally and press Enter."};
     case "/details": return {...state, ...clearComposer, viewMode: "detailed", notice: "Detailed multi-agent control room enabled. Use /simple whenever you want the clean chat view."};
@@ -895,6 +1090,7 @@ function executePalette(state: ProjectRoomState): ProjectRoomState {
   const selected = actions[clampIndex(state.overlay.selected, actions.length)];
   switch (selected) {
     case "Compose instruction": return projectRoomReducer({...state, overlay: {kind: "none"}}, {type: "overlay.composer"});
+    case "Talk to Nova": return beginVoiceInput({...state, overlay: {kind: "none"}});
     case "Guided AI setup": return {...state, overlay: {kind: "setup", selected: "openai"}};
     case "Switch to simple view": return {...state, overlay: {kind: "none"}, viewMode: "simple", notice: "Simple chat view enabled."};
     case "Open detailed control room": return {...state, overlay: {kind: "none"}, viewMode: "detailed", notice: "Detailed multi-agent control room enabled."};

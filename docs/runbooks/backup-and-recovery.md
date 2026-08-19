@@ -2,7 +2,7 @@
 
 ## Scope
 
-This runbook protects local v0.6 project state. It does not replace provider
+This runbook protects local v0.7 project state. It does not replace provider
 backups or reconcile a remote mutation. Project state consists of:
 
 - `.software-agent/state.sqlite` and possible `-wal`/`-shm` sidecars;
@@ -33,7 +33,7 @@ Never delete `state.sqlite-wal` or `state.sqlite-shm` to make a backup appear
 clean.
 
 For live systems, use SQLite's supported backup API or `VACUUM INTO` through a
-purpose-built, tested administrative command. The v0.6 CLI does not provide
+purpose-built, tested administrative command. The v0.7 CLI does not provide
 that command, so do not improvise SQL against a live project.
 
 ## Restore

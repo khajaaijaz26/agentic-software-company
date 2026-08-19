@@ -2,7 +2,7 @@
 
 ## Status and authority boundaries
 
-This document describes the Software Agent v0.6 local developer platform.
+This document describes the Software Agent v0.7 local developer platform.
 
 Several surfaces coexist and must not be treated as one contract:
 
@@ -11,8 +11,9 @@ Several surfaces coexist and must not be treated as one contract:
 | Installed TypeScript CLI | `software-agent`, with a deprecated `agent-company` migration shim; primary lifecycle, provider, model, token, setup, inspection, and approval commands are active | Selected legacy inspection and connector-plan paths remain during migration |
 | Controller runtime v2 | event-sourced three-session runtime, bounded parallel DAG, durable assignments/turns/attempts/handoffs, executable conversation turns, mutation fencing, and polling/history | Automatic retries and complete external-side-effect reconciliation remain future work |
 | Project-room TUI | chat-first Simple view, optional complete 26-role Detailed view, guided setup, direct typing, actual final replies, authenticated live IPC source, targeted instructions, approvals, model/tool activity, evidence, tokens, and cost | Very large projections still need pagination/compaction beyond current bounded event pages |
+| Nova voice | explicit push-to-talk capture, editable OpenAI transcript, confirmed command submission, and correlated spoken reply | Requires configured OpenAI; no always-on wake word or partial streaming transcript |
 | Model gateway | deterministic, native OpenAI Responses, and native Anthropic Messages adapters with tool continuations, routing, and one-use grants | Provider availability, price, or usage that cannot be verified remains `UNKNOWN` |
-| Token budgets | durable 25%/50%/100% accounts, per-agent reservations/reconciliation, approved extensions, snapshot projection, and live room display | The full ceiling is fixed at 100,000 tokens per run in v0.6 |
+| Token budgets | durable 25%/50%/100% accounts, per-agent reservations/reconciliation, approved extensions, snapshot projection, and live room display | The full ceiling is fixed at 100,000 tokens per run in v0.7 |
 | Python/MCP | `software_agent` compatibility package and deprecated `agentic_company` aliases | Separate state and orchestration; never a second TypeScript controller |
 
 The schemas in [`schemas/vnext`](../../schemas/vnext) describe these contracts
@@ -51,6 +52,10 @@ contracts exists.
 
   project-room UI <---- IPC source adapter ----> snapshot/events/commands
                          cursor + mutation lease
+
+  microphone -- explicit push-to-talk --> local Nova adapter --> OpenAI audio APIs
+                     editable transcript -- confirmed Enter --> UI command
+  committed matching reply --> OpenAI speech --> private temporary WAV --> OS audio
 
   model gateway + token ledger <---- active integration ----> runtime/TUI
 ```
@@ -106,7 +111,7 @@ table.
 
 ## Runtime-v2 execution model
 
-The v0.6 runtime builds an initial deterministic five-task DAG across exactly three
+The v0.7 runtime builds an initial deterministic five-task DAG across exactly three
 durable execution-seat roles:
 
 - `master-orchestrator`;
@@ -221,15 +226,19 @@ authoritative snapshot when the server requests resynchronization.
 - normal typing for prompts and `/` commands for provider, model, token,
   guided setup, simple/details switching, settings, status, target, search,
   follow, and local-view operations;
+- `Ctrl+R` or `/voice` for explicit Nova recording, an editable transcript,
+  a separately confirmed submission, and speech for the matching committed reply;
 - team-targeted chat by default, clearly labeled user messages and final model
   replies, plus live model/tool/file activity while each turn runs;
 - explicit composer targets and confirmation state;
 - focus, search, follow, help, reconnect, resync, stale, error, empty, and read-only states; and
 - `NO_COLOR`, ASCII, non-interactive text, and terminal-restoration behavior.
 
-Its `ProjectRoomSource` has three operations: load an authoritative
+Its `ProjectRoomSource` has three required operations: load an authoritative
 `software-agent.project-room/v1` projection, wait for the next committed update
-after a cursor, and execute a typed UI intent. Reducer state changes authority
+after a cursor, and execute a typed UI intent. It can also expose the optional
+local `VoiceAssistant` capability used only after explicit operator input.
+Reducer state changes authority
 only after a committed update.
 
 `IpcProjectRoomSource` is wired into the primary `start`, `run`, `resume`,
@@ -251,6 +260,31 @@ Missing provider data stays `UNKNOWN`. Runtime-v2 command execution creates
 durable exact approval records; the current UI decision is carried over the
 authenticated compatibility-named `approve`/`deny` RPC while the command wait
 and single-use consumption remain controller-owned.
+
+## Nova voice boundary
+
+Voice is a local CLI/TUI capability, not an IPC authority channel. The
+Picovoice recorder is loaded lazily only after `Ctrl+R` or `/voice`, captures
+16-bit mono PCM into bounded memory, and stops after at most two minutes. The
+CLI resolves the saved OpenAI credential outside controller IPC, creates a WAV
+in memory, and sends it to the transcription endpoint. Captured PCM and the WAV
+buffer are zeroed after transcription, cancellation, validation failure, or
+abort.
+
+The returned text fills the ordinary composer. It does not create a run or
+instruction until the operator reviews it and presses Enter again. From that
+point the normal cursor, revision, mutation-lease, scheduler, tool, and approval
+rules apply. When a voice-created command commits, the UI records its exact
+task identifier and speaks only that task's committed completion or failure;
+concurrent background events cannot be selected as the answer.
+
+Speech generation uses OpenAI `gpt-4o-mini-tts` with the `nova` voice. Its WAV
+is written with a random name below an OS temporary directory solely because
+native playback tools require a file, then unlinked after playback. Voice is
+not always listening, does not implement a wake word, and does not provide
+partial live transcription. Transcription and speech provider usage is
+separate from the controller's run-token ledger. CLI `--offline` rejects the
+capability before provider configuration, credential, or microphone access.
 
 ## Models and provider boundary
 

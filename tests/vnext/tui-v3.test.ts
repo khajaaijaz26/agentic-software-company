@@ -2,6 +2,7 @@ import {describe, expect, it} from "vitest";
 
 import {
   createInitialProjectRoomState,
+  pendingVoiceReplyEvent,
   projectRoomInput,
   projectRoomReducer,
   slashCommandSuggestions,
@@ -206,7 +207,7 @@ function input(state: ProjectRoomState, value: string, pressed: ProjectRoomKey =
   return action === null ? state : projectRoomReducer(state, action);
 }
 
-describe("Software Agent v0.6 project room", () => {
+describe("Software Agent v0.7 project room", () => {
   it("uses the A7 responsive breakpoints and short-terminal fallback", () => {
     expect(projectRoomLayout(59, 30)).toBe("plain");
     expect(projectRoomLayout(60, 30)).toBe("narrow");
@@ -299,9 +300,10 @@ describe("Software Agent v0.6 project room", () => {
     let state = readyState();
     state = input(state, "/");
     expect(state.overlay.kind).toBe("composer");
-    expect(slashCommandSuggestions("/")).toHaveLength(28);
+    expect(slashCommandSuggestions("/")).toHaveLength(29);
     expect(slashCommandSuggestions("/").map((command) => command.command)).toEqual(expect.arrayContaining([
       "/setup",
+      "/voice",
       "/help",
       "/simple",
       "/details",
@@ -333,6 +335,78 @@ describe("Software Agent v0.6 project room", () => {
     state = input(state, "/status");
     state = input(state, "", key({return: true}));
     expect(state.notice).toContain("Working: 1 of 3 steps finished");
+  });
+
+  it("uses Nova push-to-talk, keeps the transcript editable, and arms only the submitted reply for speech", () => {
+    let state = readyState();
+    state = input(state, "r", key({ctrl: true}));
+    expect(state.overlay).toMatchObject({kind: "voice", phase: "starting", sessionId: 1});
+
+    state = projectRoomReducer(state, {
+      type: "voice.started",
+      sessionId: 1,
+      deviceName: "Default microphone",
+      startedAt: Date.parse(NOW),
+      maxDurationMs: 120_000,
+    });
+    expect(state.overlay).toMatchObject({kind: "voice", phase: "recording", deviceName: "Default microphone"});
+    expect(renderProjectRoomText(state, {width: 120, height: 32, ascii: true, noColor: true})).toContain("Enter transcribe");
+
+    state = input(state, "", key({return: true}));
+    expect(state.overlay).toMatchObject({kind: "voice", phase: "transcribing"});
+    state = projectRoomReducer(state, {type: "voice.transcribed", sessionId: 1, text: "What is every agent working on?"});
+    expect(state.overlay.kind).toBe("composer");
+    expect(state.composerText).toBe("What is every agent working on?");
+    expect(state.voiceDraft).toBe(true);
+    expect(state.pendingCommand).toBeNull();
+
+    state = input(state, " Please be concise.");
+    state = input(state, "", key({return: true}));
+    expect(state.pendingCommand?.command).toMatchObject({
+      type: "instruction.submit",
+      text: "What is every agent working on? Please be concise.",
+    });
+    expect(state.voiceReplyAfterCursor).toBe(12);
+    const commandId = state.pendingCommand?.id;
+    expect(commandId).toBeDefined();
+    state = projectRoomReducer(state, {type: "command.started", id: commandId ?? 0});
+    state = projectRoomReducer(state, {type: "command.succeeded", id: commandId ?? 0, replyTaskId: "task_build"});
+
+    state = projectRoomReducer(state, {
+      type: "events.received",
+      update: {
+        cursor: 14,
+        events: [
+          {
+            sequence: 13,
+            eventId: "event_unrelated_reply",
+            occurredAt: NOW,
+            type: "software-agent.turn.completed",
+            severity: "INFO",
+            summary: "This is a different background task and must not be spoken.",
+            agentId: "agent_qa",
+            taskId: "task_review",
+            approvalId: null,
+          },
+          {
+            sequence: 14,
+            eventId: "event_voice_reply",
+            occurredAt: NOW,
+            type: "software-agent.turn.completed",
+            severity: "INFO",
+            summary: "The engineer is implementing voice input while QA prepares verification.",
+            agentId: "agent_engineer",
+            taskId: "task_build",
+            approvalId: null,
+          },
+        ],
+        snapshot: snapshot({cursor: 14}),
+      },
+    });
+    expect(pendingVoiceReplyEvent(state)?.eventId).toBe("event_voice_reply");
+    state = projectRoomReducer(state, {type: "voice.reply.started", eventId: "event_voice_reply"});
+    expect(state.voiceReplyAfterCursor).toBeNull();
+    expect(state.voiceSpeaking).toBe(true);
   });
 
   it("uses chat slash commands for secure API setup, models, tokens, settings, and the 26-role wall", () => {

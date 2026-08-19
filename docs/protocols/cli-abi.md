@@ -2,8 +2,8 @@
 
 ## Version
 
-This document defines the preview ABI for `software-agent` 0.6.x. The CLI
-reports code version `0.6.0`, schema version `1`, and plugin API version `1`.
+This document defines the preview ABI for `software-agent` 0.7.x. The CLI
+reports code version `0.7.0`, schema version `1`, and plugin API version `1`.
 Preview contracts can grow compatibly; incompatible changes require a new
 schema identifier and release note.
 
@@ -18,7 +18,7 @@ Selection options include `--project <path>`, `--run <id>`, `--workspace`, and
 `--no-color`. Automation should add `--non-interactive` and should never rely
 on a prompt being answered implicitly.
 
-In v0.6, `--project` and `--run` are active selectors. `--workspace`,
+In v0.7, `--project` and `--run` are active selectors. `--workspace`,
 `--profile`, `--config`, `--timeout`, custom `--log-level`/`--trace-id`,
 non-default `--unicode`, and init strategy overrides are reserved ABI names and fail with
 `CAPABILITY_UNAVAILABLE` instead of being silently ignored. Standard
@@ -31,11 +31,18 @@ as a normal local checkout; an existing destination is reused only when it has
 a `.git` entry, and an unrelated existing directory is never overwritten.
 
 The interactive room has a separate human input grammar. Normal printable
-input begins a prompt, while `/api`, `/model`, `/tokens`, `/settings`,
-`/agents`, `/status`, `/target`, `/search`, `/follow`, `/clear`, and `/help`
+input begins a prompt, while `/setup`, `/voice`, `/api`, `/model`, `/tokens`,
+`/settings`, `/agents`, `/status`, `/target`, `/search`, `/follow`, `/clear`, and `/help`
 are in-room commands. They are not PowerShell or shell commands. Raw provider
 keys exist only in the masked in-process `/api connect` flow and are not IPC
 request parameters.
+
+`Ctrl+R` and `/voice` open the optional local Nova push-to-talk capability.
+Enter stops recording and returns an editable transcript to the ordinary
+composer; only a second Enter creates the normal typed UI command. Microphone
+audio and generated speech are local CLI/provider concerns and are not IPC
+request fields. Voice therefore grants no additional controller, tool, or
+approval authority.
 
 After a run exists, normal text is submitted as a durable conversation turn.
 The default target is the Software Agent team; `/target` can bind the next

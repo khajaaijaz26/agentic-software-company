@@ -7,6 +7,7 @@ import {
   createInitialProjectRoomState,
   filteredPaletteActions,
   isContiguousUpdate,
+  pendingVoiceReplyEvent,
   projectRoomInput,
   projectRoomReducer,
   slashCommandSuggestions,
@@ -29,6 +30,7 @@ import {
   type ProjectRoomTask,
   type ProjectRoomTokenUsage,
 } from "./project-room-state.js";
+import type {VoiceAssistant, VoiceRecordingSession} from "../../../packages/voice-input/src/index.js";
 
 export type ProjectRoomLayout = "plain" | "narrow" | "two-card" | "three-card";
 
@@ -39,10 +41,14 @@ export interface ProjectRoomSource {
   readonly nextCommitted: (cursor: number, signal: AbortSignal) => Promise<ProjectRoomCommittedUpdate>;
   /** Sends a typed intent; the UI changes authority state only after a later committed update. */
   readonly execute: (command: ProjectRoomCommand, signal: AbortSignal) => Promise<ProjectRoomCommandResult | undefined>;
+  /** Optional local push-to-talk and spoken-reply capability. Never crosses controller IPC. */
+  readonly voice?: VoiceAssistant;
 }
 
 export interface ProjectRoomCommandResult {
   readonly message?: string;
+  /** Exact task whose committed turn completion is the reply to this command. */
+  readonly replyTaskId?: string;
 }
 
 export interface ProjectRoomProps {
@@ -158,6 +164,10 @@ export function ProjectRoom({
     ...(staleAfterMs === undefined ? {} : {staleAfterMs}),
   }));
   const activeCommand = useRef<number | null>(null);
+  const voiceStart = useRef<{readonly id: number; readonly abort: AbortController} | null>(null);
+  const voiceSession = useRef<{readonly id: number; readonly session: VoiceRecordingSession} | null>(null);
+  const voiceFinish = useRef<{readonly id: number; readonly abort: AbortController} | null>(null);
+  const spokenReply = useRef<{readonly eventId: string; readonly abort: AbortController} | null>(null);
 
   useEffect(() => {
     dispatch({type: "dimensions.changed", width: width ?? (stdout.columns || 100), height: height ?? (stdout.rows || 24)});
@@ -200,7 +210,12 @@ export function ProjectRoom({
         }
       }
       if (abort.signal.aborted) return;
-      dispatch({type: "command.succeeded", id: pending.id, ...(result?.message === undefined ? {} : {message: result.message})});
+      dispatch({
+        type: "command.succeeded",
+        id: pending.id,
+        ...(result?.message === undefined ? {} : {message: result.message}),
+        ...(result?.replyTaskId === undefined ? {} : {replyTaskId: result.replyTaskId}),
+      });
       if (refreshError !== undefined) dispatch({type: "connection.lost", message: `Command committed; refresh failed: ${errorMessage(refreshError)}`});
       if (pending.command.type === "session.leave") {
         onLeave?.(pending.command.disposition);
@@ -211,6 +226,86 @@ export function ProjectRoom({
     });
     return () => { abort.abort(); };
   }, [exit, onLeave, source, state.pendingCommand]);
+
+  useEffect(() => {
+    const overlay = state.overlay;
+    if (overlay.kind !== "voice") return;
+    const voice = source.voice;
+    if (overlay.phase === "starting" && voiceStart.current?.id !== overlay.sessionId && voiceSession.current?.id !== overlay.sessionId) {
+      if (voice === undefined) {
+        dispatch({type: "voice.failed", sessionId: overlay.sessionId, message: "This Software Agent build has no voice input service."});
+        return;
+      }
+      const abort = new AbortController();
+      voiceStart.current = {id: overlay.sessionId, abort};
+      void voice.start(abort.signal).then(async (session) => {
+        if (abort.signal.aborted) {
+          await session.cancel().catch(() => undefined);
+          return;
+        }
+        voiceSession.current = {id: overlay.sessionId, session};
+        dispatch({
+          type: "voice.started",
+          sessionId: overlay.sessionId,
+          deviceName: session.deviceName,
+          startedAt: session.startedAt,
+          maxDurationMs: session.maxDurationMs,
+        });
+      }).catch((error: unknown) => {
+        if (!abort.signal.aborted) dispatch({type: "voice.failed", sessionId: overlay.sessionId, message: errorMessage(error)});
+      }).finally(() => {
+        if (voiceStart.current?.id === overlay.sessionId) voiceStart.current = null;
+      });
+      return;
+    }
+    if (overlay.phase === "transcribing" && voiceFinish.current?.id !== overlay.sessionId) {
+      const active = voiceSession.current;
+      if (active?.id !== overlay.sessionId) return;
+      const abort = new AbortController();
+      voiceFinish.current = {id: overlay.sessionId, abort};
+      void active.session.stopAndTranscribe(abort.signal).then((transcript) => {
+        if (!abort.signal.aborted) dispatch({type: "voice.transcribed", sessionId: overlay.sessionId, text: transcript.text});
+      }).catch((error: unknown) => {
+        if (!abort.signal.aborted) dispatch({type: "voice.failed", sessionId: overlay.sessionId, message: errorMessage(error)});
+      }).finally(() => {
+        if (voiceSession.current?.id === overlay.sessionId) voiceSession.current = null;
+        if (voiceFinish.current?.id === overlay.sessionId) voiceFinish.current = null;
+      });
+      return;
+    }
+    if (overlay.phase === "cancelling") {
+      if (voiceStart.current?.id === overlay.sessionId) voiceStart.current.abort.abort();
+      if (voiceFinish.current?.id === overlay.sessionId) voiceFinish.current.abort.abort();
+      const active = voiceSession.current?.id === overlay.sessionId ? voiceSession.current : null;
+      if (active !== null) voiceSession.current = null;
+      void (active?.session.cancel() ?? Promise.resolve()).catch(() => undefined).finally(() => {
+        dispatch({type: "voice.canceled", sessionId: overlay.sessionId});
+      });
+    }
+  }, [source.voice, state.overlay]);
+
+  useEffect(() => {
+    const reply = pendingVoiceReplyEvent(state);
+    const voice = source.voice;
+    if (reply === null || voice === undefined || spokenReply.current !== null) return;
+    const abort = new AbortController();
+    spokenReply.current = {eventId: reply.eventId, abort};
+    dispatch({type: "voice.reply.started", eventId: reply.eventId});
+    void voice.speak(spokenReplyText(state, reply), abort.signal).then(() => {
+      if (!abort.signal.aborted) dispatch({type: "voice.reply.succeeded", eventId: reply.eventId});
+    }).catch((error: unknown) => {
+      if (!abort.signal.aborted) dispatch({type: "voice.reply.failed", eventId: reply.eventId, message: errorMessage(error)});
+    }).finally(() => {
+      if (spokenReply.current?.eventId === reply.eventId) spokenReply.current = null;
+    });
+  }, [source.voice, state]);
+
+  useEffect(() => () => {
+    voiceStart.current?.abort.abort();
+    voiceFinish.current?.abort.abort();
+    spokenReply.current?.abort.abort();
+    void voiceSession.current?.session.cancel().catch(() => undefined);
+  }, []);
 
   useInput((input, key) => {
     const action = projectRoomInput(state, input, inkKey(key));
@@ -265,7 +360,7 @@ export function ProjectRoomView({state, width, height, noColor = false, ascii = 
       ) : run === null ? (
         <Box flexDirection="column" borderStyle={ascii ? "classic" : "single"} paddingX={1} marginTop={1}>
           <Text bold>No active run</Text>
-          <Text>{interactive ? "Type an objective, or press / for commands. All 26 named roles wait without consuming tokens." : "This snapshot contains no active run."}</Text>
+          <Text>{interactive ? "Type an objective, press Ctrl+R to talk to Nova, or press / for commands. All 26 named roles wait without consuming tokens." : "This snapshot contains no active run."}</Text>
           <AgentWall roster={state.snapshot?.roster ?? []} selectedAgentId={state.selectedAgentId} width={undefined} noColor={noColor} ascii={ascii}/>
         </Box>
       ) : (
@@ -309,7 +404,7 @@ export function renderProjectRoomText(state: ProjectRoomState, options: ProjectR
     lines.push(
       "No active run.",
       "CHAT & WORK",
-      interactive ? "YOU > Type a project request, or press / for a slash command." : "No active run.",
+      interactive ? "YOU > Type a project request, press Ctrl+R for Nova voice, or press / for commands." : "No active run.",
       `AGENT WALL | 0 working | ${state.snapshot?.roster.length ?? 0} named roles | unused roles are token-free`,
       ...rosterTextGrid(state.snapshot?.roster ?? [], width, ascii),
     );
@@ -340,7 +435,7 @@ export function renderProjectRoomText(state: ProjectRoomState, options: ProjectR
   }
   const settings = state.snapshot?.settings;
   lines.push(clip(`SETTINGS | model ${settings?.defaultModel ?? "deterministic/local"} | tokens ${settings?.tokenMode ?? "balanced"} | API ${settings?.providers.filter((provider) => provider.enabled).map((provider) => provider.providerId).join(",") || "offline"}`, width, ascii));
-  if (interactive) lines.push(clip(`CHAT [to: ${targetLabel(state.composerTarget)}] > ${state.overlay.kind === "composer" ? state.composerText : "type to chat or press / for commands"}`, width, ascii));
+  if (interactive) lines.push(clip(`CHAT [to: ${targetLabel(state.composerTarget)}] > ${state.overlay.kind === "composer" ? state.composerText : "type to chat, Ctrl+R voice, or / commands"}`, width, ascii));
   if (state.notice !== null) lines.push(clip(`NOTICE: ${state.notice}`, width, ascii));
   if (interactive) {
     lines.push(...renderOverlayText(state, width, ascii));
@@ -423,7 +518,7 @@ function renderSimpleProjectRoomText(state: ProjectRoomState, options: ProjectRo
   lines.push(`${working.length} working | ${blocked.length} need attention | ${done.length} finished | ${ready} ready | /agents shows all ${roster.length}`);
   const budget = run === null ? "no tokens used" : `${run.tokenBudget.used}/${formatToken(run.tokenBudget.limit)} tokens`;
   lines.push(clip(`AI ${provider === undefined ? "not connected (offline demo)" : `connected (${provider.providerId})`} | ${(settings?.tokenMode ?? "balanced").toUpperCase()} | ${budget} | ${pending.length} approvals`, width, ascii));
-  if (interactive) lines.push(clip(`YOU > ${state.overlay.kind === "composer" ? state.composerText : "Type your request here · press / for commands"}`, width, ascii));
+  if (interactive) lines.push(clip(`YOU > ${state.overlay.kind === "composer" ? state.composerText : "Type a request · Ctrl+R Nova voice · / commands"}`, width, ascii));
   if (state.notice !== null) lines.push(clip(`NOTICE: ${state.notice}`, width, ascii));
   if (interactive) {
     lines.push(...renderOverlayText(state, width, ascii));
@@ -750,7 +845,7 @@ function WorkstreamPanel({state, run, width, noColor, ascii}: {
         <Text>{state.followEvents ? "LIVE" : "SCROLL PAUSED"}</Text>
       </Box>
       {run === null
-        ? <Text><Text {...textColorProp(noColor ? undefined : "cyan")}>YOU › </Text>Type a project request below. Press / for commands.</Text>
+        ? <Text><Text {...textColorProp(noColor ? undefined : "cyan")}>YOU › </Text>Type a project request below, or press Ctrl+R to talk to Nova.</Text>
         : <Text wrap="truncate"><Text {...textColorProp(noColor ? undefined : "cyan")}>YOU (objective) › </Text>{safe(run.objective, 180)}</Text>
       }
       <Text dimColor>{ascii ? "-" : "─"} conversation and live work {ascii ? "-" : "─"}</Text>
@@ -914,6 +1009,15 @@ function isAgentReply(event: ProjectRoomEvent): boolean {
   return event.type === "software-agent.turn.completed";
 }
 
+function spokenReplyText(state: ProjectRoomState, event: ProjectRoomEvent): string {
+  const run = state.snapshot?.run ?? null;
+  const direct = run?.agents.find((agent) => agent.id === event.agentId);
+  const task = run?.tasks.find((candidate) => candidate.id === event.taskId);
+  const owner = task === undefined ? undefined : run?.agents.find((agent) => agent.id === task.agentId);
+  const speaker = direct?.displayName ?? owner?.displayName ?? (event.severity === "ERROR" || event.severity === "CRITICAL" ? "Software Agent" : "Nova");
+  return sanitizeTerminal(`${speaker} says: ${event.summary}`, 3_800);
+}
+
 function chatEventMarker(event: ProjectRoomEvent, ascii: boolean): string {
   if (event.type === "software-agent.instruction.submitted") return "";
   if (isAgentReply(event)) return ascii ? "[REPLY] " : "✓ ";
@@ -1064,8 +1168,8 @@ function ComposerLine({state, noColor, ascii}: {readonly state: ProjectRoomState
     <Box borderStyle={ascii ? "classic" : "single"} paddingX={1} marginTop={1} {...borderColorProp(noColor ? undefined : active ? "magenta" : undefined)}>
       <Text bold>{simple ? "YOU › " : "CHAT "}</Text>
       {simple ? null : <Text>[to: {targetLabel(state.composerTarget)}] </Text>}
-      <Text inverse={active}>{active ? state.composerText || " " : "Type your request here · press / for commands"}</Text>
-      {active ? <Text dimColor>{simple ? "  Enter send · Esc close" : "  Tab target | Enter send | Esc close"}</Text> : null}
+      <Text inverse={active}>{active ? state.composerText || " " : "Type a request, or press Ctrl+R to talk to Nova"}</Text>
+      {active ? <Text dimColor>{simple ? "  Enter send · Ctrl+R voice · Esc close" : "  Tab target | Enter send | Ctrl+R voice | Esc close"}</Text> : null}
     </Box>
   );
 }
@@ -1098,6 +1202,7 @@ function Overlay({state, noColor, ascii}: {readonly state: ProjectRoomState; rea
     <Box flexDirection="column" borderStyle={ascii ? "classic" : "double"} paddingX={1} {...borderColorProp(borderColor)}>
       <Text bold>SOFTWARE AGENT HELP</Text>
       <Text>Just type what you need and press Enter. Continue naturally with follow-up messages.</Text>
+      <Text><Text bold>/voice</Text> or <Text bold>Ctrl+R</Text> talk to Nova · review transcript · Enter sends · Nova speaks the matching committed reply</Text>
       <Text><Text bold>/setup</Text> connect AI · <Text bold>/status</Text> explain current work · <Text bold>/agents</Text> show all specialists</Text>
       <Text><Text bold>/simple</Text> clean chat view · <Text bold>/details</Text> complete control room · <Text bold>/settings</Text> model and budget</Text>
       <Text>When a decision is required, a yellow approval message tells you exactly what needs attention.</Text>
@@ -1116,7 +1221,8 @@ function Overlay({state, noColor, ascii}: {readonly state: ProjectRoomState; rea
           : settings?.providers.map((provider) => (
               <Text key={provider.providerId}>{glyph(provider.enabled ? "CONNECTED" : "PAUSED", ascii)} {provider.providerId} | {provider.model} | {provider.enabled ? "CONNECTED" : "DISABLED"} | {provider.credentialReference}</Text>
             ))}
-        <Text dimColor>/setup guided connection | /model provider/model | /tokens economy|balanced|quality | Enter/Esc close</Text>
+        <Text>Nova voice: {settings?.providers.some((provider) => provider.providerId === "openai" && provider.enabled) === true ? "READY (push-to-talk, AI-generated spoken replies)" : "CONNECT OPENAI TO ENABLE"}</Text>
+        <Text dimColor>/setup guided connection | /voice push-to-talk | /model provider/model | /tokens economy|balanced|quality | Enter/Esc close</Text>
       </Box>
     );
   }
@@ -1129,6 +1235,34 @@ function Overlay({state, noColor, ascii}: {readonly state: ProjectRoomState; rea
         <Text>API key: {masked}</Text>
         <Text>The raw key is never rendered, logged, committed, or written to project configuration.</Text>
         <Text dimColor>Paste key | Enter stores in the OS credential manager | Esc discards</Text>
+      </Box>
+    );
+  }
+  if (overlay.kind === "voice") {
+    const elapsedMs = overlay.startedAt === null ? 0 : Math.max(0, Math.min(overlay.maxDurationMs, state.now - overlay.startedAt));
+    const voiceColor = noColor ? undefined : overlay.phase === "recording" ? "red" : overlay.phase === "error" ? "yellow" : "magenta";
+    return (
+      <Box flexDirection="column" borderStyle={ascii ? "classic" : "double"} paddingX={1} {...borderColorProp(voiceColor)}>
+        <Text bold>NOVA VOICE {overlay.phase === "recording" ? "[REC]" : overlay.phase.toUpperCase()}</Text>
+        {overlay.phase === "starting" ? <Text>Opening your default microphone...</Text> : null}
+        {overlay.phase === "recording" ? (
+          <>
+            <Text>Listening on {overlay.deviceName ?? "default microphone"} | {formatVoiceDuration(elapsedMs)} / {formatVoiceDuration(overlay.maxDurationMs)}</Text>
+            <Text>Speak naturally. Nova will write your words into the chat composer.</Text>
+            <Text bold>Press Enter to stop and transcribe | Esc cancels without sending</Text>
+          </>
+        ) : null}
+        {overlay.phase === "transcribing" ? <Text>Recording stopped. Creating an editable transcript with OpenAI...</Text> : null}
+        {overlay.phase === "cancelling" ? <Text>Discarding the in-memory recording...</Text> : null}
+        {overlay.phase === "error" ? (
+          <>
+            <Text wrap="wrap">{overlay.message ?? "Voice input could not be completed."}</Text>
+            <Text>Type /setup to connect OpenAI, or check Windows microphone permission and try /voice again.</Text>
+            <Text bold>Enter or Esc returns to your unchanged draft.</Text>
+          </>
+        ) : null}
+        <Text dimColor>Privacy: push-to-talk only | two-minute limit | audio is kept in memory only | nothing executes until you review the text and press Enter</Text>
+        <Text dimColor>Spoken replies use an AI-generated voice.</Text>
       </Box>
     );
   }
@@ -1247,25 +1381,27 @@ function Footer({state}: {readonly state: ProjectRoomState}): React.JSX.Element 
 function footerText(state: ProjectRoomState): string {
   if (slashMenuVisible(state)) return "Slash commands: type to filter | ↑↓ choose | Tab complete | Enter run | Esc close";
   if (state.overlay.kind === "composer") return state.viewMode === "simple"
-    ? "Type your message | Enter send | / commands | Esc close"
-    : "Chat: type a prompt or /command | Tab target | Enter send | Esc close";
+    ? "Type your message | Enter send | Ctrl+R voice | / commands | Esc close"
+    : "Chat: type a prompt or /command | Tab target | Enter send | Ctrl+R voice | Esc close";
   if (state.overlay.kind === "api-key") return "Secure key entry: paste | Enter connect | Esc discard";
   if (state.overlay.kind === "setup") return "Setup: arrows choose | Enter continue | Esc cancel";
+  if (state.overlay.kind === "voice") return state.overlay.phase === "recording" ? "Nova is listening | Enter transcribe | Esc discard" : "Nova voice | please wait | Esc cancel";
   if (state.overlay.kind !== "none") return "Overlay: arrows move | Enter confirm | Esc close";
-  if (state.viewMode === "simple") return "Type naturally  Enter Send  / Commands  /setup Connect AI  /details More  Esc Leave";
-  return "Type naturally  Enter Send  / Commands  1 Agents  2 Chat  3 Approvals  4 Tokens  Ctrl+F Live  5 Settings  ? Help  Esc Leave";
+  if (state.viewMode === "simple") return "Type naturally  Enter Send  Ctrl+R Voice  / Commands  /setup Connect AI  /details More  Esc Leave";
+  return "Type naturally  Enter Send  Ctrl+R Voice  / Commands  1 Agents  2 Chat  3 Approvals  4 Tokens  Ctrl+F Live  5 Settings  ? Help  Esc Leave";
 }
 
 function plainFooterText(state: ProjectRoomState): string {
   if (slashMenuVisible(state)) return "Slash: type filter | Up/Down choose | Tab complete | Enter run | Esc close";
   if (state.overlay.kind === "composer") return state.viewMode === "simple"
-    ? "Type message | Enter Send | / Commands | Esc Close"
-    : "Type prompt or /command | Tab Target | Enter Send | Esc Close";
+    ? "Type message | Enter Send | Ctrl+R Voice | / Commands | Esc Close"
+    : "Type prompt or /command | Tab Target | Enter Send | Ctrl+R Voice | Esc Close";
   if (state.overlay.kind === "api-key") return "Paste key | Enter Connect | Esc Discard";
   if (state.overlay.kind === "setup") return "Arrows Choose | Enter Continue | Esc Cancel";
+  if (state.overlay.kind === "voice") return state.overlay.phase === "recording" ? "Nova Listening | Enter Transcribe | Esc Discard" : "Nova Voice | Wait | Esc Cancel";
   if (state.overlay.kind !== "none") return "Arrows Move | Enter Confirm | Esc Close";
-  if (state.viewMode === "simple") return "Type naturally | Enter Send | / Commands | /details More | Esc Leave";
-  return "Type naturally | Enter Send | / Commands | Tab Focus | ? Help | Esc Leave";
+  if (state.viewMode === "simple") return "Type naturally | Enter Send | Ctrl+R Voice | / Commands | /details More | Esc Leave";
+  return "Type naturally | Enter Send | Ctrl+R Voice | / Commands | Tab Focus | ? Help | Esc Leave";
 }
 
 function renderOverlayText(state: ProjectRoomState, width: number, ascii: boolean): readonly string[] {
@@ -1297,6 +1433,7 @@ function renderOverlayText(state: ProjectRoomState, width: number, ascii: boolea
   if (overlay.kind === "help") return [
     "SOFTWARE AGENT HELP",
     "Type what you need and press Enter. Keep chatting naturally with follow-up messages.",
+    "/voice or Ctrl+R Talk to Nova | review transcript | Enter sends | Nova speaks the reply",
     "/setup Connect AI | /status Explain current work | /agents Show all specialists",
     "/simple Clean chat | /details Full control room | /settings Model and budget",
     "Yellow approval messages tell you exactly when a decision is needed.",
@@ -1308,7 +1445,8 @@ function renderOverlayText(state: ProjectRoomState, width: number, ascii: boolea
       `Project: ${settings?.workspace ?? "Loading"}`,
       `Model: ${settings?.defaultModel ?? "deterministic/local"} | Tokens: ${settings?.tokenMode ?? "balanced"}`,
       ...((settings?.providers ?? []).map((provider) => `${provider.providerId}: ${provider.model} | ${provider.enabled ? "CONNECTED" : "DISABLED"} | ${provider.credentialReference}`)),
-      "/api connect <provider> [model] | /model provider/model | /tokens 25|50|100",
+      `Nova voice: ${settings?.providers.some((provider) => provider.providerId === "openai" && provider.enabled) === true ? "READY" : "CONNECT OPENAI TO ENABLE"}`,
+      "/voice | /api connect <provider> [model] | /model provider/model | /tokens 25|50|100",
     ];
   }
   if (overlay.kind === "api-key") return [
@@ -1317,6 +1455,21 @@ function renderOverlayText(state: ProjectRoomState, width: number, ascii: boolea
     `API key: ${overlay.value.length === 0 ? "(paste key here)" : `[MASKED ${overlay.value.length} characters]`}`,
     "Enter stores in the OS credential manager | Esc discards",
   ];
+  if (overlay.kind === "voice") {
+    const elapsedMs = overlay.startedAt === null ? 0 : Math.max(0, Math.min(overlay.maxDurationMs, state.now - overlay.startedAt));
+    return [
+      `NOVA VOICE | ${overlay.phase.toUpperCase()}`,
+      overlay.phase === "recording"
+        ? `Listening on ${overlay.deviceName ?? "default microphone"} | ${formatVoiceDuration(elapsedMs)} / ${formatVoiceDuration(overlay.maxDurationMs)}`
+        : overlay.phase === "error"
+          ? clip(overlay.message ?? "Voice input failed.", width, ascii)
+          : overlay.phase === "transcribing"
+            ? "Recording stopped. Creating an editable transcript with OpenAI..."
+            : overlay.phase === "cancelling" ? "Discarding the in-memory recording..." : "Opening your default microphone...",
+      overlay.phase === "recording" ? "Speak naturally | Enter transcribe | Esc discard" : overlay.phase === "error" ? "Enter/Esc return | /setup connects OpenAI" : "Esc cancel",
+      "Push-to-talk only | audio stays in memory | review text before Enter executes | AI-generated spoken replies",
+    ];
+  }
   if (overlay.kind === "search") return [`SEARCH COMMITTED EVENTS > ${clip(overlay.query, Math.max(10, width - 28), ascii)}`];
   if (overlay.kind === "palette") return ["SOFTWARE AGENT COMMAND PALETTE", ...filteredPaletteActions(overlay.query).slice(0, 6).map((action, index) => `${index === overlay.selected ? ">" : " "} ${action}`)];
   if (overlay.kind === "target") return ["SELECT EXPLICIT TARGET", ...targetCandidates(state.snapshot).slice(0, 8).map((target, index) => `${index === overlay.selected ? ">" : " "} ${targetLabel(target)}`)];
@@ -1516,6 +1669,13 @@ function formatAge(timestamp: string | null, now: number): string {
   if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);
   return minutes < 60 ? `${minutes}m` : `${Math.floor(minutes / 60)}h`;
+}
+
+function formatVoiceDuration(milliseconds: number): string {
+  const totalSeconds = Math.max(0, Math.floor(milliseconds / 1_000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 
 function clip(value: string, width: number, ascii: boolean): string {

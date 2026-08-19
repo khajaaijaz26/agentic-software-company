@@ -1,4 +1,4 @@
-import {randomUUID} from "node:crypto";
+import {createHash, randomUUID} from "node:crypto";
 import {resolve} from "node:path";
 
 import type {ApprovalRecord} from "../../../packages/approval-service/src/index.js";
@@ -54,6 +54,8 @@ import type {
   ProjectRoomSource,
 } from "../../operator-console/src/dashboard.js";
 import type {ProjectRoomTokenUsage} from "../../operator-console/src/project-room-state.js";
+import type {VoiceAssistant} from "../../../packages/voice-input/src/index.js";
+import {ConfiguredVoiceAssistant} from "./voice-assistant.js";
 
 export interface ProjectRoomRpcClient {
   request<M extends ControllerMethod>(
@@ -76,6 +78,10 @@ export interface IpcProjectRoomSourceOptions {
   readonly credentialBackend?: CredentialBackend;
   /** Test/embedding override. Production uses the platform-standard Software Agent directories. */
   readonly platformPaths?: PlatformPaths;
+  /** Blocks Nova provider calls when the CLI was launched with --offline. */
+  readonly offline?: boolean;
+  /** Test/embedding override. Production creates the local Nova voice assistant. */
+  readonly voiceAssistant?: VoiceAssistant;
 }
 
 const DISPLAY_NAMES: Readonly<Record<string, string>> = Object.freeze({
@@ -89,6 +95,7 @@ const DISPLAY_NAMES: Readonly<Record<string, string>> = Object.freeze({
  * A failed control-lease acquisition intentionally produces a read-only room.
  */
 export class IpcProjectRoomSource implements ProjectRoomSource {
+  public readonly voice: VoiceAssistant;
   readonly #attachmentId: string;
   readonly #actorId: string;
   readonly #branch: string;
@@ -114,6 +121,11 @@ export class IpcProjectRoomSource implements ProjectRoomSource {
     this.#attachmentId = exactId(options.attachmentId ?? `ui_${randomUUID().replaceAll("-", "")}`, "attachmentId");
     this.#pollWaitMs = boundedInteger(options.pollWaitMs ?? 4_000, 100, 10_000, "pollWaitMs");
     this.#platformPaths = options.platformPaths ?? resolvePlatformPaths();
+    this.voice = options.voiceAssistant ?? new ConfiguredVoiceAssistant({
+      platformPaths: this.#platformPaths,
+      credentialBackend: this.#credentialBackend,
+      offline: options.offline === true,
+    });
     this.#selectedRunId = options.runId;
   }
 
@@ -215,21 +227,28 @@ export class IpcProjectRoomSource implements ProjectRoomSource {
         ...commandContext(created.revision, this.#actorId, this.#attachmentId, lease),
         runId: created.id,
       }, {signal});
-      return {message: "Got it. Software Agent is choosing the right specialists and starting the work."};
+      const replyTaskId = created.tasks.find((task) => task.role === "master-orchestrator")?.id;
+      return {
+        message: "Got it. Software Agent is choosing the right specialists and starting the work.",
+        ...(replyTaskId === undefined ? {} : {replyTaskId}),
+      };
     }
 
     let run = requireRun(snapshot, command.type === "instruction.submit" ? command.runId : undefined);
     if (command.type === "instruction.submit") {
       this.#selectedRunId = run.id;
       let submitted: ControllerRpcResults["instruction.submit"] | undefined;
+      let replyTaskId: string | undefined;
       for (let attempt = 0; attempt < 5; attempt += 1) {
         try {
+          const context = commandContext(run.revision, this.#actorId, this.#attachmentId, lease);
           submitted = await this.#client.request("instruction.submit", {
-            ...commandContext(run.revision, this.#actorId, this.#attachmentId, lease),
+            ...context,
             runId: run.id,
             target: {kind: command.target.kind, id: command.target.id},
             text: command.text,
           }, {signal});
+          replyTaskId = conversationTaskId(context.commandId);
           break;
         } catch (error) {
           if (!(error instanceof ControllerIpcError) || error.code !== "RUN_REVISION_CONFLICT" || attempt === 4) throw error;
@@ -246,7 +265,10 @@ export class IpcProjectRoomSource implements ProjectRoomSource {
       }
       const recipient = run.sessions.find((session) => session.id === submitted.message.to);
       const displayName = recipient === undefined ? command.target.label : DISPLAY_NAMES[recipient.role] ?? recipient.role;
-      return {message: `Message sent to ${displayName}. Watch the conversation for live progress and the final reply.`};
+      return {
+        message: `Message sent to ${displayName}. Watch the conversation for live progress and the final reply.`,
+        ...(replyTaskId === undefined ? {} : {replyTaskId}),
+      };
     }
     if (command.type === "approval.decide") {
       if (command.decision === "APPROVED") {
@@ -779,6 +801,11 @@ function riskForAction(action: string): string {
 
 function identifier(prefix: string): string {
   return `${prefix}_${randomUUID().replaceAll("-", "")}`;
+}
+
+function conversationTaskId(commandId: string): string {
+  const digest = createHash("sha256").update(`${commandId}:conversation`, "utf8").digest("hex").slice(0, 32);
+  return `tsk_${digest}`;
 }
 
 function exactId(value: string, field: string): string {

@@ -1,7 +1,7 @@
 {
   "name": "software-agent",
-  "version": "0.6.0",
-  "description": "A visible, governed team of AI software agents in your terminal",
+  "version": "0.7.0",
+  "description": "A visible, governed, voice-enabled team of AI software agents in your terminal",
   "type": "module",
   "license": "Apache-2.0",
   "author": "khajaaijaz26",
@@ -13,7 +13,17 @@
   "bugs": {
     "url": "https://github.com/khajaaijaz26/software-agent/issues"
   },
-  "keywords": ["ai", "agents", "multi-agent", "cli", "terminal", "coding-agent", "software-development"],
+  "keywords": [
+    "ai",
+    "agents",
+    "multi-agent",
+    "cli",
+    "terminal",
+    "voice-assistant",
+    "speech-to-text",
+    "coding-agent",
+    "software-development"
+  ],
   "publishConfig": {
     "access": "public",
     "provenance": true
@@ -50,6 +60,7 @@
   },
   "dependencies": {
     "@iarna/toml": "^2.2.5",
+    "@picovoice/pvrecorder-node": "1.2.9",
     "chalk": "^5.4.1",
     "commander": "^14.0.0",
     "ink": "^6.3.1",
@@ -63,8 +74,8 @@
   "devDependencies": {
     "@types/node": "^24.3.0",
     "@types/react": "^19.1.11",
-    "eslint": "^9.34.0",
     "esbuild": "^0.28.2",
+    "eslint": "^9.34.0",
     "sharp": "^0.35.3",
     "tsup": "^8.5.0",
     "tsx": "^4.20.5",

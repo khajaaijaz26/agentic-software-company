@@ -21,7 +21,7 @@
 
 ![Three coordinated Software Agent workstreams connected through a local controller and human approval checkpoint](docs/images/software-agent-hero.png)
 
-Software Agent is a standalone, local-first coding platform—not a plugin for Cursor, Codex, Claude Code, or another editor. Launch one command, chat naturally, and let its bundled controller coordinate the relevant specialists. The calm default screen shows only the conversation, current progress, and people who need your attention; `/details` reveals the full 26-role control room. Runs, approvals, usage, and evidence are recorded in SQLite so work survives terminal disconnects and controller restarts.
+Software Agent is a standalone, local-first coding platform—not a plugin for Cursor, Codex, Claude Code, or another editor. Launch one command, type naturally or talk to **Nova**, and let its bundled controller coordinate the relevant specialists. The calm default screen shows only the conversation, current progress, and people who need your attention; `/details` reveals the full 26-role control room. Runs, approvals, usage, and evidence are recorded in SQLite so work survives terminal disconnects and controller restarts.
 
 ## Install and run
 
@@ -34,7 +34,7 @@ Requirements: Node.js 22.14 or newer, npm, and Git. Node.js 24 LTS is recommende
 1. Install and verify the current release:
 
    ```powershell
-   npm install -g "https://github.com/khajaaijaz26/software-agent/releases/download/v0.6.0/software-agent-0.6.0.tgz"
+   npm install -g "https://github.com/khajaaijaz26/software-agent/releases/download/v0.7.0/software-agent-0.7.0.tgz"
    software-agent --version
    ```
 
@@ -65,7 +65,7 @@ GitHub repositories are edited through a normal local Git checkout, so every fil
 ### macOS or Linux
 
 ```bash
-npm install -g "https://github.com/khajaaijaz26/software-agent/releases/download/v0.6.0/software-agent-0.6.0.tgz"
+npm install -g "https://github.com/khajaaijaz26/software-agent/releases/download/v0.7.0/software-agent-0.7.0.tgz"
 cd /path/to/your-project
 software-agent
 ```
@@ -112,6 +112,23 @@ software-agent start "Implement the requested change and verify it"
 
 Anthropic Messages is supported in the same way with `ANTHROPIC_API_KEY` and `anthropic/<model-id>`. Run `software-agent setup` at any time for the non-interactive secure setup sequence.
 
+### Talk to Nova
+
+Nova is the built-in push-to-talk voice assistant. Voice uses your configured OpenAI credential even when Anthropic is selected for the coding agents.
+
+It uses the official [Picovoice PvRecorder Node SDK](https://picovoice.ai/docs/quick-start/pvrecorder-nodejs/), [OpenAI transcription API](https://developers.openai.com/api/reference/resources/audio/subresources/transcriptions/methods/create), and [OpenAI speech API](https://developers.openai.com/api/reference/resources/audio/subresources/speech/methods/create).
+
+1. Open Software Agent and connect OpenAI once with `/setup`.
+2. Press `Ctrl+R` or type `/voice` **inside the project room**.
+3. Speak for up to two minutes, then press Enter.
+4. Review or edit the transcript that appears in the normal composer.
+5. Press Enter again to submit it for planning and execution.
+6. Nova reads the matching committed agent reply aloud.
+
+Try saying: “Nova, tell me what every active agent is working on.” Use Tab or `/target` before recording when you want one specific agent to answer.
+
+The microphone is never always listening: it opens only after `Ctrl+R` or `/voice`. Captured PCM stays in memory, is capped at two minutes, and is erased after transcription or cancellation. Speech is sent to OpenAI for transcription, and replies use an AI-generated voice. The transcript is never executed until you confirm it with the second Enter. Nova fails closed under `--offline` before reading a credential or opening the microphone.
+
 ### Chat naturally, then keep going
 
 Inside the project room, just type a message and press Enter. You do not need a special `prompt` command:
@@ -147,6 +164,7 @@ WORKING · Fix the login error                 2/5 steps finished
 └─────────────────────────────────────┴────────────────────────────────────────┘
 AI connected · openai | BALANCED | 1 approval | /details for more
 YOU › Type your next message here
+Ctrl+R talk to Nova · / commands · Enter send
 ```
 
 Simple view keeps the conversation and next action obvious. Detailed view retains the complete 26-role wall, committed event history, current file/tool activity, exact token usage, approval packets, reconnect/resync diagnostics, and read-only fallback when another terminal owns the mutation lease.
@@ -176,6 +194,7 @@ Software Agent uses a current, widely adopted stack while keeping the installed 
 | Commands and validation | Commander 14, Zod 4, JSON Schema Draft 2020-12 | Stable CLI grammar and versioned machine contracts. |
 | Durable coordination | Built-in SQLite, WAL, event sourcing, idempotency receipts | Restartable runs, tasks, leases, approvals, evidence, and replay. |
 | AI providers | OpenAI Responses API, Anthropic Messages API, BYOK secret references | Native model calls, tool results, streaming normalization, usage, and cost. |
+| Voice interface | Picovoice PvRecorder, OpenAI transcription and speech APIs, native OS WAV playback | Explicit push-to-talk, editable transcripts, and Nova's spoken committed replies. |
 | Repository retrieval | Bounded file listing, literal code search, exact SHA-256 reads | RAG-style selective context without forcing a heavy vector database into every install. |
 | Security boundary | OS credential stores, HMAC-SHA-256 local IPC, named pipes/Unix sockets, lease fencing | Keeps raw API keys out of repositories, worker processes, and controller messages. |
 | Compatibility | Python 3.10–3.14 and MCP compatibility package | Preserves existing Python/MCP integrations without making Python the primary runtime. |
@@ -187,6 +206,7 @@ Software Agent uses a current, widely adopted stack while keeping the installed 
 | --- | --- |
 | Visible collaboration | Defaults to calm conversation plus active/blocked specialists; `/details` expands to all 26 roles, files, tools, tokens, cost, and events. |
 | Continuous conversation | Turns every follow-up into an executable, durable agent turn with bounded history and a clearly labeled final reply. |
+| Two-way voice with Nova | Records only on explicit `Ctrl+R`/`/voice`, returns an editable transcript, waits for confirmation, and speaks only the correlated committed reply. |
 | Honest specialization | Exposes all 26 named roles while activating only the bounded orchestrator, delivery specialist, and reviewer seats needed by the current run. |
 | Safe coding tools | Provides bounded file discovery, token-efficient code search, exact-revision reads, atomic writes, and shell-free verification commands. |
 | Human authority | Turns process execution and connected mutations into exact, expiring, single-use approval packets. Silence and `--yes` are never approval. |
@@ -202,6 +222,7 @@ This is an architectural comparison, not a claim that every other tool behaves i
 | Area | Typical single-agent CLI | Software Agent |
 | --- | --- | --- |
 | Work display | One conversation or activity stream | Chat-first Simple view plus an optional complete 26-role control room and live progress |
+| Voice workflow | Often absent or separate from execution | Built-in push-to-talk, editable transcript, explicit send, targeted agent questions, and spoken committed replies |
 | Coordination | One model handles planning, coding, and review sequentially | Durable orchestrator, relevant delivery specialist, and independent reviewer seats with handoffs |
 | Restart behavior | Terminal session often owns transient state | Controller and SQLite event log survive UI disconnects and support deterministic replay |
 | Tool authority | Broad confirmation or process-level permission | Exact actor/action/resource/environment binding, expiry, and single-use approval consumption |
@@ -250,7 +271,7 @@ software-agent models use anthropic/<model-id> --role reviewer-qa
 software-agent secrets list
 ```
 
-Provider calls happen in the controller. Worker manifests and subprocess environments never contain model credentials. Software Agent uses official API protocols; it does not scrape human-formatted output or reuse private login sessions from Codex, Claude Code, or OpenCode. Optional CLI bridges can be added later only behind explicit, machine-readable capability contracts.
+Coding-model calls happen in the controller. Nova audio calls happen in the local CLI so microphone bytes never cross controller IPC. Worker manifests and subprocess environments never contain model credentials. Software Agent uses official API protocols; it does not scrape human-formatted output or reuse private login sessions from Codex, Claude Code, or OpenCode. Optional CLI bridges can be added later only behind explicit, machine-readable capability contracts.
 
 ## Approval and tool policy
 
@@ -311,6 +332,8 @@ software-agent doctor --json
 software-agent commands model
 ```
 
+Inside the live room, press `Ctrl+R` or type `/voice` to talk to Nova. Slash commands are entered in the Software Agent composer—not in PowerShell.
+
 GitHub, Vercel, and Supabase adapters currently provide read-only discovery and governed mutation plans. Remote mutation execution remains intentionally disabled until its receipt/reconciliation path is complete.
 
 ## What “context retrieval” means here
@@ -332,7 +355,7 @@ The primary platform is TypeScript. A separately named Python/MCP compatibility 
 
 ## Current boundaries
 
-Software Agent v0.6 is a local developer preview. Its catalog contains 26 named roles (shown on demand in Detailed view), while this release intentionally activates at most three durable execution seats per run to bound cost and preserve independent review. Conversation history is deliberately bounded rather than an unlimited memory. It has no OS-level sandbox or Windows named-pipe peer-SID verification, no vector RAG index, no signed event export, and no enabled remote mutation executor. Treat model output and repository content as untrusted. Review changes and approvals before relying on results.
+Software Agent v0.7 is a local developer preview. Its catalog contains 26 named roles (shown on demand in Detailed view), while this release intentionally activates at most three durable execution seats per run to bound cost and preserve independent review. Conversation history is deliberately bounded rather than an unlimited memory. Nova is push-to-talk rather than an always-listening wake-word assistant, requires an OpenAI connection, and transcribes only after recording stops. The platform has no OS-level sandbox or Windows named-pipe peer-SID verification, no vector RAG index, no signed event export, and no enabled remote mutation executor. Treat model output, transcripts, and repository content as untrusted. Review changes and approvals before relying on results.
 
 Visual assets are original to this repository; generation and composition details are recorded in [asset provenance](docs/assets/PROVENANCE.md).
 
