@@ -1,5 +1,7 @@
 import {spawn} from "node:child_process";
 import {randomUUID} from "node:crypto";
+import {existsSync} from "node:fs";
+import {delimiter, extname, isAbsolute, join, resolve} from "node:path";
 import {z} from "zod";
 import {sanitizeTerminal, sha256, stableJson} from "../../observability/src/index.js";
 
@@ -168,13 +170,20 @@ export interface CliResult {
 export async function runConnectorCli(
   executable: string,
   args: readonly string[],
-  options: {readonly cwd?: string; readonly timeoutMs?: number; readonly maxBytes?: number} = {},
+  options: {
+    readonly cwd?: string;
+    readonly timeoutMs?: number;
+    readonly maxBytes?: number;
+    readonly environment?: NodeJS.ProcessEnv;
+  } = {},
 ): Promise<CliResult> {
   const timeoutMs = options.timeoutMs ?? 15_000;
   const maxBytes = options.maxBytes ?? 1_048_576;
-  const environment = minimalEnvironment(process.env);
+  const sourceEnvironment = options.environment ?? process.env;
+  const environment = minimalEnvironment(sourceEnvironment);
+  const invocation = resolveConnectorInvocation(executable, sourceEnvironment);
   return new Promise((resolvePromise, reject) => {
-    const child = spawn(executable, [...args], {
+    const child = spawn(invocation.executable, [...invocation.prefixArgs, ...args], {
       cwd: options.cwd,
       env: environment,
       shell: false,
@@ -215,9 +224,67 @@ export async function runConnectorCli(
   });
 }
 
+interface ConnectorInvocation {
+  readonly executable: string;
+  readonly prefixArgs: readonly string[];
+}
+
+function resolveConnectorInvocation(executable: string, environment: NodeJS.ProcessEnv): ConnectorInvocation {
+  if (process.platform !== "win32") return {executable, prefixArgs: []};
+  const candidate = resolveWindowsExecutable(executable, environment);
+  const extension = extname(candidate).toLowerCase();
+  if (extension === ".ps1") {
+    const systemRoot = environment.SystemRoot ?? environment.SYSTEMROOT ?? environment.systemroot;
+    if (systemRoot === undefined || systemRoot.trim() === "") {
+      throw new ConnectorCliResolutionError("WINDOWS_SYSTEM_ROOT_MISSING", "SystemRoot is required to launch a PowerShell connector shim");
+    }
+    const powershell = join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+    if (!existsSync(powershell)) {
+      throw new ConnectorCliResolutionError("POWERSHELL_UNAVAILABLE", "Windows PowerShell is unavailable for the connector shim");
+    }
+    return {
+      executable: powershell,
+      prefixArgs: ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", candidate],
+    };
+  }
+  if (extension === ".cmd" || extension === ".bat") {
+    throw new ConnectorCliResolutionError(
+      "UNSAFE_WINDOWS_COMMAND_SHIM",
+      `refusing to invoke ${extension} connector shim without a matching PowerShell shim`,
+    );
+  }
+  return {executable: candidate, prefixArgs: []};
+}
+
+function resolveWindowsExecutable(executable: string, environment: NodeJS.ProcessEnv): string {
+  const hasPath = isAbsolute(executable) || executable.includes("/") || executable.includes("\\");
+  const roots = hasPath
+    ? [""]
+    : (environment.PATH ?? environment.Path ?? "")
+      .split(delimiter)
+      .map((entry) => entry.trim().replace(/^"|"$/gu, ""))
+      .filter((entry) => entry !== "");
+  const extensions = extname(executable) === "" ? [".exe", ".com", ".ps1", ".cmd", ".bat"] : [""];
+  for (const root of roots) {
+    const base = hasPath ? resolve(executable) : join(root, executable);
+    for (const extension of extensions) {
+      const candidate = `${base}${extension}`;
+      if (existsSync(candidate)) return candidate;
+    }
+  }
+  throw new ConnectorCliResolutionError("CONNECTOR_EXECUTABLE_NOT_FOUND", `connector executable not found: ${executable}`);
+}
+
+export class ConnectorCliResolutionError extends Error {
+  public constructor(public readonly code: string, message: string) {
+    super(message);
+    this.name = "ConnectorCliResolutionError";
+  }
+}
+
 function minimalEnvironment(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const allowed = [
-    "PATH", "Path", "PATHEXT", "SystemRoot", "COMSPEC", "HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA",
+    "PATH", "Path", "PATHEXT", "SystemRoot", "SYSTEMROOT", "COMSPEC", "HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA",
     "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME", "TMP", "TEMP", "NO_COLOR", "TERM",
     "GH_CONFIG_DIR", "GH_HOST", "VERCEL_ORG_ID", "VERCEL_PROJECT_ID", "SUPABASE_ACCESS_TOKEN",
   ];

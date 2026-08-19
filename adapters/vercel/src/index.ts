@@ -1,6 +1,8 @@
 import {runConnectorCli, type Connector, type ConnectorInventory, type ConnectorProbe} from "../../../packages/connectors/src/index.js";
 
 export class VercelConnector implements Connector {
+  public constructor(private readonly runCli: typeof runConnectorCli = runConnectorCli) {}
+
   public readonly manifest = {
     schema: "software-agent.connector-manifest/v1" as const,
     id: "vercel",
@@ -14,17 +16,17 @@ export class VercelConnector implements Connector {
 
   public async probe(): Promise<ConnectorProbe> {
     try {
-      const version = await runConnectorCli("vercel", ["--version"]);
-      const teams = await runConnectorCli("vercel", ["teams", "list"]);
-      if (teams.exitCode !== 0) {
-        return {connectorId: "vercel", state: "AUTH_REQUIRED", version: version.stdout.trim(), details: [teams.stderr || teams.stdout]};
+      const version = await this.runCli("vercel", ["--version"]);
+      const identity = await this.runCli("vercel", ["whoami"], {timeoutMs: 30_000});
+      if (identity.exitCode !== 0) {
+        return {connectorId: "vercel", state: "AUTH_REQUIRED", version: version.stdout.trim(), details: [identity.stderr || identity.stdout]};
       }
-      const account = teams.stdout.match(/(?:√|>)\s+([\w-]+)\s+/u)?.[1];
+      const account = identity.stdout.trim();
       return {
         connectorId: "vercel",
         state: "CONNECTED",
         version: version.stdout.trim(),
-        ...(account === undefined ? {} : {account}),
+        ...(account === "" ? {} : {account}),
         details: ["Authenticated through the provider-owned Vercel CLI session."],
       };
     } catch (error) {
@@ -33,7 +35,7 @@ export class VercelConnector implements Connector {
   }
 
   public async inventory(): Promise<ConnectorInventory> {
-    const response = await runConnectorCli("vercel", ["project", "list"]);
+    const response = await this.runCli("vercel", ["project", "list"], {timeoutMs: 30_000});
     if (response.exitCode !== 0) throw new Error(response.stderr || "Vercel inventory failed");
     const resources = response.stdout.split("\n")
       .map((line) => line.trim())

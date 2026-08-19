@@ -22,16 +22,12 @@ git --version
 The public GitHub release is available now:
 
 ```powershell
-npm install -g https://github.com/khajaaijaz26/software-agent/releases/download/v0.3.0/software-agent-0.3.0.tgz
+npm install -g https://github.com/khajaaijaz26/software-agent/releases/download/v0.3.1/software-agent-0.3.1.tgz
 software-agent --version
 software-agent setup
 ```
 
-Expected SHA-256 for `software-agent-0.3.0.tgz`:
-
-```text
-ee8993db8de0371dc976cae695915694a7a3cc49ac981c8b4dbd66359df9e9f8
-```
+GitHub publishes the SHA-256 digest for `software-agent-0.3.1.tgz` on the release page so it can be checked independently after download.
 
 ## Global npm registry installation
 

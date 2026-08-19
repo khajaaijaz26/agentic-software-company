@@ -47,8 +47,8 @@ import {
 import {EXIT_CODES, emit, emitError, processIo, type Io, type OutputMode} from "./output.js";
 import {IpcProjectRoomSource} from "./project-room-source.js";
 
-const VERSION = "0.3.0";
-const BUILD = "software-agent-v0.3.0";
+const VERSION = "0.3.1";
+const BUILD = "software-agent-v0.3.1";
 const CLI_NAME = "software-agent";
 
 interface Runtime {

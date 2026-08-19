@@ -18,7 +18,7 @@ import {
 
 export const CONTROLLER_BUILD_VERSION = process.env.SOFTWARE_AGENT_BUILD_VERSION
   ?? process.env.AGENT_COMPANY_BUILD_VERSION // Legacy environment migration.
-  ?? "0.3.0";
+  ?? "0.3.1";
 
 export interface StartedControllerDaemon {
   readonly controller: LocalController;

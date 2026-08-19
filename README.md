@@ -28,11 +28,11 @@ Software Agent is a local-first, event-sourced coding platform—not a single ch
 Requirements: Node.js 22.14 or newer, npm, and Git. Node.js 24 LTS is recommended.
 
 ```bash
-npm install -g https://github.com/khajaaijaz26/software-agent/releases/download/v0.3.0/software-agent-0.3.0.tgz
+npm install -g https://github.com/khajaaijaz26/software-agent/releases/download/v0.3.1/software-agent-0.3.1.tgz
 software-agent --version
 ```
 
-This is the verified GitHub `v0.3.0` release asset (`SHA-256 ee8993db8de0371dc976cae695915694a7a3cc49ac981c8b4dbd66359df9e9f8`). The shorter `npm install -g software-agent` command becomes available after the package owner completes npm registry authentication. Contributors can also use the [source installation steps](INSTALL.md#install-from-this-checkout).
+This is the verified GitHub `v0.3.1` release asset; GitHub publishes its SHA-256 digest on the release page. The shorter `npm install -g software-agent` command becomes available after the package owner completes npm registry authentication. Contributors can also use the [source installation steps](INSTALL.md#install-from-this-checkout).
 
 ## Start in under a minute
 

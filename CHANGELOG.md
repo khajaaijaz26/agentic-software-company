@@ -14,6 +14,18 @@ independent version lines.
 - Server-push event subscriptions and very-large-run snapshot compaction.
 - Signed export/import and an automated Python-state migration tool.
 
+## [npm 0.3.1] - 2026-08-19
+
+### Fixed
+
+- Windows now resolves installed npm PowerShell shims for connector CLIs
+  without enabling command-string shell execution; arguments remain separate
+  and are covered by an injection-safety test.
+- Vercel authentication discovery now uses the direct `whoami` command with a
+  provider-appropriate timeout instead of parsing the slower teams table.
+- GitHub, Vercel, and Supabase discovery now all report their actual connected
+  state when installed through their standard Windows command shims.
+
 ## [npm 0.3.0] - 2026-08-19
 
 ### Added
