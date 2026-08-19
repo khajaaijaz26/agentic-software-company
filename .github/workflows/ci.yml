@@ -43,7 +43,8 @@ jobs:
       - run: npm ci
       - name: Create package tarball
         run: |
-          npm pack --json > npm-pack.json
+          npm run prepack
+          npm pack --ignore-scripts --json > npm-pack.json
           node -e "const fs=require('fs'); const [{filename}]=JSON.parse(fs.readFileSync('npm-pack.json','utf8')); fs.appendFileSync(process.env.GITHUB_ENV, `SOFTWARE_AGENT_TARBALL=${filename}\n`)"
       - name: Test global installation
         run: |
