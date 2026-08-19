@@ -100,8 +100,9 @@ describe("Software Agent setup CLI", () => {
     const io = {stdout: (value: string) => output.push(value), stderr: () => undefined};
 
     expect(await runCli(["node", "software-agent", "--plain", "open", localWorkspace], io)).toBe(0);
-    expect(output.join("\n")).toContain("AGENT WALL");
-    expect(output.join("\n")).toContain("26 named roles");
+    expect(output.join("\n")).toContain("WELCOME");
+    expect(output.join("\n")).toContain("/agents shows all 26");
+    expect(output.join("\n")).toContain("standalone local controller");
     expect(readFileSync(join(localWorkspace, ".software-agent", "project.toml"), "utf8")).toContain("software-agent.project/v2");
 
     output.length = 0;
@@ -115,7 +116,7 @@ describe("Software Agent setup CLI", () => {
       "node", "software-agent", "--plain", "open", "https://github.com/example/example.git",
       "--destination", githubCheckout,
     ], io)).toBe(0);
-    expect(output.join("\n")).toContain("AGENT WALL");
+    expect(output.join("\n")).toContain("CONVERSATION");
     expect(readFileSync(join(githubCheckout, ".software-agent", "project.toml"), "utf8")).toContain("software-agent.project/v2");
   });
 });

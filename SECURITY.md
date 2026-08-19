@@ -37,7 +37,7 @@ credentials and synthetic data.
   single-use.
 - Unknown connector operations are denied. A5 operations are denied by
   default, with hard denials for selected production/destructive cases.
-- Remote connector mutations are planning-only in v0.5; provider probes and
+- Remote connector mutations are planning-only in v0.6; provider probes and
   inventories are read-only.
 - Model credentials are supplied through explicit `env://` or supported
   secure-store references, resolved only by the controller, leased for the
@@ -65,7 +65,7 @@ credentials and synthetic data.
 
 - Authenticated IPC and detached controller discovery are active. Windows
   runtime/pipe ACLs and OS peer identity are not independently verified in
-  v0.5; protect the account and runtime directory.
+  v0.6; protect the account and runtime directory.
 - Attempt/lease fencing and child-process boundaries for approved verification
   commands are implemented, but lease extension, automatic retries, OS
   sandboxing/network isolation, and complete orphan recovery are not.
@@ -83,7 +83,7 @@ abuse cases, and residual risk.
 
 ## Secure deployment guidance
 
-1. Keep the CLI and state on a trusted single-user workstation during v0.5.
+1. Keep the CLI and state on a trusted single-user workstation during v0.6.
 2. Restrict project and platform data directories with OS permissions and disk
    encryption.
 3. Never commit `.software-agent/`, `.agent-company/`, `.agentic_company/`, `.env`, provider

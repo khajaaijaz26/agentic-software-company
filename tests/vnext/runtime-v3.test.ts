@@ -45,7 +45,7 @@ function command(
   };
 }
 
-describe("Software Agent v0.5 durable runtime", () => {
+describe("Software Agent v0.6 durable runtime", () => {
   it("turns every follow-up message into a scheduled conversational agent reply with bounded history", async () => {
     const workspace = temporaryDirectory();
     await initializeProject(workspace, "Runtime conversation", true);

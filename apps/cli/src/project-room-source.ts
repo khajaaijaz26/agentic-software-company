@@ -215,7 +215,7 @@ export class IpcProjectRoomSource implements ProjectRoomSource {
         ...commandContext(created.revision, this.#actorId, this.#attachmentId, lease),
         runId: created.id,
       }, {signal});
-      return {message: "Objective committed. The scheduler is assigning the minimum relevant specialist team."};
+      return {message: "Got it. Software Agent is choosing the right specialists and starting the work."};
     }
 
     let run = requireRun(snapshot, command.type === "instruction.submit" ? command.runId : undefined);
@@ -246,7 +246,7 @@ export class IpcProjectRoomSource implements ProjectRoomSource {
       }
       const recipient = run.sessions.find((session) => session.id === submitted.message.to);
       const displayName = recipient === undefined ? command.target.label : DISPLAY_NAMES[recipient.role] ?? recipient.role;
-      return {message: `Message sent to ${displayName}. The agent turn is queued; its live work and final reply will appear in CHAT & WORK.`};
+      return {message: `Message sent to ${displayName}. Watch the conversation for live progress and the final reply.`};
     }
     if (command.type === "approval.decide") {
       if (command.decision === "APPROVED") {
@@ -257,7 +257,7 @@ export class IpcProjectRoomSource implements ProjectRoomSource {
           : "denied in the Software Agent project room";
         await this.#client.request("deny", {approvalId: command.approvalId, reason}, {signal});
       }
-      return {message: `Approval ${command.decision.toLowerCase().replaceAll("_", " ")} and committed.`};
+      return {message: `Your decision was saved: ${command.decision.toLowerCase().replaceAll("_", " ")}.`};
     }
     if (command.disposition === "pause" && run.state === "RUNNING") {
       await this.#client.request("run.pause", {
@@ -271,7 +271,7 @@ export class IpcProjectRoomSource implements ProjectRoomSource {
       }, {signal});
     }
     await this.dispose();
-    return {message: `Session disposition committed: ${command.disposition}.`};
+    return {message: command.disposition === "continue" ? "You left the screen; work will continue in the background." : `Session ${command.disposition} saved.`};
   }
 
   public async changeRunState(

@@ -14,6 +14,37 @@ independent version lines.
 - Server-push event subscriptions and very-large-run snapshot compaction.
 - Signed export/import and an automated Python-state migration tool.
 
+## [npm 0.6.0] - 2026-08-19
+
+### Added
+
+- A chat-first Simple view that shows the conversation, one plain-language
+  progress summary, pending decisions, and only specialists who are active or
+  need attention.
+- `/setup`, a guided OpenAI/Anthropic secure-key flow with an explicit offline
+  demo option.
+- `/simple` and `/details` commands for switching between the calm default
+  experience and the complete 26-role control room.
+- Standalone runtime diagnostics that explicitly report the bundled controller,
+  workers, SQLite store, and absence of editor or external coding-CLI dependencies.
+
+### Changed
+
+- Simple view is now the default; all 26 roles, raw events, exact tokens, and
+  approval controls remain available on demand through `/details`, `/agents`,
+  `/events`, `/approvals`, and `/tokens`.
+- Controller states and command receipts are translated into user-facing
+  language such as Ready, Working, Needs attention, and Finished.
+- The command menu puts guided setup and essential view commands first and
+  labels every item by category.
+
+### Fixed
+
+- Finished runs no longer look active because of an old session projection.
+- Empty workspaces no longer display stale working-agent cards.
+- Reconnect and stale-state messages explain their impact without requiring
+  users to understand event cursors or controller internals.
+
 ## [npm 0.5.0] - 2026-08-19
 
 ### Added

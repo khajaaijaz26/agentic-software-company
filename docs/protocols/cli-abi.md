@@ -2,8 +2,8 @@
 
 ## Version
 
-This document defines the preview ABI for `software-agent` 0.5.x. The CLI
-reports code version `0.5.0`, schema version `1`, and plugin API version `1`.
+This document defines the preview ABI for `software-agent` 0.6.x. The CLI
+reports code version `0.6.0`, schema version `1`, and plugin API version `1`.
 Preview contracts can grow compatibly; incompatible changes require a new
 schema identifier and release note.
 
@@ -18,7 +18,7 @@ Selection options include `--project <path>`, `--run <id>`, `--workspace`, and
 `--no-color`. Automation should add `--non-interactive` and should never rely
 on a prompt being answered implicitly.
 
-In v0.5, `--project` and `--run` are active selectors. `--workspace`,
+In v0.6, `--project` and `--run` are active selectors. `--workspace`,
 `--profile`, `--config`, `--timeout`, custom `--log-level`/`--trace-id`,
 non-default `--unicode`, and init strategy overrides are reserved ABI names and fail with
 `CAPABILITY_UNAVAILABLE` instead of being silently ignored. Standard

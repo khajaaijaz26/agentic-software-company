@@ -28,12 +28,12 @@ For remote GitHub projects, connect once with `gh auth login`. You may skip both
 The public GitHub release is available now:
 
 ```powershell
-npm install -g "https://github.com/khajaaijaz26/software-agent/releases/download/v0.5.0/software-agent-0.5.0.tgz"
+npm install -g "https://github.com/khajaaijaz26/software-agent/releases/download/v0.6.0/software-agent-0.6.0.tgz"
 software-agent --version
 software-agent setup
 ```
 
-GitHub publishes the SHA-256 digest for `software-agent-0.5.0.tgz` on the release page so it can be checked independently after download.
+GitHub publishes the SHA-256 digest for `software-agent-0.6.0.tgz` on the release page so it can be checked independently after download.
 
 ## Global npm registry installation
 
@@ -45,7 +45,15 @@ software-agent --version
 software-agent setup
 ```
 
-The package is intentionally one global command, similar to other terminal coding tools. The controller, terminal UI, provider adapters, SQLite runtime, prompts, schemas, and compatibility assets ship together.
+The package is intentionally one global command, similar to other terminal coding tools. The controller, terminal UI, worker runtime, provider adapters, SQLite store, prompts, schemas, policy engine, and approval service ship together. Cursor, Codex, Claude Code, OpenCode, and VS Code are not dependencies.
+
+Confirm the standalone installation:
+
+```powershell
+software-agent doctor --json
+```
+
+Look for `"mode":"standalone"`, `"requiresEditor":false`, and `"requiresExternalCodingCli":false`. OpenAI or Anthropic is used only after you connect your own API key. GitHub CLI, Vercel CLI, and Supabase CLI are optional service connectors rather than core runtime dependencies.
 
 ## Install from this checkout
 
@@ -128,7 +136,7 @@ software-agent init --name sample-project --no-write --json
 
 ## Connect an OpenAI API key
 
-The simplest interactive setup is inside the live Software Agent room. Launch `software-agent`, press `/`, type the following command, and paste the key into the masked box:
+The simplest interactive setup is inside the live Software Agent room. Launch `software-agent`, type `/setup`, choose OpenAI, press Enter, and paste the key into the masked box. The direct commands remain available:
 
 ```text
 /api connect openai <model-id>
@@ -179,7 +187,7 @@ Do not pass a raw key to `--credential`; it is rejected. Raw keys are accepted o
 ## macOS and Linux
 
 ```bash
-npm install -g "https://github.com/khajaaijaz26/software-agent/releases/download/v0.5.0/software-agent-0.5.0.tgz"
+npm install -g "https://github.com/khajaaijaz26/software-agent/releases/download/v0.6.0/software-agent-0.6.0.tgz"
 cd /path/to/your-project
 export OPENAI_API_KEY="your-key"
 software-agent providers add openai --model <model-id> --credential env://OPENAI_API_KEY
@@ -205,7 +213,7 @@ software-agent models use anthropic/<review-model-id> --role reviewer-qa
 software-agent models list
 ```
 
-The room displays the full 26-role specialist catalog. The current bounded runtime activates at most three durable execution seats—an orchestrator, a relevant delivery specialist, and an independent reviewer—and labels every inactive role `WAITING FOR WORK` without spending model tokens.
+Detailed view displays the full 26-role specialist catalog. The Simple default shows only active or blocked specialists. The current bounded runtime activates at most three durable execution seats—an orchestrator, a relevant delivery specialist, and an independent reviewer—and leaves every unassigned role token-free.
 
 ## Reduce token use
 
@@ -230,23 +238,32 @@ software-agent run --budget economy "Make one focused fix"
 
 ## Use the terminal room
 
-The live room supports three responsive layouts and a plain fallback. Common keys are displayed in its footer. Important interactions include:
+The room opens in Simple view. You need only two controls:
 
-- type normally to begin a chat prompt; no compose shortcut is required;
-- press Enter to send; the message becomes a runnable agent turn and its final model reply appears in `CHAT & WORK`;
-- keep typing follow-up messages as you would in another terminal coding assistant; recent conversation context is carried forward within a bounded token budget;
-- press `/` to open the complete searchable command menu, including current project, model, token, and API settings;
-- type to filter the menu, use ↑/↓ to browse all commands, Tab to complete one, and Enter to run it;
-- view chat and committed file/tool activity on one half of a wide terminal and all 26 named roles on the other half;
-- select an agent, event, approval, or token panel;
-- compose an instruction and target a run, task, or agent;
-- inspect an approval packet, then explicitly approve, deny, or request changes;
-- leave while the durable controller continues, pause the run, or cancel it.
+- type normally and press Enter to send;
+- type `/` to search commands.
+
+Every follow-up becomes a runnable agent turn, carries bounded recent context, and returns the selected model's real final reply in `CONVERSATION`. The right side shows only specialists who are working or need attention. Type `/details` when you want all 26 roles, raw committed events, exact tokens, tool/file evidence, and advanced selection controls. Type `/simple` to return.
+
+The guided first-run path is:
+
+```text
+/setup
+Choose OpenAI or Anthropic
+Paste the key into the masked box
+Type your request and press Enter
+```
+
+The UI clearly calls out approval decisions in yellow. Opening `/approvals` shows the exact action and impact before you approve, deny, or request changes. Leaving the screen can keep the durable controller working, pause it, or cancel it.
 
 Agent and event labels are deliberately literal:
 
 | Label | Meaning |
 | --- | --- |
+| `READY` | Software Agent is connected and ready for a message. |
+| `WORKING` | The team is executing the current request. |
+| `YOUR DECISION IS NEEDED` | A guarded action is safely waiting for your review. |
+| `FINISHED` | Current work is complete; type a follow-up to continue. |
 | `WORKING NOW` | This agent currently has an executing turn. |
 | `WAITING FOR WORK` | This named role has no assigned turn and consumes no model tokens. |
 | `WAITING FOR INPUT` / `WAITING FOR HANDOFF` | A named dependency must arrive before the agent can continue. |
@@ -261,6 +278,9 @@ Useful in-room slash commands:
 
 | Command | Result |
 | --- | --- |
+| `/setup` | Guided OpenAI/Anthropic secure connection. |
+| `/simple` | Return to the clean conversation-first screen. |
+| `/details` | Open the complete multi-agent control room. |
 | `/agents` | Focus the wall and report the 26 named roles. |
 | `/status` | Summarize the run, working agents, approvals, and token mode. |
 | `/api connect openai <model>` | Open the masked secure-key flow. |
@@ -295,7 +315,7 @@ software-agent integrations test vercel --json
 software-agent integrations test supabase --json
 ```
 
-These adapters currently discover status and produce governed mutation plans. Software Agent v0.5 does not silently execute remote pushes, deployments, or database migrations.
+These adapters currently discover status and produce governed mutation plans. Software Agent v0.6 does not silently execute remote pushes, deployments, or database migrations.
 
 ## Controller lifecycle
 

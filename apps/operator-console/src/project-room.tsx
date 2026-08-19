@@ -238,16 +238,19 @@ export function ProjectRoomView({state, width, height, noColor = false, ascii = 
   const selectedApproval = state.snapshot?.approvals.find((approval) => approval.id === state.selectedApprovalId) ?? state.snapshot?.approvals[0] ?? null;
   const selectedEvent = state.events.find((event) => event.eventId === state.selectedEventId) ?? state.events.at(-1) ?? null;
   const connectionColor = noColor ? undefined : connectionTone(state.connection);
+  const simple = state.viewMode === "simple";
 
   return (
     <Box flexDirection="column" paddingX={1} width={width} height={height} overflow="hidden">
       <Box borderStyle={ascii ? "classic" : "round"} paddingX={1} justifyContent="space-between" {...borderColorProp(connectionColor)}>
         <TerminalLogo ascii={ascii} noColor={noColor} compact={layout === "narrow"}/>
         <Text wrap="truncate">{safe(state.snapshot?.projectName ?? "Loading workspace", layout === "narrow" ? 24 : 42)} @ {safe(state.snapshot?.branch ?? "unknown", layout === "narrow" ? 16 : 24)}</Text>
-        <Text>{run?.state ?? "NO ACTIVE RUN"}</Text>
+        <Text>{simple ? simpleRunLabel(run) : run?.state ?? "NO ACTIVE RUN"}</Text>
       </Box>
-      <ConnectionBanner state={state} noColor={noColor}/>
-      {layout !== "narrow" ? (
+      {simple ? <SimpleConnectionBanner state={state} noColor={noColor}/> : <ConnectionBanner state={state} noColor={noColor}/>}
+      {simple ? (
+        <SimpleWorkspace state={state} run={run} layout={layout} noColor={noColor} ascii={ascii} interactive={interactive}/>
+      ) : layout !== "narrow" ? (
         <>
           {run === null
             ? <Text dimColor>No active run. Type a prompt in CHAT to create one; all specialists remain token-free while waiting.</Text>
@@ -290,6 +293,7 @@ export function ProjectRoomView({state, width, height, noColor = false, ascii = 
 }
 
 export function renderProjectRoomText(state: ProjectRoomState, options: ProjectRoomRenderOptions): string {
+  if (state.viewMode === "simple") return renderSimpleProjectRoomText(state, options);
   const {width, height} = options;
   const ascii = options.ascii ?? false;
   const interactive = options.interactive ?? true;
@@ -346,6 +350,88 @@ export function renderProjectRoomText(state: ProjectRoomState, options: ProjectR
     lines.push("Snapshot view; keyboard controls are not attached.");
   }
   return lines.join("\n");
+}
+
+function renderSimpleProjectRoomText(state: ProjectRoomState, options: ProjectRoomRenderOptions): string {
+  const {width} = options;
+  const ascii = options.ascii ?? false;
+  const interactive = options.interactive ?? true;
+  const run = state.snapshot?.run ?? null;
+  const settings = state.snapshot?.settings;
+  const provider = settings?.providers.find((item) => item.enabled);
+  const workspace = settings?.workspace ?? "";
+  const connection = state.connection === "connected" && !state.stale
+    ? "READY"
+    : state.connection === "error" ? "CONNECTION PROBLEM" : state.connection.toUpperCase();
+  const access = state.snapshot?.controller.mode === "READ_ONLY" ? "VIEW ONLY" : "IN CONTROL";
+  const lines = [
+    clip(`${terminalLogoText(ascii)} | ${state.snapshot?.projectName ?? "Loading workspace"} @ ${state.snapshot?.branch ?? "unknown"} | ${simpleRunLabel(run)}`, width, ascii),
+    clip(`${connection} | ${access} | standalone local controller${state.stale ? " | LAST UPDATE MAY BE OLD" : ""}${state.connectionMessage === null ? "" : ` | ${state.connectionMessage}`}`, width, ascii),
+    "-".repeat(Math.max(1, Math.min(width, 120))),
+  ];
+  if (isPersonalHomeWorkspace(workspace)) {
+    lines.push(
+      "CHOOSE A PROJECT FOLDER",
+      clip(`Software Agent is currently in your home folder: ${workspace}`, width, ascii),
+      "Leave this screen, then run: software-agent open C:\\path\\to\\your-project",
+      "This prevents accidental scanning of thousands of unrelated personal files.",
+    );
+  }
+  if (run === null) {
+    lines.push(
+      provider === undefined ? "WELCOME — CONNECT AI OR START IN DEMO MODE" : "READY — WHAT WOULD YOU LIKE TO DO?",
+      provider === undefined ? "1. Type /setup to connect OpenAI or Anthropic securely." : "Type what you want to build, fix, review, research, or explain.",
+      provider === undefined ? "2. Then type your request normally and press Enter." : "Software Agent will choose the right specialists automatically.",
+      provider === undefined ? "Real answers require your own API key; offline mode is a demonstration." : "",
+    );
+  } else {
+    const progress = summarizeTasks(run.tasks);
+    const active = ["SUCCEEDED", "FAILED", "CANCELED"].includes(run.state)
+      ? undefined
+      : run.agents.find((agent) => isAgentWorking(agent.state));
+    const progressMessage = run.state === "SUCCEEDED"
+      ? "All requested steps are complete. You can continue with another message."
+      : run.state === "FAILED"
+        ? "Work needs attention. Review the problem below, then tell Software Agent how to continue."
+        : run.state === "CANCELED"
+          ? "Work stopped. Your committed history is still saved."
+          : active === undefined ? "Preparing the next step..." : `${active.displayName} is working — ${active.activity}`;
+    lines.push(
+      clip(`${glyph(run.state, ascii)} ${simpleRunLabel(run)} | ${run.objective}`, width, ascii),
+      clip(`${progressBar(progress.passed, progress.total, 16, ascii)} ${progress.percent}% | ${progress.passed}/${progress.total} steps finished`, width, ascii),
+      clip(progressMessage, width, ascii),
+    );
+  }
+  const pending = state.snapshot?.approvals.filter((approval) => approval.status === "PENDING") ?? [];
+  if (pending[0] !== undefined) lines.push(clip(`YOUR DECISION IS NEEDED | ${pending[0].title} | type /approvals`, width, ascii));
+  lines.push("CONVERSATION");
+  if (run === null) lines.push(interactive ? "Your conversation will appear here. Start typing below." : "No conversation has started.");
+  else lines.push(clip(`YOU > ${run.objective}`, width, ascii));
+  for (const event of chatAndWorkEvents(state.events).slice(-10)) {
+    lines.push(clip(`${simpleEventSpeaker(event, run)} > ${simpleEventMessage(event, ascii)}`, width, ascii));
+  }
+  const roster = state.snapshot?.roster ?? [];
+  const terminal = run !== null && ["SUCCEEDED", "FAILED", "CANCELED"].includes(run.state);
+  const working = run === null || terminal ? [] : roster.filter((agent) => agent.state === "WORKING");
+  const blocked = run === null || terminal && run.state !== "FAILED" ? [] : roster.filter((agent) => agent.state === "BLOCKED" || agent.state === "FAILED");
+  const done = run === null ? [] : roster.filter((agent) => agent.state === "DONE");
+  const ready = run === null ? roster.length : roster.filter((agent) => agent.state === "WAITING").length;
+  lines.push("TEAM NOW");
+  const visible = [...working, ...blocked, ...(working.length + blocked.length === 0 ? done.slice(0, 3) : [])].slice(0, 6);
+  if (visible.length === 0) lines.push(" No specialist is working right now.");
+  for (const agent of visible) lines.push(clip(` ${glyph(agent.state, ascii)} ${agent.displayName} — ${simpleRosterStatus(agent)}`, width, ascii));
+  lines.push(`${working.length} working | ${blocked.length} need attention | ${done.length} finished | ${ready} ready | /agents shows all ${roster.length}`);
+  const budget = run === null ? "no tokens used" : `${run.tokenBudget.used}/${formatToken(run.tokenBudget.limit)} tokens`;
+  lines.push(clip(`AI ${provider === undefined ? "not connected (offline demo)" : `connected (${provider.providerId})`} | ${(settings?.tokenMode ?? "balanced").toUpperCase()} | ${budget} | ${pending.length} approvals`, width, ascii));
+  if (interactive) lines.push(clip(`YOU > ${state.overlay.kind === "composer" ? state.composerText : "Type your request here · press / for commands"}`, width, ascii));
+  if (state.notice !== null) lines.push(clip(`NOTICE: ${state.notice}`, width, ascii));
+  if (interactive) {
+    lines.push(...renderOverlayText(state, width, ascii));
+    lines.push(clip(plainFooterText(state), width, ascii));
+  } else {
+    lines.push("Snapshot view; keyboard controls are not attached.");
+  }
+  return lines.filter((line) => line !== "").join("\n");
 }
 
 export async function openProjectRoom(source: ProjectRoomSource, options: OpenProjectRoomOptions = {}): Promise<void> {
@@ -454,6 +540,194 @@ function ConnectionBanner({state, noColor}: {readonly state: ProjectRoomState; r
     <Box justifyContent="space-between">
       <Text {...textColorProp(noColor ? undefined : connectionTone(state.connection))}>{values.join(" | ")}</Text>
       <Text wrap="truncate">{state.connectionMessage ?? "Live committed controller state"}</Text>
+    </Box>
+  );
+}
+
+function SimpleConnectionBanner({state, noColor}: {readonly state: ProjectRoomState; readonly noColor: boolean}): React.JSX.Element {
+  const access = state.snapshot?.controller.mode === "READ_ONLY" ? "View only" : "You are in control";
+  const label = state.connection === "connected"
+    ? state.stale ? "Updating..." : "Ready"
+    : state.connection === "connecting" ? "Starting..."
+      : state.connection === "reconnecting" ? "Reconnecting..."
+        : state.connection === "resyncing" ? "Refreshing..." : "Connection problem";
+  const detail = state.connectionMessage ?? `${access} — runs independently in this terminal`;
+  return (
+    <Box justifyContent="space-between">
+      <Text bold {...textColorProp(noColor ? undefined : connectionTone(state.connection))}>{label}</Text>
+      <Text wrap="truncate">{detail}{state.stale ? " — showing the last known update" : ""}</Text>
+    </Box>
+  );
+}
+
+function SimpleWorkspace({state, run, layout, noColor, ascii, interactive}: {
+  readonly state: ProjectRoomState;
+  readonly run: ProjectRoomRun | null;
+  readonly layout: ProjectRoomLayout;
+  readonly noColor: boolean;
+  readonly ascii: boolean;
+  readonly interactive: boolean;
+}): React.JSX.Element {
+  const pendingApprovals = state.snapshot?.approvals.filter((approval) => approval.status === "PENDING") ?? [];
+  const pendingApproval = pendingApprovals[0];
+  const connectedProvider = state.snapshot?.settings.providers.find((provider) => provider.enabled);
+  const workspace = state.snapshot?.settings.workspace ?? "";
+  const horizontal = layout !== "narrow";
+  return (
+    <>
+      {isPersonalHomeWorkspace(workspace) ? (
+        <Box flexDirection="column" borderStyle={ascii ? "classic" : "double"} paddingX={1} marginTop={1} {...borderColorProp(noColor ? undefined : "yellow")}>
+          <Text bold>CHOOSE A PROJECT FOLDER</Text>
+          <Text wrap="truncate">Software Agent is currently in your home folder: {workspace}</Text>
+          <Text>Press Esc to leave, then run: <Text bold>software-agent open C:\path\to\your-project</Text></Text>
+          <Text dimColor>This prevents accidental scanning of thousands of unrelated personal files.</Text>
+        </Box>
+      ) : null}
+      {run === null ? (
+        <Box flexDirection="column" borderStyle={ascii ? "classic" : "single"} paddingX={1} marginTop={1} {...borderColorProp(noColor ? undefined : connectedProvider === undefined ? "yellow" : "cyan")}>
+          <Text bold>{connectedProvider === undefined ? "WELCOME — CONNECT AI OR START IN DEMO MODE" : "READY — WHAT WOULD YOU LIKE TO DO?"}</Text>
+          {connectedProvider === undefined ? (
+            <>
+              <Text>1. Type <Text bold>/setup</Text> to connect OpenAI or Anthropic securely.</Text>
+              <Text>2. Then type your request normally and press Enter.</Text>
+              <Text dimColor>You can explore offline now, but real answers require your own API key.</Text>
+            </>
+          ) : (
+            <>
+              <Text>Type what you want to build, fix, review, research, or explain.</Text>
+              <Text dimColor>Software Agent will choose the right specialists and show their work here.</Text>
+            </>
+          )}
+        </Box>
+      ) : <SimpleRunProgress run={run} noColor={noColor} ascii={ascii}/>}
+      {pendingApproval === undefined ? null : <SimpleApprovalCallout approval={pendingApproval} count={pendingApprovals.length} noColor={noColor} ascii={ascii}/>}
+      <Box flexDirection={horizontal ? "row" : "column"}>
+        <SimpleConversationPanel state={state} run={run} width={horizontal ? "68%" : undefined} noColor={noColor} ascii={ascii} interactive={interactive}/>
+        <SimpleTeamPanel roster={state.snapshot?.roster ?? []} run={run} width={horizontal ? "32%" : undefined} noColor={noColor} ascii={ascii}/>
+      </Box>
+      <SimpleWorkspaceStatus state={state} run={run} noColor={noColor} ascii={ascii}/>
+    </>
+  );
+}
+
+function SimpleRunProgress({run, noColor, ascii}: {
+  readonly run: ProjectRoomRun;
+  readonly noColor: boolean;
+  readonly ascii: boolean;
+}): React.JSX.Element {
+  const progress = summarizeTasks(run.tasks);
+  const terminal = ["SUCCEEDED", "FAILED", "CANCELED"].includes(run.state);
+  const active = terminal ? undefined : run.agents.find((agent) => isAgentWorking(agent.state));
+  const failed = run.agents.find((agent) => /FAILED/u.test(agent.state)) ?? run.agents.find((agent) => agent.blocker !== null);
+  const message = failed !== undefined
+    ? `Needs attention — ${failed.displayName}: ${failed.blocker ?? failed.activity}`
+    : run.state === "SUCCEEDED"
+      ? `Finished — ${progress.passed} of ${progress.total} steps completed`
+      : run.state === "PAUSED"
+        ? "Paused — your work is saved and can be resumed"
+        : active === undefined
+          ? "Preparing the next step..."
+          : `${active.displayName} is working — ${active.activity}`;
+  return (
+    <Box flexDirection="column" marginTop={1} paddingX={1}>
+      <Text bold {...textColorProp(noColor ? undefined : stateTone(run.state))}>{glyph(run.state, ascii)} {simpleRunLabel(run)} · {safe(run.objective, 120)}</Text>
+      <Text wrap="truncate">{safe(message, 180)}</Text>
+      <Text dimColor>{progressBar(progress.passed, progress.total, 16, ascii)} {progress.percent}% · {progress.passed}/{progress.total} steps finished</Text>
+    </Box>
+  );
+}
+
+function SimpleConversationPanel({state, run, width, noColor, ascii, interactive}: {
+  readonly state: ProjectRoomState;
+  readonly run: ProjectRoomRun | null;
+  readonly width: string | number | undefined;
+  readonly noColor: boolean;
+  readonly ascii: boolean;
+  readonly interactive: boolean;
+}): React.JSX.Element {
+  const events = chatAndWorkEvents(state.events).slice(-Math.max(6, Math.min(12, state.height - 16)));
+  const active = run === null || ["SUCCEEDED", "FAILED", "CANCELED"].includes(run.state)
+    ? undefined
+    : run.agents.find((agent) => isAgentWorking(agent.state));
+  return (
+    <Box flexDirection="column" borderStyle={ascii ? "classic" : "single"} paddingX={1} {...widthProp(width)} {...borderColorProp(noColor ? undefined : "cyan")}>
+      <Box justifyContent="space-between"><Text bold>CONVERSATION</Text><Text>{state.followEvents ? "LIVE" : "PAUSED"}</Text></Box>
+      {run === null ? (
+        <Text dimColor>{interactive ? "Your conversation will appear here. Start typing below." : "No conversation has started."}</Text>
+      ) : (
+        <Text wrap="truncate"><Text {...textColorProp(noColor ? undefined : "cyan")}>YOU › </Text>{safe(run.objective, 240)}</Text>
+      )}
+      {events.map((event) => (
+        <Text key={event.eventId} wrap={isAgentReply(event) ? "wrap" : "truncate"}>
+          <Text {...textColorProp(noColor ? undefined : simpleEventTone(event))}>{simpleEventSpeaker(event, run)} › </Text>
+          {simpleEventMessage(event, ascii)}
+        </Text>
+      ))}
+      {run !== null && events.length === 0 ? <Text dimColor>The team is preparing your work...</Text> : null}
+      {active === undefined ? null : <Text wrap="truncate"><Text {...textColorProp(noColor ? undefined : "green")}>WORKING NOW › </Text>{active.displayName}: {safe(active.activity, 180)}</Text>}
+    </Box>
+  );
+}
+
+function SimpleTeamPanel({roster, run, width, noColor, ascii}: {
+  readonly roster: readonly ProjectRoomRosterAgent[];
+  readonly run: ProjectRoomRun | null;
+  readonly width: string | number | undefined;
+  readonly noColor: boolean;
+  readonly ascii: boolean;
+}): React.JSX.Element {
+  const terminal = run !== null && ["SUCCEEDED", "FAILED", "CANCELED"].includes(run.state);
+  const working = run === null || terminal ? [] : roster.filter((agent) => agent.state === "WORKING");
+  const blocked = run === null || terminal && run.state !== "FAILED" ? [] : roster.filter((agent) => agent.state === "BLOCKED" || agent.state === "FAILED");
+  const done = run === null ? [] : roster.filter((agent) => agent.state === "DONE");
+  const visible = [...working, ...blocked, ...(working.length + blocked.length === 0 ? done.slice(0, 3) : [])].slice(0, 6);
+  const ready = run === null ? roster.length : roster.filter((agent) => agent.state === "WAITING").length;
+  return (
+    <Box flexDirection="column" borderStyle={ascii ? "classic" : "single"} paddingX={1} {...widthProp(width)} {...borderColorProp(noColor ? undefined : "magenta")}>
+      <Text bold>TEAM</Text>
+      {visible.length === 0 ? <Text dimColor>No specialist is working yet.</Text> : visible.map((agent) => (
+        <Box key={agent.id} flexDirection="column">
+          <Text {...textColorProp(noColor ? undefined : rosterTone(agent.state))}>{glyph(agent.state, ascii)} {agent.displayName}</Text>
+          <Text dimColor wrap="truncate">  {simpleRosterStatus(agent)}</Text>
+        </Box>
+      ))}
+      {run !== null && working.length === 0 && blocked.length === 0 && done.length === 0 ? <Text dimColor>Assigning the right specialists...</Text> : null}
+      <Text dimColor>{working.length} working · {blocked.length} need attention · {done.length} finished · {ready} ready</Text>
+      <Text dimColor>Type /agents to see all {roster.length} specialists.</Text>
+    </Box>
+  );
+}
+
+function SimpleApprovalCallout({approval, count, noColor, ascii}: {
+  readonly approval: ProjectRoomApproval;
+  readonly count: number;
+  readonly noColor: boolean;
+  readonly ascii: boolean;
+}): React.JSX.Element {
+  return (
+    <Box borderStyle={ascii ? "classic" : "single"} paddingX={1} {...borderColorProp(noColor ? undefined : "yellow")}>
+      <Text bold {...textColorProp(noColor ? undefined : "yellow")}>YOUR DECISION IS NEEDED</Text>
+      <Text wrap="truncate"> · {safe(approval.title, 80)} · {count} waiting · type /approvals</Text>
+    </Box>
+  );
+}
+
+function SimpleWorkspaceStatus({state, run, noColor, ascii}: {
+  readonly state: ProjectRoomState;
+  readonly run: ProjectRoomRun | null;
+  readonly noColor: boolean;
+  readonly ascii: boolean;
+}): React.JSX.Element {
+  const settings = state.snapshot?.settings;
+  const provider = settings?.providers.find((item) => item.enabled);
+  const approvals = state.snapshot?.approvals.filter((approval) => approval.status === "PENDING").length ?? 0;
+  const ai = provider === undefined ? "AI not connected — offline demo" : `AI connected · ${provider.providerId}`;
+  const budget = run === null ? "no tokens used" : `${run.tokenBudget.used}/${formatToken(run.tokenBudget.limit)} tokens`;
+  return (
+    <Box borderStyle={ascii ? "classic" : "single"} paddingX={1} justifyContent="space-between" {...borderColorProp(noColor ? undefined : provider === undefined ? "yellow" : "gray")}>
+      <Text>{ai}</Text>
+      <Text>{(settings?.tokenMode ?? "balanced").toUpperCase()} · {budget}</Text>
+      <Text>{approvals} approval{approvals === 1 ? "" : "s"} · /details for more</Text>
     </Box>
   );
 }
@@ -574,6 +848,58 @@ function WorkspaceStatusStrip({state, run, noColor, ascii}: {
       <Text>API {providers}</Text>
     </Box>
   );
+}
+
+function simpleRunLabel(run: ProjectRoomRun | null): string {
+  if (run === null) return "READY";
+  if (run.state === "SUCCEEDED") return "FINISHED";
+  if (run.state === "FAILED") return "NEEDS ATTENTION";
+  if (run.state === "CANCELED") return "STOPPED";
+  if (run.state === "PAUSED") return "PAUSED";
+  return "WORKING";
+}
+
+function isPersonalHomeWorkspace(value: string): boolean {
+  const normalized = value.replaceAll("\\", "/").replace(/\/+$/u, "");
+  return /^[A-Za-z]:\/Users\/[^/]+$/iu.test(normalized)
+    || /^\/Users\/[^/]+$/u.test(normalized)
+    || /^\/home\/[^/]+$/u.test(normalized);
+}
+
+function simpleRosterStatus(agent: ProjectRoomRosterAgent): string {
+  if (agent.state === "WORKING") return `Working on: ${agent.taskTitle}`;
+  if (agent.state === "BLOCKED") return `Waiting: ${agent.activity}`;
+  if (agent.state === "FAILED") return `Problem: ${agent.activity}`;
+  if (agent.state === "DONE") return `Finished: ${agent.taskTitle}`;
+  return "Ready when needed — no tokens being used";
+}
+
+function simpleEventSpeaker(event: ProjectRoomEvent, run: ProjectRoomRun | null): string {
+  if (event.type === "software-agent.instruction.submitted") return "YOU";
+  if (isAgentReply(event)) return workEventSpeaker(event, run);
+  if (/approval/u.test(event.type)) return "APPROVAL";
+  return workEventSpeaker(event, run);
+}
+
+function simpleEventMessage(event: ProjectRoomEvent, ascii: boolean): string {
+  const summary = safe(event.summary, isAgentReply(event) ? 800 : 200);
+  if (event.type === "software-agent.instruction.submitted") return summary;
+  if (isAgentReply(event)) return `${ascii ? "[REPLY]" : "✓"} ${summary}`;
+  if (/model\.started/u.test(event.type)) return "Thinking...";
+  if (/model\.completed/u.test(event.type)) return "Finished thinking; preparing the answer...";
+  if (/tool\.started/u.test(event.type)) return `Working with a tool — ${summary}`;
+  if (/tool\.completed/u.test(event.type)) return `Tool finished — ${summary}`;
+  if (/approval\.requested/u.test(event.type)) return `Approval needed — ${summary}`;
+  if (/approval\.approved|approval\.consumed/u.test(event.type)) return `Approved — continuing work${summary === "" ? "" : ` · ${summary}`}`;
+  if (/approval\.denied/u.test(event.type)) return `Approval denied — ${summary}`;
+  if (/failed/u.test(event.type) || event.severity === "ERROR" || event.severity === "CRITICAL") return `Problem — ${summary}`;
+  return summary;
+}
+
+function simpleEventTone(event: ProjectRoomEvent): string {
+  if (event.type === "software-agent.instruction.submitted") return "cyan";
+  if (isAgentReply(event)) return "green";
+  return eventTone(event.severity);
 }
 
 function meaningfulWorkEvents(events: readonly ProjectRoomEvent[]): readonly ProjectRoomEvent[] {
@@ -733,12 +1059,13 @@ function TokenPanel({usage, costUsd, budget, focused, width, noColor, ascii}: {
 
 function ComposerLine({state, noColor, ascii}: {readonly state: ProjectRoomState; readonly noColor: boolean; readonly ascii: boolean}): React.JSX.Element {
   const active = state.overlay.kind === "composer";
+  const simple = state.viewMode === "simple";
   return (
     <Box borderStyle={ascii ? "classic" : "single"} paddingX={1} marginTop={1} {...borderColorProp(noColor ? undefined : active ? "magenta" : undefined)}>
-      <Text bold>CHAT </Text>
-      <Text>[to: {targetLabel(state.composerTarget)}] </Text>
-      <Text inverse={active}>{active ? state.composerText || " " : "type naturally · / for commands"}</Text>
-      {active ? <Text dimColor>  Tab target | Enter send | Esc close</Text> : null}
+      <Text bold>{simple ? "YOU › " : "CHAT "}</Text>
+      {simple ? null : <Text>[to: {targetLabel(state.composerTarget)}] </Text>}
+      <Text inverse={active}>{active ? state.composerText || " " : "Type your request here · press / for commands"}</Text>
+      {active ? <Text dimColor>{simple ? "  Enter send · Esc close" : "  Tab target | Enter send | Esc close"}</Text> : null}
     </Box>
   );
 }
@@ -748,16 +1075,33 @@ function Overlay({state, noColor, ascii}: {readonly state: ProjectRoomState; rea
   if (overlay.kind === "none") return null;
   if (overlay.kind === "composer") return slashMenuVisible(state) ? <SlashCommandMenu state={state} noColor={noColor} ascii={ascii}/> : null;
   const borderColor = noColor ? undefined : "magenta";
+  if (overlay.kind === "setup") {
+    const choices = [
+      {id: "openai", title: "OpenAI", detail: "Use your OpenAI API key"},
+      {id: "anthropic", title: "Anthropic", detail: "Use your Anthropic API key"},
+      {id: "offline", title: "Offline demo", detail: "Explore without real AI replies"},
+    ] as const;
+    return (
+      <Box flexDirection="column" borderStyle={ascii ? "classic" : "double"} paddingX={1} {...borderColorProp(borderColor)}>
+        <Text bold>SET UP SOFTWARE AGENT</Text>
+        <Text>Choose how Software Agent should think. It runs independently; only the selected model API is contacted.</Text>
+        {choices.map((choice) => (
+          <Text key={choice.id} inverse={choice.id === overlay.selected}>
+            {choice.id === overlay.selected ? ">" : " "} <Text bold>{choice.title}</Text> — {choice.detail}
+          </Text>
+        ))}
+        <Text dimColor>↑↓ choose · Enter continue · Esc cancel · keys are stored by your operating system</Text>
+      </Box>
+    );
+  }
   if (overlay.kind === "help") return (
     <Box flexDirection="column" borderStyle={ascii ? "classic" : "double"} paddingX={1} {...borderColorProp(borderColor)}>
       <Text bold>SOFTWARE AGENT HELP</Text>
-      <Text>1 Agents | 2 Chat/work | 3 Approvals | 4 Tokens | 5 Settings | Tab focus</Text>
-      <Text>Type to chat | / Slash command | Ctrl+K Palette | Ctrl+F Live scroll | Esc or Ctrl+C Leave</Text>
-      <Text>Press Enter to send. Every normal follow-up becomes a runnable agent turn; ✓ marks its final reply.</Text>
-      <Text>/api connect openai [model] | /model provider/model | /tokens 25|50|100</Text>
-      <Text>/agents | /status | /settings | /project | /search | /clear | /help</Text>
-      <Text>IDLE means not executing. SCROLL PAUSED affects only the event view, never the run.</Text>
-      <Text>Approval: Enter detail, then a approve / d deny / r request changes, then Enter confirms.</Text>
+      <Text>Just type what you need and press Enter. Continue naturally with follow-up messages.</Text>
+      <Text><Text bold>/setup</Text> connect AI · <Text bold>/status</Text> explain current work · <Text bold>/agents</Text> show all specialists</Text>
+      <Text><Text bold>/simple</Text> clean chat view · <Text bold>/details</Text> complete control room · <Text bold>/settings</Text> model and budget</Text>
+      <Text>When a decision is required, a yellow approval message tells you exactly what needs attention.</Text>
+      <Text dimColor>Advanced: 1 Agents · 2 Events · 3 Approvals · 4 Tokens · Ctrl+F live scroll · Esc leave</Text>
     </Box>
   );
   if (overlay.kind === "settings") {
@@ -768,11 +1112,11 @@ function Overlay({state, noColor, ascii}: {readonly state: ProjectRoomState; rea
         <Text wrap="truncate">Project: {settings?.workspace ?? "Loading"}</Text>
         <Text>Model: {settings?.defaultModel ?? "deterministic/local"} | Tokens: {settings?.tokenMode ?? "balanced"}</Text>
         {(settings?.providers.length ?? 0) === 0
-          ? <Text dimColor>No API provider connected. Use /api connect openai [model] or /api connect anthropic [model].</Text>
+          ? <Text dimColor>No AI connected. Type /setup for the guided connection, or continue with the offline demo.</Text>
           : settings?.providers.map((provider) => (
               <Text key={provider.providerId}>{glyph(provider.enabled ? "CONNECTED" : "PAUSED", ascii)} {provider.providerId} | {provider.model} | {provider.enabled ? "CONNECTED" : "DISABLED"} | {provider.credentialReference}</Text>
             ))}
-        <Text dimColor>/model provider/model | /tokens 25|50|100 | /api test provider | Enter/Esc close</Text>
+        <Text dimColor>/setup guided connection | /model provider/model | /tokens economy|balanced|quality | Enter/Esc close</Text>
       </Box>
     );
   }
@@ -856,13 +1200,13 @@ function SlashCommandMenu({state, noColor, ascii}: {
   const providers = settings?.providers.filter((provider) => provider.enabled).map((provider) => provider.providerId).join(", ") || "offline";
   return (
     <Box flexDirection="column" borderStyle={ascii ? "classic" : "double"} paddingX={1} {...borderColorProp(noColor ? undefined : "magenta")}>
-      <Text bold>SOFTWARE AGENT SLASH COMMANDS</Text>
+      <Text bold>SOFTWARE AGENT COMMANDS</Text>
       <Text wrap="truncate">Project: {settings?.workspace ?? "Loading"}</Text>
       <Text>Model: {settings?.defaultModel ?? "deterministic/local"} | Tokens: {settings?.tokenMode ?? "balanced"} | API: {providers}</Text>
-      <Text>Filter: {state.composerText} | {suggestions.length} matching command{suggestions.length === 1 ? "" : "s"}</Text>
+      <Text>Type a word to search · {suggestions.length} matching command{suggestions.length === 1 ? "" : "s"}</Text>
       {page.items.map(({suggestion, index}) => (
         <Text key={suggestion.command} inverse={index === page.selected}>
-          {index === page.selected ? ">" : " "} <Text bold>{suggestion.usage}</Text> <Text dimColor>— {suggestion.description}</Text>
+          {index === page.selected ? ">" : " "} <Text dimColor>[{suggestion.category}]</Text> <Text bold>{suggestion.usage}</Text> <Text dimColor>— {suggestion.description}</Text>
         </Text>
       ))}
       {suggestions.length === 0 ? <Text>No command matches. Keep typing or press Esc.</Text> : null}
@@ -902,17 +1246,25 @@ function Footer({state}: {readonly state: ProjectRoomState}): React.JSX.Element 
 
 function footerText(state: ProjectRoomState): string {
   if (slashMenuVisible(state)) return "Slash commands: type to filter | ↑↓ choose | Tab complete | Enter run | Esc close";
-  if (state.overlay.kind === "composer") return "Chat: type a prompt or /command | Tab target | Enter send | Esc close";
+  if (state.overlay.kind === "composer") return state.viewMode === "simple"
+    ? "Type your message | Enter send | / commands | Esc close"
+    : "Chat: type a prompt or /command | Tab target | Enter send | Esc close";
   if (state.overlay.kind === "api-key") return "Secure key entry: paste | Enter connect | Esc discard";
+  if (state.overlay.kind === "setup") return "Setup: arrows choose | Enter continue | Esc cancel";
   if (state.overlay.kind !== "none") return "Overlay: arrows move | Enter confirm | Esc close";
+  if (state.viewMode === "simple") return "Type naturally  Enter Send  / Commands  /setup Connect AI  /details More  Esc Leave";
   return "Type naturally  Enter Send  / Commands  1 Agents  2 Chat  3 Approvals  4 Tokens  Ctrl+F Live  5 Settings  ? Help  Esc Leave";
 }
 
 function plainFooterText(state: ProjectRoomState): string {
   if (slashMenuVisible(state)) return "Slash: type filter | Up/Down choose | Tab complete | Enter run | Esc close";
-  if (state.overlay.kind === "composer") return "Type prompt or /command | Tab Target | Enter Send | Esc Close";
+  if (state.overlay.kind === "composer") return state.viewMode === "simple"
+    ? "Type message | Enter Send | / Commands | Esc Close"
+    : "Type prompt or /command | Tab Target | Enter Send | Esc Close";
   if (state.overlay.kind === "api-key") return "Paste key | Enter Connect | Esc Discard";
+  if (state.overlay.kind === "setup") return "Arrows Choose | Enter Continue | Esc Cancel";
   if (state.overlay.kind !== "none") return "Arrows Move | Enter Confirm | Esc Close";
+  if (state.viewMode === "simple") return "Type naturally | Enter Send | / Commands | /details More | Esc Leave";
   return "Type naturally | Enter Send | / Commands | Tab Focus | ? Help | Esc Leave";
 }
 
@@ -926,20 +1278,28 @@ function renderOverlayText(state: ProjectRoomState, width: number, ascii: boolea
     const settings = state.snapshot?.settings;
     const providers = settings?.providers.filter((provider) => provider.enabled).map((provider) => provider.providerId).join(", ") || "offline";
     return [
-      "SOFTWARE AGENT SLASH COMMANDS",
+      "SOFTWARE AGENT COMMANDS",
       clip(`Project: ${settings?.workspace ?? "Loading"}`, width, ascii),
       clip(`Model: ${settings?.defaultModel ?? "deterministic/local"} | Tokens: ${settings?.tokenMode ?? "balanced"} | API: ${providers}`, width, ascii),
-      `Filter: ${state.composerText} | ${suggestions.length} matching command${suggestions.length === 1 ? "" : "s"}`,
-      ...page.items.map(({suggestion, index}) => clip(`${index === page.selected ? ">" : " "} ${suggestion.usage} — ${suggestion.description}`, width, ascii)),
+      `Type a word to search | ${suggestions.length} matching command${suggestions.length === 1 ? "" : "s"}`,
+      ...page.items.map(({suggestion, index}) => clip(`${index === page.selected ? ">" : " "} [${suggestion.category}] ${suggestion.usage} — ${suggestion.description}`, width, ascii)),
       suggestions.length === 0 ? "No command matches. Keep typing or press Esc." : `Type filter | Up/Down choose | Tab complete | Enter run | ${page.start + 1}-${page.end} of ${suggestions.length}`,
     ];
   }
+  if (overlay.kind === "setup") return [
+    "SET UP SOFTWARE AGENT",
+    "Choose how Software Agent should think. It does not depend on another coding app.",
+    `${overlay.selected === "openai" ? ">" : " "} OpenAI — use your OpenAI API key`,
+    `${overlay.selected === "anthropic" ? ">" : " "} Anthropic — use your Anthropic API key`,
+    `${overlay.selected === "offline" ? ">" : " "} Offline demo — explore without real AI replies`,
+    "Arrows choose | Enter continue | Esc cancel",
+  ];
   if (overlay.kind === "help") return [
     "SOFTWARE AGENT HELP",
-    "1 Agents | 2 Chat/work | 3 Approvals | 4 Tokens | 5 Settings | Type to chat | / Slash commands",
-    "Enter sends a runnable agent turn; [REPLY] is the model's final answer.",
-    "/api connect openai [model] | /model provider/model | /tokens 25|50|100 | /agents | /status | /settings",
-    "IDLE means not executing. SCROLL PAUSED affects only the event view, never the run.",
+    "Type what you need and press Enter. Keep chatting naturally with follow-up messages.",
+    "/setup Connect AI | /status Explain current work | /agents Show all specialists",
+    "/simple Clean chat | /details Full control room | /settings Model and budget",
+    "Yellow approval messages tell you exactly when a decision is needed.",
   ];
   if (overlay.kind === "settings") {
     const settings = state.snapshot?.settings;

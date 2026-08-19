@@ -302,7 +302,7 @@ describe("catalog, terminal safety, controller replay, and CLI ABI", () => {
     try {
       expect(controller.getRun(run.id)).toMatchObject({state: "SUCCEEDED", objective: run.objective});
       expect(controller.snapshot().events).toHaveLength(eventCount);
-      expect(renderPlainDashboard(controller.snapshot(), 58)).toContain("[OK] [PASSED]");
+      expect(renderPlainDashboard(controller.snapshot(), 58)).toContain("[OK] FINISHED");
     } finally {
       controller.close();
     }
@@ -323,7 +323,7 @@ describe("catalog, terminal safety, controller replay, and CLI ABI", () => {
     }
   });
 
-  it("uses versioned machine envelopes for a complete headless v0.5 run", async () => {
+  it("uses versioned machine envelopes for a complete headless v0.6 run", async () => {
     const workspace = temporaryDirectory();
     const output: string[] = [];
     const error: string[] = [];
@@ -358,8 +358,12 @@ describe("catalog, terminal safety, controller replay, and CLI ABI", () => {
 
     output.length = 0;
     expect(await runCli(["node", "software-agent", "--project", workspace, "--offline", "--json", "doctor"], io)).toBe(0);
-    const doctor = JSON.parse(output.join("")) as {data: {connectors: Array<{details: string[]}>}};
+    const doctor = JSON.parse(output.join("")) as {data: {
+      connectors: Array<{details: string[]}>;
+      runtime: {mode: string; requiresEditor: boolean; requiresExternalCodingCli: boolean};
+    }};
     expect(doctor.data.connectors).toHaveLength(3);
     expect(doctor.data.connectors.every((item) => item.details[0]?.includes("probe not attempted"))).toBe(true);
+    expect(doctor.data.runtime).toMatchObject({mode: "standalone", requiresEditor: false, requiresExternalCodingCli: false});
   });
 });

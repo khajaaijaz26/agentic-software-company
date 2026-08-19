@@ -21,7 +21,7 @@
 
 ![Three coordinated Software Agent workstreams connected through a local controller and human approval checkpoint](docs/images/software-agent-hero.png)
 
-Software Agent is a local-first, event-sourced coding platform—not a single chatbot with several role labels. Its split terminal gives half the screen to chat and committed file/tool activity and half to a wall of all 26 named roles. The durable controller activates only the minimum relevant execution seats, so an inactive role truthfully says `WAITING FOR WORK` and consumes no model tokens. Runs, approvals, usage, and evidence are recorded in SQLite so work can survive terminal disconnects and controller restarts.
+Software Agent is a standalone, local-first coding platform—not a plugin for Cursor, Codex, Claude Code, or another editor. Launch one command, chat naturally, and let its bundled controller coordinate the relevant specialists. The calm default screen shows only the conversation, current progress, and people who need your attention; `/details` reveals the full 26-role control room. Runs, approvals, usage, and evidence are recorded in SQLite so work survives terminal disconnects and controller restarts.
 
 ## Install and run
 
@@ -34,7 +34,7 @@ Requirements: Node.js 22.14 or newer, npm, and Git. Node.js 24 LTS is recommende
 1. Install and verify the current release:
 
    ```powershell
-   npm install -g "https://github.com/khajaaijaz26/software-agent/releases/download/v0.5.0/software-agent-0.5.0.tgz"
+   npm install -g "https://github.com/khajaaijaz26/software-agent/releases/download/v0.6.0/software-agent-0.6.0.tgz"
    software-agent --version
    ```
 
@@ -44,13 +44,13 @@ Requirements: Node.js 22.14 or newer, npm, and Git. Node.js 24 LTS is recommende
    Set-Location C:\path\to\your-project
    ```
 
-3. Give the team its first objective:
+3. Open Software Agent:
 
    ```powershell
-   software-agent start "Understand this project, find errors, fix them, and run all tests"
+   software-agent
    ```
 
-If the terminal already shows `PS C:\path\to\your-project>`, run only step 3. The first launch creates private `.software-agent/` state and opens the live project room.
+If the terminal already shows `PS C:\path\to\your-project>`, run only step 3. The first launch creates private `.software-agent/` state and opens the simple chat screen. Type `/setup` once to connect your AI, then type requests normally and press Enter.
 
 You can also open a local folder or create/reuse a GitHub working checkout directly:
 
@@ -65,18 +65,31 @@ GitHub repositories are edited through a normal local Git checkout, so every fil
 ### macOS or Linux
 
 ```bash
-npm install -g "https://github.com/khajaaijaz26/software-agent/releases/download/v0.5.0/software-agent-0.5.0.tgz"
+npm install -g "https://github.com/khajaaijaz26/software-agent/releases/download/v0.6.0/software-agent-0.6.0.tgz"
 cd /path/to/your-project
-software-agent start "Understand this project, find errors, fix them, and run all tests"
+software-agent
 ```
 
 The verified GitHub release works now; GitHub publishes its SHA-256 digest on the release page. The shorter `npm install -g software-agent` command becomes available after the package owner completes npm registry authentication. Contributors can use the [source installation steps](INSTALL.md#install-from-this-checkout).
 
+### Runs independently
+
+Software Agent does not launch, automate, or depend on Cursor, Codex, Claude Code, OpenCode, VS Code, or another coding assistant. The npm package includes its own CLI, terminal UI, authenticated local controller, worker runtime, SQLite event store, prompts, schemas, provider adapters, policy engine, and approval service. OpenAI or Anthropic is contacted only when you connect that provider with your own key. GitHub CLI, Vercel CLI, and Supabase CLI are optional connectors for their respective services.
+
+Verify this on any installation:
+
+```powershell
+software-agent doctor --json
+```
+
+The `runtime` result reports `mode: "standalone"`, `requiresEditor: false`, and `requiresExternalCodingCli: false`.
+
 ### Connect a real AI model
 
-Without a configured provider, the deterministic offline adapter demonstrates orchestration and finishes quickly. For real repository work, open `software-agent` and press `/` **inside the Software Agent chat box**. A searchable menu opens with the current project, model, token mode, API status, and every implemented slash command. Type to filter, use ↑/↓ to choose, Tab to complete, or Enter to run:
+Without a configured provider, the deterministic offline adapter demonstrates orchestration and finishes quickly. For real repository work, open `software-agent` and type `/setup` **inside the Software Agent chat box**. Choose OpenAI or Anthropic with the arrow keys, press Enter, and paste the key into the masked field. The complete searchable command menu still opens whenever you type `/`:
 
 ```text
+/setup
 /api connect openai <model-id>
 /api connect anthropic <model-id>
 /api test openai
@@ -119,27 +132,31 @@ Normal chat targets the **Software Agent team** so routing stays simple. Press T
 
 ## The project room
 
-The terminal UI combines familiar coding-agent chat with a truthful, live view of the team. Type normally to start chatting; press `/` for commands:
+The terminal UI starts in Simple view so it feels like a familiar coding-agent chat. Type normally to start; press `/` for commands, `/setup` to connect AI, or `/details` when you want the complete control room:
 
 ```text
-❯_ ●─●─● ✓ SOFTWARE AGENT                  project @ main | RUNNING
-┌─ CHAT & WORK ───────────────────────┬─ AGENT WALL · 26 ROLES ───────────────┐
-│ YOU › Fix the login error           │ 01 Master Orchestrator · WORKING      │
-│ Orchestrator › ✓ Plan committed     │ 02 Product Manager · WAITING FOR WORK │
-│ Backend Engineer › read_file auth.ts│ 03 UX/UI Designer · WAITING FOR WORK  │
-│ Backend Engineer › write_file       │ 04 Backend Engineer · WORKING         │
-│ Backend Engineer › ✓ Login fixed    │ 05 Security Engineer · BLOCKED        │
-│ FILES auth.ts · auth.test.ts        │ …  21 more named specialist roles     │
-│ TOOLS search_code · read_file       │ Inactive roles use 0 model tokens     │
+❯_ ●─●─● ✓ SOFTWARE AGENT                    project @ main | WORKING
+READY | You are in control | runs independently in this terminal
+WORKING · Fix the login error                 2/5 steps finished
+┌─ CONVERSATION ──────────────────────┬─ TEAM ────────────────────────────────┐
+│ YOU › Fix the login error           │ ● Backend Engineer                   │
+│ Backend Engineer › Thinking...      │   Working on: repair authentication  │
+│ Backend Engineer › Tool finished    │ ! Security Engineer                  │
+│ Backend Engineer › ✓ Login fixed    │   Waiting for your approval          │
+│                                     │ 2 working · 24 ready                 │
 └─────────────────────────────────────┴────────────────────────────────────────┘
-APPROVALS 1 | MODEL openai/<model> | TOKENS balanced 18,420/50,000
-CHAT [to: Software Agent team] > type a prompt or press / for commands
+AI connected · openai | BALANCED | 1 approval | /details for more
+YOU › Type your next message here
 ```
 
-The responsive UI includes the 26-role wall, committed chat/work history, current file and tool activity, direct typing, slash commands, model/settings controls, exact approval packets, reconnect/resync states, and a read-only fallback when another terminal owns the mutation lease.
+Simple view keeps the conversation and next action obvious. Detailed view retains the complete 26-role wall, committed event history, current file/tool activity, exact token usage, approval packets, reconnect/resync diagnostics, and read-only fallback when another terminal owns the mutation lease.
 
 | Screen label | Exact meaning |
 | --- | --- |
+| `READY` | The controller is connected and you can type a message. |
+| `WORKING` | At least one specialist is executing the current request. |
+| `YOUR DECISION IS NEEDED` | Work is safely waiting for you to inspect an exact approval. |
+| `FINISHED` | All current steps completed; type another message to continue. |
 | `WORKING NOW` | The agent currently owns an executing turn. |
 | `WAITING FOR WORK` | The named role is available but has no assigned execution seat; it is not using model tokens. |
 | `WAITING FOR INPUT/HANDOFF` | The agent cannot continue until the named dependency arrives. |
@@ -168,7 +185,7 @@ Software Agent uses a current, widely adopted stack while keeping the installed 
 
 | Capability | What Software Agent does |
 | --- | --- |
-| Visible collaboration | Splits chat/work and a 26-role wall, showing who is working, waiting, blocked, or done plus current files, tools, tokens, and cost. |
+| Visible collaboration | Defaults to calm conversation plus active/blocked specialists; `/details` expands to all 26 roles, files, tools, tokens, cost, and events. |
 | Continuous conversation | Turns every follow-up into an executable, durable agent turn with bounded history and a clearly labeled final reply. |
 | Honest specialization | Exposes all 26 named roles while activating only the bounded orchestrator, delivery specialist, and reviewer seats needed by the current run. |
 | Safe coding tools | Provides bounded file discovery, token-efficient code search, exact-revision reads, atomic writes, and shell-free verification commands. |
@@ -184,7 +201,7 @@ This is an architectural comparison, not a claim that every other tool behaves i
 
 | Area | Typical single-agent CLI | Software Agent |
 | --- | --- | --- |
-| Work display | One conversation or activity stream | Split chat/work view plus all 26 named roles and live run/task progress |
+| Work display | One conversation or activity stream | Chat-first Simple view plus an optional complete 26-role control room and live progress |
 | Coordination | One model handles planning, coding, and review sequentially | Durable orchestrator, relevant delivery specialist, and independent reviewer seats with handoffs |
 | Restart behavior | Terminal session often owns transient state | Controller and SQLite event log survive UI disconnects and support deterministic replay |
 | Tool authority | Broad confirmation or process-level permission | Exact actor/action/resource/environment binding, expiry, and single-use approval consumption |
@@ -315,7 +332,7 @@ The primary platform is TypeScript. A separately named Python/MCP compatibility 
 
 ## Current boundaries
 
-Software Agent v0.5 is a local developer preview. Its catalog contains 26 visible named roles, while this release intentionally activates at most three durable execution seats per run to bound cost and preserve independent review. Conversation history is deliberately bounded rather than an unlimited memory. It has no OS-level sandbox or Windows named-pipe peer-SID verification, no vector RAG index, no signed event export, and no enabled remote mutation executor. Treat model output and repository content as untrusted. Review changes and approvals before relying on results.
+Software Agent v0.6 is a local developer preview. Its catalog contains 26 named roles (shown on demand in Detailed view), while this release intentionally activates at most three durable execution seats per run to bound cost and preserve independent review. Conversation history is deliberately bounded rather than an unlimited memory. It has no OS-level sandbox or Windows named-pipe peer-SID verification, no vector RAG index, no signed event export, and no enabled remote mutation executor. Treat model output and repository content as untrusted. Review changes and approvals before relying on results.
 
 Visual assets are original to this repository; generation and composition details are recorded in [asset provenance](docs/assets/PROVENANCE.md).
 

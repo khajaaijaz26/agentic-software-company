@@ -2,7 +2,7 @@
 
 ## Status and authority boundaries
 
-This document describes the Software Agent v0.5 local developer platform.
+This document describes the Software Agent v0.6 local developer platform.
 
 Several surfaces coexist and must not be treated as one contract:
 
@@ -10,9 +10,9 @@ Several surfaces coexist and must not be treated as one contract:
 | --- | --- | --- |
 | Installed TypeScript CLI | `software-agent`, with a deprecated `agent-company` migration shim; primary lifecycle, provider, model, token, setup, inspection, and approval commands are active | Selected legacy inspection and connector-plan paths remain during migration |
 | Controller runtime v2 | event-sourced three-session runtime, bounded parallel DAG, durable assignments/turns/attempts/handoffs, executable conversation turns, mutation fencing, and polling/history | Automatic retries and complete external-side-effect reconciliation remain future work |
-| Project-room TUI | split conversation/work and 26-role wall, direct typing, actual final replies, slash settings/provider commands, authenticated live IPC source, cursor resync, lease renewal, targeted instructions, approvals, model/tool activity, evidence, tokens, and cost | Very large projections still need pagination/compaction beyond current bounded event pages |
+| Project-room TUI | chat-first Simple view, optional complete 26-role Detailed view, guided setup, direct typing, actual final replies, authenticated live IPC source, targeted instructions, approvals, model/tool activity, evidence, tokens, and cost | Very large projections still need pagination/compaction beyond current bounded event pages |
 | Model gateway | deterministic, native OpenAI Responses, and native Anthropic Messages adapters with tool continuations, routing, and one-use grants | Provider availability, price, or usage that cannot be verified remains `UNKNOWN` |
-| Token budgets | durable 25%/50%/100% accounts, per-agent reservations/reconciliation, approved extensions, snapshot projection, and live room display | The full ceiling is fixed at 100,000 tokens per run in v0.5 |
+| Token budgets | durable 25%/50%/100% accounts, per-agent reservations/reconciliation, approved extensions, snapshot projection, and live room display | The full ceiling is fixed at 100,000 tokens per run in v0.6 |
 | Python/MCP | `software_agent` compatibility package and deprecated `agentic_company` aliases | Separate state and orchestration; never a second TypeScript controller |
 
 The schemas in [`schemas/vnext`](../../schemas/vnext) describe these contracts
@@ -106,7 +106,7 @@ table.
 
 ## Runtime-v2 execution model
 
-The v0.5 runtime builds an initial deterministic five-task DAG across exactly three
+The v0.6 runtime builds an initial deterministic five-task DAG across exactly three
 durable execution-seat roles:
 
 - `master-orchestrator`;
@@ -214,10 +214,13 @@ authoritative snapshot when the server requests resynchronization.
 
 - plain fallback below 60 columns or 20 rows;
 - narrow, two-card, and three-card layouts at 60, 90, and 120 columns;
-- a wide 50/50 chat/work and 26-role wall, plus compact agent, event,
-  approval, detail, and token views;
+- a default Simple view with conversation, one human-readable progress summary,
+  approvals that need attention, and only active/blocked/recently finished roles;
+- a Detailed view with the complete 26-role wall, raw committed events,
+  approval detail, exact token/cost data, files, tools, and evidence;
 - normal typing for prompts and `/` commands for provider, model, token,
-  settings, status, target, search, follow, and local-view operations;
+  guided setup, simple/details switching, settings, status, target, search,
+  follow, and local-view operations;
 - team-targeted chat by default, clearly labeled user messages and final model
   replies, plus live model/tool/file activity while each turn runs;
 - explicit composer targets and confirmation state;

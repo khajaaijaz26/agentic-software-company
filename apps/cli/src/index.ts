@@ -50,8 +50,8 @@ import {
 import {EXIT_CODES, emit, emitError, processIo, type Io, type OutputMode} from "./output.js";
 import {IpcProjectRoomSource, softwareAgentSnapshotToProjectRoom} from "./project-room-source.js";
 
-const VERSION = "0.5.0";
-const BUILD = "software-agent-v0.5.0";
+const VERSION = "0.6.0";
+const BUILD = "software-agent-v0.6.0";
 const CLI_NAME = "software-agent";
 
 interface Runtime {
@@ -111,9 +111,9 @@ function buildProgram(runtime: Runtime): Command {
     .version(`${VERSION} (${BUILD}; schema v1; plugin API v1)`, "-V, --version")
     .option("-p, --project <id-or-path>", "select a project path")
     .option("-r, --run <run-id>", "select a run")
-    .option("--workspace <name>", "reserved workspace selector (rejected in v0.5)")
-    .option("--profile <name>", "reserved profile selector (rejected in v0.5)")
-    .option("--config <path>", "reserved override path (rejected in v0.5)")
+    .option("--workspace <name>", "reserved workspace selector (rejected in v0.6)")
+    .option("--profile <name>", "reserved profile selector (rejected in v0.6)")
+    .option("--config <path>", "reserved override path (rejected in v0.6)")
     .option("--json", "emit one JSON result")
     .option("--ndjson", "emit newline-delimited events/results")
     .option("--plain", "stable output without cursor control")
@@ -121,9 +121,9 @@ function buildProgram(runtime: Runtime): Command {
     .addOption(new Option("--unicode <mode>", "symbol mode").choices(["auto", "on", "off"]).default("auto"))
     .option("--non-interactive", "never prompt")
     .option("--offline", "block provider/network use")
-    .option("--timeout <duration>", "reserved foreground timeout (rejected in v0.5)")
-    .option("--log-level <level>", "reserved diagnostic level (rejected in v0.5)")
-    .option("--trace-id <id>", "reserved correlation ID (rejected in v0.5)")
+    .option("--timeout <duration>", "reserved foreground timeout (rejected in v0.6)")
+    .option("--log-level <level>", "reserved diagnostic level (rejected in v0.6)")
+    .option("--trace-id <id>", "reserved correlation ID (rejected in v0.6)")
     .option("--redact <level>", "redaction level", "standard")
     .option("-y, --yes", "accept ordinary local confirmations only")
     .action(async (_options: unknown, command: Command) => {
@@ -171,7 +171,7 @@ function buildProgram(runtime: Runtime): Command {
     .action(async (path: string | undefined, options: {name?: string; write: boolean; mode?: string; repo?: string; gitStrategy?: string}, command: Command) => {
       const globals = global(command);
       if (options.mode !== undefined || options.repo !== undefined || options.gitStrategy !== undefined) {
-        throw new CliError("CAPABILITY_UNAVAILABLE", "init mode, repository mode, and git strategy overrides are reserved in v0.5", EXIT_CODES.CAPABILITY_UNAVAILABLE);
+        throw new CliError("CAPABILITY_UNAVAILABLE", "init mode, repository mode, and git strategy overrides are reserved in v0.6", EXIT_CODES.CAPABILITY_UNAVAILABLE);
       }
       const workspace = resolve(path ?? globals.project ?? process.cwd());
       const name = options.name ?? basename(workspace);
@@ -199,7 +199,7 @@ function buildProgram(runtime: Runtime): Command {
       .action(async (request: string[], options: {file?: string; stdin?: boolean; planOnly?: boolean; background?: boolean; budget?: string; maxParallel?: string}, command: Command) => {
         const globals = global(command);
         if (options.planOnly) {
-          throw new CliError("CAPABILITY_UNAVAILABLE", "--plan-only is not available in the live v0.5 scheduler yet", EXIT_CODES.CAPABILITY_UNAVAILABLE);
+          throw new CliError("CAPABILITY_UNAVAILABLE", "--plan-only is not available in the live v0.6 scheduler yet", EXIT_CODES.CAPABILITY_UNAVAILABLE);
         }
         if (options.budget !== undefined && !["economy", "balanced", "quality"].includes(options.budget)) {
           throw new CliError("BUDGET_MODE_INVALID", "--budget must be economy, balanced, or quality", EXIT_CODES.USAGE);
@@ -697,8 +697,9 @@ function addProviderModelCommands(program: Command, runtime: Runtime): void {
     emit(runtime.io, mode(globals), "setup", {
       providerConfig: userProviderConfigFile(resolvePlatformPaths()),
       steps: [
-        `Interactive: run ${CLI_NAME}, press /, then use /api connect openai <model-id> or /api connect anthropic <model-id>.`,
+        `Interactive: enter your project, run ${CLI_NAME}, type /setup, choose OpenAI or Anthropic, and press Enter.`,
         "Paste the key only into the masked Software Agent field; it moves to the OS credential store.",
+        "Type your request normally and press Enter; use /details only when you want the full control room.",
         "Automation alternative: set OPENAI_API_KEY or ANTHROPIC_API_KEY in the terminal environment.",
         `${CLI_NAME} providers add openai --model <model-id> --credential env://OPENAI_API_KEY`,
         `${CLI_NAME} providers test openai`,
@@ -731,6 +732,14 @@ function addUtilityCommands(program: Command, runtime: Runtime): void {
       connectors: globals.offline
         ? Object.keys(CONNECTOR_MAP).map((connectorId) => ({connectorId, state: "UNAVAILABLE", details: ["offline mode: probe not attempted"]}))
         : tools.slice(1),
+      runtime: {
+        mode: "standalone",
+        controller: "bundled local daemon",
+        workers: "bundled Software Agent worker processes",
+        eventStore: "built-in SQLite",
+        requiresEditor: false,
+        requiresExternalCodingCli: false,
+      },
       telemetry: "off",
       secretsPrinted: false,
     });
@@ -1160,13 +1169,13 @@ function global(command: Command): GlobalOptions {
     ["--trace-id", options.traceId],
   ].find(([, value]) => value !== undefined);
   if (reserved !== undefined) {
-    throw new CliError("CAPABILITY_UNAVAILABLE", `${reserved[0]} is reserved but not active in v0.5`, EXIT_CODES.CAPABILITY_UNAVAILABLE);
+    throw new CliError("CAPABILITY_UNAVAILABLE", `${reserved[0]} is reserved but not active in v0.6`, EXIT_CODES.CAPABILITY_UNAVAILABLE);
   }
   if (options.unicode !== undefined && options.unicode !== "auto") {
-    throw new CliError("CAPABILITY_UNAVAILABLE", "explicit Unicode mode is reserved in v0.5", EXIT_CODES.CAPABILITY_UNAVAILABLE);
+    throw new CliError("CAPABILITY_UNAVAILABLE", "explicit Unicode mode is reserved in v0.6", EXIT_CODES.CAPABILITY_UNAVAILABLE);
   }
   if (options.redact !== undefined && options.redact !== "standard") {
-    throw new CliError("CAPABILITY_UNAVAILABLE", "only the standard redaction policy is available in v0.5", EXIT_CODES.CAPABILITY_UNAVAILABLE);
+    throw new CliError("CAPABILITY_UNAVAILABLE", "only the standard redaction policy is available in v0.6", EXIT_CODES.CAPABILITY_UNAVAILABLE);
   }
   return options;
 }

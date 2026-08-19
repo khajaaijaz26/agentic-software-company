@@ -206,7 +206,7 @@ function input(state: ProjectRoomState, value: string, pressed: ProjectRoomKey =
   return action === null ? state : projectRoomReducer(state, action);
 }
 
-describe("Software Agent v0.5 project room", () => {
+describe("Software Agent v0.6 project room", () => {
   it("uses the A7 responsive breakpoints and short-terminal fallback", () => {
     expect(projectRoomLayout(59, 30)).toBe("plain");
     expect(projectRoomLayout(60, 30)).toBe("narrow");
@@ -299,9 +299,12 @@ describe("Software Agent v0.5 project room", () => {
     let state = readyState();
     state = input(state, "/");
     expect(state.overlay.kind).toBe("composer");
-    expect(slashCommandSuggestions("/")).toHaveLength(25);
+    expect(slashCommandSuggestions("/")).toHaveLength(28);
     expect(slashCommandSuggestions("/").map((command) => command.command)).toEqual(expect.arrayContaining([
+      "/setup",
       "/help",
+      "/simple",
+      "/details",
       "/agents",
       "/settings",
       "/api connect openai",
@@ -313,10 +316,10 @@ describe("Software Agent v0.5 project room", () => {
       "/leave",
     ]));
     const menu = renderProjectRoomText(state, {width: 120, height: 36, ascii: true, noColor: true});
-    expect(menu).toContain("SOFTWARE AGENT SLASH COMMANDS");
+    expect(menu).toContain("SOFTWARE AGENT COMMANDS");
     expect(menu).toContain("Project: C:\\work\\demo");
     expect(menu).toContain("Model: openai/gpt-test | Tokens: balanced | API: openai");
-    expect(menu).toContain("/api connect openai [model]");
+    expect(menu).toContain("[Start here] /setup");
     expect(menu).toContain("Type filter | Up/Down choose | Tab complete | Enter run");
 
     state = input(state, "api connect anth");
@@ -327,11 +330,9 @@ describe("Software Agent v0.5 project room", () => {
     expect(state.overlay).toMatchObject({kind: "api-key", providerId: "anthropic"});
 
     state = readyState();
-    state = input(state, "/");
-    state = input(state, "", key({downArrow: true}));
-    expect(state.slashSelected).toBe(1);
+    state = input(state, "/status");
     state = input(state, "", key({return: true}));
-    expect(state.notice).toContain("Run RUNNING");
+    expect(state.notice).toContain("Working: 1 of 3 steps finished");
   });
 
   it("uses chat slash commands for secure API setup, models, tokens, settings, and the 26-role wall", () => {
@@ -369,6 +370,30 @@ describe("Software Agent v0.5 project room", () => {
     state = input(state, "agents");
     state = input(state, "", key({return: true}));
     expect(state.notice).toContain("26 named roles");
+    expect(state.viewMode).toBe("detailed");
+  });
+
+  it("starts in simple chat mode and provides a guided AI setup plus detailed view on demand", () => {
+    let state = readyState();
+    expect(state.viewMode).toBe("simple");
+
+    state = input(state, "/setup");
+    state = input(state, "", key({return: true}));
+    expect(state.overlay).toMatchObject({kind: "setup", selected: "openai"});
+    state = input(state, "", key({downArrow: true}));
+    expect(state.overlay).toMatchObject({kind: "setup", selected: "anthropic"});
+    state = input(state, "", key({return: true}));
+    expect(state.overlay).toMatchObject({kind: "api-key", providerId: "anthropic"});
+
+    state = readyState();
+    state = input(state, "/details");
+    state = input(state, "", key({return: true}));
+    expect(state.viewMode).toBe("detailed");
+    expect(renderProjectRoomText(state, {width: 120, height: 32, ascii: true, noColor: true})).toContain("AGENT WALL");
+
+    state = input(state, "/simple");
+    state = input(state, "", key({return: true}));
+    expect(state.viewMode).toBe("simple");
   });
 
   it("defaults normal chat to the Software Agent team and queues a versioned instruction", () => {
@@ -386,7 +411,7 @@ describe("Software Agent v0.5 project room", () => {
     expect(commandId).toBeTypeOf("number");
     state = projectRoomReducer(state, {type: "command.started", id: commandId ?? 0});
     state = projectRoomReducer(state, {type: "command.succeeded", id: commandId ?? 0});
-    expect(state.notice).toContain("live model and tool activity");
+    expect(state.notice).toContain("final reply");
   });
 
   it("renders user follow-ups and the agent's actual final response as conversation", () => {
@@ -460,42 +485,50 @@ describe("Software Agent v0.5 project room", () => {
     state = input(state, "", key({return: true}));
     state = input(state, "a");
     expect(state.overlay.kind).toBe("approval-detail");
-    expect(state.notice).toContain("read-only");
+    expect(state.notice).toContain("can only view");
     expect(state.pendingCommand).toBeNull();
   });
 
   it("renders truthful live panels plus ASCII, stale, reconnect, and empty states", () => {
     const live = renderProjectRoomText(readyState(), {width: 120, height: 32, ascii: true, noColor: true});
     expect(live).toContain(">_ o-o-o [OK] SOFTWARE AGENT");
-    expect(live).toContain("RUN WORKING (RUNNING)");
-    expect(live).toContain("CHAT & WORK");
-    expect(live).toContain("AGENT WALL");
-    expect(live).toContain("WORKING NOW");
-    expect(live).toContain("WAITING FOR WORK");
-    expect(live).toContain("Tasks [");
+    expect(live).toContain("WORKING | Implement the interactive terminal");
+    expect(live).toContain("CONVERSATION");
+    expect(live).toContain("TEAM NOW");
+    expect(live).toContain("1 working | 1 need attention | 0 finished | 24 ready");
     expect(live).toContain("Applying a bounded UI patch");
-    expect(live).toContain("openai/gpt-test");
-    expect(live).toContain("TOKENS & COST");
-    expect(live).toContain("APPROVALS");
-    expect(live).toContain("EVENTS");
-    expect(live).toContain("Ctrl+F Live");
-    expect(live).not.toContain("active UNKNOWN");
+    expect(live).toContain("AI connected (openai)");
+    expect(live).toContain("YOUR DECISION IS NEEDED");
+    expect(live).toContain("/details More");
+    expect(live).not.toContain("cursor 12");
+    expect(live).not.toContain("AGENT WALL");
     expect(live).not.toContain("\u001b");
+
+    const detailedState = projectRoomReducer(readyState(), {type: "view.mode", mode: "detailed"});
+    const detailed = renderProjectRoomText(detailedState, {width: 120, height: 32, ascii: true, noColor: true});
+    expect(detailed).toContain("RUN WORKING (RUNNING)");
+    expect(detailed).toContain("CHAT & WORK");
+    expect(detailed).toContain("AGENT WALL");
+    expect(detailed).toContain("WAITING FOR WORK");
+    expect(detailed).toContain("TOKENS & COST");
+    expect(detailed).toContain("APPROVALS");
+    expect(detailed).toContain("EVENTS");
+    expect(detailed).toContain("Ctrl+F Live");
 
     let stale = projectRoomReducer(readyState(), {type: "clock.tick", now: Date.parse(NOW) + 31_000});
     stale = projectRoomReducer(stale, {type: "connection.lost", message: "controller unavailable"});
     const degraded = renderProjectRoomText(stale, {width: 88, height: 28, ascii: true, noColor: true});
     expect(degraded).toContain("RECONNECTING");
-    expect(degraded).toContain("STALE");
+    expect(degraded).toContain("LAST UPDATE MAY BE OLD");
 
     const empty = projectRoomReducer(
       createInitialProjectRoomState({width: 80, height: 24, now: Date.parse(NOW)}),
       {type: "snapshot.received", snapshot: snapshot({run: null, approvals: [], importantEvents: []})},
     );
-    expect(renderProjectRoomText(empty, {width: 80, height: 24, ascii: true, noColor: true})).toContain("No active run");
+    expect(renderProjectRoomText(empty, {width: 80, height: 24, ascii: true, noColor: true})).toContain("READY — WHAT WOULD YOU LIKE TO DO?");
 
     const failed = projectRoomReducer(stale, {type: "connection.error", message: "resync failed"});
-    expect(renderProjectRoomText(failed, {width: 80, height: 24, ascii: true, noColor: true})).toContain("ERROR");
+    expect(renderProjectRoomText(failed, {width: 80, height: 24, ascii: true, noColor: true})).toContain("CONNECTION PROBLEM");
   });
 
   it("does not advertise keyboard controls in the legacy static snapshot renderer", () => {
@@ -509,6 +542,22 @@ describe("Software Agent v0.5 project room", () => {
     expect(output).toContain("Snapshot view; keyboard controls are not attached.");
     expect(output).not.toContain("Ctrl+K");
     expect(output).not.toContain("press c");
+  });
+
+  it("warns before treating a personal home directory as a software project", () => {
+    const home = projectRoomReducer(
+      createInitialProjectRoomState({width: 100, height: 30, now: Date.parse(NOW)}),
+      {type: "snapshot.received", snapshot: snapshot({
+        run: null,
+        approvals: [],
+        importantEvents: [],
+        settings: {...snapshot().settings, workspace: "C:\\Users\\khaja"},
+      })},
+    );
+    const output = renderProjectRoomText(home, {width: 100, height: 30, ascii: true, noColor: true});
+    expect(output).toContain("CHOOSE A PROJECT FOLDER");
+    expect(output).toContain("software-agent open C:\\path\\to\\your-project");
+    expect(output).toContain("prevents accidental scanning");
   });
 
   it("restores cursor and terminal styling exactly once", () => {

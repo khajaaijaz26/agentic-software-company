@@ -3,7 +3,7 @@
 ## Implementation status
 
 Authenticated local IPC is active. The current controller advertises descriptor
-`software-agent.controller/v2` and protocol range 1 through 2. The v0.5
+`software-agent.controller/v2` and protocol range 1 through 2. The v0.6
 runtime-v2 method set is implemented alongside camelCase compatibility methods.
 Primary run lifecycle and project-room flows use the dotted surface; several
 inspection and approval commands still use compatibility calls.
@@ -114,7 +114,7 @@ receives:
   "requestId": "rpc_0123456789abcdef0123456789abcdef",
   "protocolVersion": 2,
   "instanceId": "ctl_0123456789abcdef0123456789abcdef",
-  "buildVersion": "0.5.0",
+  "buildVersion": "0.6.0",
   "serverTime": "2026-08-19T12:00:00.000Z"
 }
 ```

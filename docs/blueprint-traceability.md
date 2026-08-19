@@ -1,6 +1,6 @@
 # Terminal Platform Blueprint v0.2 traceability
 
-This matrix records what the Software Agent v0.5 implementation actually provides against the broader source blueprint. “Partial” means a meaningful path exists but the complete stable-platform requirement does not.
+This matrix records what the Software Agent v0.6 implementation actually provides against the broader source blueprint. “Partial” means a meaningful path exists but the complete stable-platform requirement does not.
 
 ## Terminal and controller
 
@@ -8,12 +8,12 @@ This matrix records what the Software Agent v0.5 implementation actually provide
 | --- | --- | --- |
 | Globally installable TypeScript CLI | Implemented | `software-agent` package/bin, strict TypeScript, Node.js 22.14+ |
 | Human/plain/JSON/NDJSON output | Implemented | CLI output envelopes and stable exit-code map; NDJSON event follow is polling, not server push |
-| Responsive project-room TUI | Implemented | Half-width conversation/live-work stream, actual final replies, compact 26-role wall, direct prompting, slash settings/provider commands, approvals, tokens, targeted instructions, reconnect/resync, read-only mode, plain fallback |
+| Responsive project-room TUI | Implemented | Chat-first Simple default, optional complete 26-role Detailed view, actual final replies, guided setup, direct prompting, slash commands, approvals, tokens, targeted instructions, reconnect/resync, read-only mode, plain fallback |
 | Durable local controller | Implemented | Detached discovery plus embedded test mode; one authoritative SQLite-backed controller per workspace |
 | Authenticated local IPC | Implemented local | Four-byte framed JSON, Unix socket/Windows pipe only, private nonce and HMAC proof, frame limits, descriptors, heartbeat, cross-process start lock |
 | Single-writer enforcement | Implemented application-level | Controller lock and mutation lease/fence; the owning OS user can still alter files directly |
 | Durable event source and replay | Implemented | WAL, synchronous writes, expected stream versions, idempotent command receipts, global cursors, bounded history/poll pages |
-| Push subscriptions | Not implemented | Long polling plus resynchronization is used in v0.5 |
+| Push subscriptions | Not implemented | Long polling plus resynchronization is used in v0.6 |
 | Very-large-run compaction/pagination | Partial | Event pages are bounded; full run projections still need compaction |
 
 ## Multi-agent runtime
@@ -27,7 +27,7 @@ This matrix records what the Software Agent v0.5 implementation actually provide
 | Targeted live instructions | Implemented | Every instruction creates a runnable conversation task; team auto-routing and explicit run/task/agent targets retain cursor, revision, command-ID, and mutation-lease binding |
 | Continuous conversation | Implemented bounded | Prior user/assistant turns are carried into each model request with a 12-message and 24,000-character controller bound; final replies are committed events |
 | Human questions/answers | Implemented runtime | Typed commands and persisted question/mailbox state; the primary TUI emphasizes instructions/approvals |
-| Arbitrary agent delegation trees | Not implemented | The v0.5 graph and three execution-seat roles are controller-defined |
+| Arbitrary agent delegation trees | Not implemented | The v0.6 graph and three execution-seat roles are controller-defined |
 | OS sandbox for model/tool execution | Not implemented | Controller-owned model/tools; approved commands are separate bounded processes, not a hostile-code sandbox |
 
 ## Models, context, and tokens

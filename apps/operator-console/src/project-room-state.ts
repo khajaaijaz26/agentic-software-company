@@ -6,6 +6,7 @@ export const PROJECT_ROOM_EVENT_LIMIT = 500;
 
 export type ProjectRoomConnection = "connecting" | "connected" | "reconnecting" | "resyncing" | "error";
 export type ProjectRoomFocus = "agents" | "events" | "approvals" | "tokens";
+export type ProjectRoomViewMode = "simple" | "detailed";
 export type ProjectRoomSeverity = "DEBUG" | "INFO" | "WARN" | "ERROR" | "CRITICAL";
 export type ProjectRoomAccessMode = "CONTROL" | "READ_ONLY";
 export type TokenCount = number | "UNKNOWN";
@@ -168,6 +169,7 @@ export interface PendingProjectRoomCommand {
 
 export type ProjectRoomOverlay =
   | {readonly kind: "none"}
+  | {readonly kind: "setup"; readonly selected: "openai" | "anthropic" | "offline"}
   | {readonly kind: "help"}
   | {readonly kind: "search"; readonly query: string}
   | {readonly kind: "palette"; readonly query: string; readonly selected: number}
@@ -191,6 +193,7 @@ export interface ProjectRoomState {
   readonly now: number;
   readonly staleAfterMs: number;
   readonly stale: boolean;
+  readonly viewMode: ProjectRoomViewMode;
   readonly focus: ProjectRoomFocus;
   readonly overlay: ProjectRoomOverlay;
   readonly selectedAgentId: string | null;
@@ -211,6 +214,7 @@ export interface InitialProjectRoomStateOptions {
   readonly height?: number;
   readonly now?: number;
   readonly staleAfterMs?: number;
+  readonly viewMode?: ProjectRoomViewMode;
 }
 
 export type ProjectRoomAction =
@@ -222,6 +226,7 @@ export type ProjectRoomAction =
   | {readonly type: "events.received"; readonly update: ProjectRoomCommittedUpdate}
   | {readonly type: "clock.tick"; readonly now: number}
   | {readonly type: "overlay.close"}
+  | {readonly type: "overlay.setup"}
   | {readonly type: "overlay.help"}
   | {readonly type: "overlay.search"}
   | {readonly type: "overlay.palette"}
@@ -235,6 +240,7 @@ export type ProjectRoomAction =
   | {readonly type: "input.confirm"}
   | {readonly type: "focus.next"; readonly reverse: boolean}
   | {readonly type: "focus.set"; readonly focus: ProjectRoomFocus}
+  | {readonly type: "view.mode"; readonly mode: ProjectRoomViewMode}
   | {readonly type: "selection.move"; readonly delta: -1 | 1}
   | {readonly type: "events.follow.toggle"}
   | {readonly type: "events.clear.local"}
@@ -267,8 +273,12 @@ export interface ProjectRoomKey {
 
 const FOCUS_ORDER: readonly ProjectRoomFocus[] = ["agents", "events", "approvals", "tokens"];
 const LEAVE_ORDER: readonly LeaveDisposition[] = ["continue", "pause", "cancel"];
+const SETUP_ORDER = ["openai", "anthropic", "offline"] as const;
 const PALETTE_ACTIONS = [
   "Compose instruction",
+  "Guided AI setup",
+  "Switch to simple view",
+  "Open detailed control room",
   "Open settings",
   "Show all agents",
   "Review approvals",
@@ -282,14 +292,17 @@ export interface SlashCommandSuggestion {
   readonly command: string;
   readonly usage: string;
   readonly description: string;
-  readonly category: "View" | "AI & models" | "Run" | "Workspace" | "Session";
+  readonly category: "Start here" | "View" | "AI & models" | "Run" | "Workspace" | "Session";
   readonly completion: string;
   readonly runOnSelect: boolean;
 }
 
 const SLASH_COMMANDS: readonly SlashCommandSuggestion[] = [
-  {command: "/help", usage: "/help", description: "Open keyboard and workflow help", category: "View", completion: "/help", runOnSelect: true},
-  {command: "/status", usage: "/status", description: "Show the current run and working-agent count", category: "View", completion: "/status", runOnSelect: true},
+  {command: "/setup", usage: "/setup", description: "Connect your AI in a guided setup", category: "Start here", completion: "/setup", runOnSelect: true},
+  {command: "/help", usage: "/help", description: "Learn the few controls you need", category: "Start here", completion: "/help", runOnSelect: true},
+  {command: "/simple", usage: "/simple", description: "Use the clean chat-first screen", category: "Start here", completion: "/simple", runOnSelect: true},
+  {command: "/details", usage: "/details", description: "Open the complete multi-agent control room", category: "Start here", completion: "/details", runOnSelect: true},
+  {command: "/status", usage: "/status", description: "Explain what is happening right now", category: "View", completion: "/status", runOnSelect: true},
   {command: "/agents", usage: "/agents", description: "Focus the complete 26-role agent wall", category: "View", completion: "/agents", runOnSelect: true},
   {command: "/settings", usage: "/settings", description: "Show project, model, token, and API settings", category: "View", completion: "/settings", runOnSelect: true},
   {command: "/approvals", usage: "/approvals", description: "Focus pending approval packets", category: "View", completion: "/approvals", runOnSelect: true},
@@ -343,6 +356,7 @@ export function createInitialProjectRoomState(options: InitialProjectRoomStateOp
     now: options.now ?? Date.now(),
     staleAfterMs: options.staleAfterMs ?? PROJECT_ROOM_STALE_AFTER_MS,
     stale: false,
+    viewMode: options.viewMode ?? "simple",
     focus: "agents",
     overlay: {kind: "none"},
     selectedAgentId: null,
@@ -377,6 +391,8 @@ export function projectRoomReducer(state: ProjectRoomState, action: ProjectRoomA
       return {...state, now: action.now, stale: isSnapshotStale(state.snapshot, action.now, state.staleAfterMs)};
     case "overlay.close":
       return {...state, overlay: {kind: "none"}, notice: null};
+    case "overlay.setup":
+      return {...state, overlay: {kind: "setup", selected: "openai"}, notice: null};
     case "overlay.help":
       return {...state, overlay: {kind: "help"}, notice: null};
     case "overlay.search":
@@ -409,7 +425,9 @@ export function projectRoomReducer(state: ProjectRoomState, action: ProjectRoomA
     case "focus.next":
       return {...state, focus: cycle(FOCUS_ORDER, state.focus, action.reverse ? -1 : 1), overlay: {kind: "none"}, notice: null};
     case "focus.set":
-      return {...state, focus: action.focus, overlay: {kind: "none"}, notice: null};
+      return {...state, viewMode: "detailed", focus: action.focus, overlay: {kind: "none"}, notice: null};
+    case "view.mode":
+      return {...state, viewMode: action.mode, overlay: {kind: "none"}, notice: action.mode === "simple" ? "Simple chat view enabled." : "Detailed multi-agent control room enabled."};
     case "selection.move":
       return moveSelection(state, action.delta);
     case "events.follow.toggle":
@@ -421,16 +439,16 @@ export function projectRoomReducer(state: ProjectRoomState, action: ProjectRoomA
     case "approval.decision":
       return beginApprovalDecision(state, action.decision);
     case "mutation.blocked":
-      return {...state, notice: "This Software Agent session is read-only; obtain the control lease before changing state."};
+      return {...state, notice: "This window can only view the project. Return to the controlling Software Agent terminal to make changes."};
     case "command.started":
-      return state.pendingCommand?.id === action.id ? {...state, commandInFlight: true, notice: "Sending committed command..."} : state;
+      return state.pendingCommand?.id === action.id ? {...state, commandInFlight: true, notice: "Sending..."} : state;
     case "command.succeeded":
       return state.pendingCommand?.id === action.id
         ? {...state, pendingCommand: null, commandInFlight: false, notice: action.message ?? commandSuccessNotice(state.pendingCommand.command)}
         : state;
     case "command.failed":
       return state.pendingCommand?.id === action.id
-        ? {...state, pendingCommand: null, commandInFlight: false, notice: `Command failed: ${terminalText(action.message, 240)}`}
+        ? {...state, pendingCommand: null, commandInFlight: false, notice: `Could not complete that action: ${terminalText(action.message, 240)}`}
         : state;
     case "notice.clear":
       return {...state, notice: null};
@@ -447,6 +465,11 @@ export function projectRoomInput(state: ProjectRoomState, input: string, key: Pr
   if (key.ctrl && input.toLowerCase() === "c") return {type: "overlay.leave"};
 
   switch (state.overlay.kind) {
+    case "setup":
+      if (key.return) return {type: "input.confirm"};
+      if (key.upArrow || key.leftArrow) return {type: "selection.move", delta: -1};
+      if (key.downArrow || key.rightArrow) return {type: "selection.move", delta: 1};
+      return null;
     case "help":
     case "settings":
       return input === "?" || key.return ? {type: "overlay.close"} : null;
@@ -621,6 +644,24 @@ function backspaceText(state: ProjectRoomState): ProjectRoomState {
 
 function confirmOverlay(state: ProjectRoomState): ProjectRoomState {
   switch (state.overlay.kind) {
+    case "setup": {
+      if (state.overlay.selected === "offline") {
+        return {
+          ...state,
+          overlay: {kind: "none"},
+          notice: "Offline demo selected. You can explore orchestration now; connect OpenAI or Anthropic later for real AI replies.",
+        };
+      }
+      if (isReadOnly(state)) {
+        return {...state, overlay: {kind: "none"}, notice: "This session is read-only; open the controlling terminal to connect an AI provider."};
+      }
+      const providerId = state.overlay.selected;
+      return {
+        ...state,
+        overlay: {kind: "api-key", providerId, model: defaultProviderModel(providerId), value: ""},
+        notice: "Paste your API key into the masked field, then press Enter. The key is stored by your operating system.",
+      };
+    }
     case "search": {
       const query = state.overlay.query.trim().toLowerCase();
       const match = query === "" ? null : state.events.findLast((event) => `${event.type} ${event.summary}`.toLowerCase().includes(query));
@@ -724,7 +765,7 @@ function validSlashInvocation(command: string): boolean {
   const root = parts[0] ?? "";
   const action = parts[1];
   const provider = parts[2];
-  if (["/help", "/search", "/follow", "/leave", "/target", "/settings", "/agents", "/approvals", "/events", "/status", "/clear", "/project"].includes(root)) {
+  if (["/setup", "/help", "/simple", "/details", "/search", "/follow", "/leave", "/target", "/settings", "/agents", "/approvals", "/events", "/status", "/clear", "/project"].includes(root)) {
     return parts.length === 1;
   }
   if (root === "/open" || root === "/github") return true;
@@ -745,7 +786,10 @@ function executeSlashCommand(state: ProjectRoomState, command: string): ProjectR
   const argument = parts[2];
   const clearComposer = {composerText: "", overlay: {kind: "none"} as const};
   switch (root) {
+    case "/setup": return {...state, ...clearComposer, overlay: {kind: "setup", selected: "openai"}, notice: null};
     case "/help": return {...state, ...clearComposer, overlay: {kind: "help"}, notice: null};
+    case "/simple": return {...state, ...clearComposer, viewMode: "simple", notice: "Simple chat view enabled. Type naturally and press Enter."};
+    case "/details": return {...state, ...clearComposer, viewMode: "detailed", notice: "Detailed multi-agent control room enabled. Use /simple whenever you want the clean chat view."};
     case "/search": return {...state, ...clearComposer, overlay: {kind: "search", query: ""}, notice: null};
     case "/follow": return {...state, ...clearComposer, followEvents: !state.followEvents, notice: null};
     case "/leave": return {...state, ...clearComposer, overlay: {kind: "leave", selected: "continue"}, notice: null};
@@ -754,11 +798,12 @@ function executeSlashCommand(state: ProjectRoomState, command: string): ProjectR
     case "/agents": return {
       ...state,
       ...clearComposer,
+      viewMode: "detailed",
       focus: "agents",
       notice: `${state.snapshot?.roster.length ?? 0} named roles are visible; only assigned roles consume model tokens.`,
     };
-    case "/approvals": return {...state, ...clearComposer, focus: "approvals", notice: null};
-    case "/events": return {...state, ...clearComposer, focus: "events", notice: null};
+    case "/approvals": return {...state, ...clearComposer, viewMode: "detailed", focus: "approvals", notice: null};
+    case "/events": return {...state, ...clearComposer, viewMode: "detailed", focus: "events", notice: null};
     case "/status": return {...state, ...clearComposer, notice: runStatusNotice(state.snapshot?.run ?? null)};
     case "/clear": return projectRoomReducer({...state, ...clearComposer}, {type: "events.clear.local"});
     case "/project":
@@ -840,7 +885,8 @@ function runStatusNotice(run: ProjectRoomRun | null): string {
   if (run === null) return "No run is active. Type a prompt to create one.";
   const passed = run.tasks.filter((task) => task.state === "PASSED").length;
   const working = run.agents.filter((agent) => /RUNNING|PLANNING/u.test(agent.state)).length;
-  return `Run ${run.state}: ${passed}/${run.tasks.length} tasks passed; ${working} agent${working === 1 ? "" : "s"} working now.`;
+  const status = run.state === "SUCCEEDED" ? "Finished" : run.state === "FAILED" ? "Needs attention" : run.state === "PAUSED" ? "Paused" : "Working";
+  return `${status}: ${passed} of ${run.tasks.length} steps finished; ${working} specialist${working === 1 ? " is" : "s are"} working now.`;
 }
 
 function executePalette(state: ProjectRoomState): ProjectRoomState {
@@ -849,10 +895,13 @@ function executePalette(state: ProjectRoomState): ProjectRoomState {
   const selected = actions[clampIndex(state.overlay.selected, actions.length)];
   switch (selected) {
     case "Compose instruction": return projectRoomReducer({...state, overlay: {kind: "none"}}, {type: "overlay.composer"});
+    case "Guided AI setup": return {...state, overlay: {kind: "setup", selected: "openai"}};
+    case "Switch to simple view": return {...state, overlay: {kind: "none"}, viewMode: "simple", notice: "Simple chat view enabled."};
+    case "Open detailed control room": return {...state, overlay: {kind: "none"}, viewMode: "detailed", notice: "Detailed multi-agent control room enabled."};
     case "Open settings": return {...state, overlay: {kind: "settings"}};
-    case "Show all agents": return {...state, overlay: {kind: "none"}, focus: "agents", notice: `${state.snapshot?.roster.length ?? 0} named roles are available.`};
-    case "Review approvals": return {...state, overlay: {kind: "none"}, focus: "approvals"};
-    case "Search committed events": return {...state, overlay: {kind: "search", query: ""}};
+    case "Show all agents": return {...state, overlay: {kind: "none"}, viewMode: "detailed", focus: "agents", notice: `${state.snapshot?.roster.length ?? 0} named roles are available.`};
+    case "Review approvals": return {...state, overlay: {kind: "none"}, viewMode: "detailed", focus: "approvals"};
+    case "Search committed events": return {...state, overlay: {kind: "search", query: ""}, viewMode: "detailed"};
     case "Toggle event follow": return {...state, overlay: {kind: "none"}, followEvents: !state.followEvents};
     case "Open help": return {...state, overlay: {kind: "help"}};
     case "Leave session": return {...state, overlay: {kind: "leave", selected: "continue"}};
@@ -887,6 +936,9 @@ function moveSelection(state: ProjectRoomState, delta: -1 | 1): ProjectRoomState
   if (state.overlay.kind === "leave") {
     return {...state, overlay: {...state.overlay, selected: cycle(LEAVE_ORDER, state.overlay.selected, delta)}};
   }
+  if (state.overlay.kind === "setup") {
+    return {...state, overlay: {...state.overlay, selected: cycle(SETUP_ORDER, state.overlay.selected, delta)}};
+  }
   if (state.overlay.kind === "target") {
     return {...state, overlay: {...state.overlay, selected: wrapIndex(state.overlay.selected + delta, targetCandidates(state.snapshot).length)}};
   }
@@ -912,24 +964,24 @@ function selectedApproval(state: ProjectRoomState): ProjectRoomApproval | null {
 }
 
 function queueCommand(state: ProjectRoomState, command: ProjectRoomCommand, overlay: ProjectRoomOverlay): ProjectRoomState {
-  if (state.pendingCommand !== null || state.commandInFlight) return {...state, notice: "Wait for the current command receipt before sending another command."};
+  if (state.pendingCommand !== null || state.commandInFlight) return {...state, notice: "Please wait a moment for the current action to finish."};
   return {
     ...state,
     overlay,
     pendingCommand: {id: state.nextCommandId, command},
     nextCommandId: state.nextCommandId + 1,
-    notice: "Command ready for the controller.",
+    notice: "Sending...",
   };
 }
 
 function commandSuccessNotice(command: ProjectRoomCommand): string {
   switch (command.type) {
     case "objective.create":
-      return "Objective committed. The scheduler is assigning work; watch RUN PROGRESS and agent status.";
+      return "Got it. Software Agent is choosing the right specialists and starting the work.";
     case "instruction.submit":
-      return "Message committed. The selected agent turn is queued; live model and tool activity will appear in CHAT & WORK.";
+      return "Message sent. Live work and the final reply will appear in the conversation.";
     case "approval.decide":
-      return "Approval decision committed. Waiting work can now continue if policy permits it.";
+      return "Your decision was saved. The team will continue when the policy allows it.";
     case "provider.connect":
       return `${command.providerId} connected securely and ${command.providerId}/${command.model} selected for this project.`;
     case "provider.test":
@@ -941,7 +993,7 @@ function commandSuccessNotice(command: ProjectRoomCommand): string {
     case "tokens.mode":
       return `Token mode changed to ${command.mode}. New runs will use the updated allowance.`;
     case "session.leave":
-      return `Session disposition committed: ${command.disposition}.`;
+      return command.disposition === "continue" ? "You left the screen; work will continue in the background." : `Session ${command.disposition} saved.`;
   }
 }
 
