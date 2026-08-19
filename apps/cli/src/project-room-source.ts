@@ -198,8 +198,8 @@ export class IpcProjectRoomSource implements ProjectRoomSource {
       return {message: `Token mode is now ${command.mode} (${tokenModePercent(command.mode)}% allowance) for new runs.`};
     }
 
-    const snapshot = await this.#client.request("snapshot.get", {recentEventLimit: 0}, {signal});
-    if (snapshot.cursor !== command.expectedCursor) {
+    let snapshot = await this.#client.request("snapshot.get", {recentEventLimit: 0}, {signal});
+    if (snapshot.cursor !== command.expectedCursor && command.type !== "instruction.submit") {
       throw new ControllerIpcError("CURSOR_CONFLICT", `expected committed cursor ${command.expectedCursor}, found ${snapshot.cursor}`, true);
     }
     const lease = await this.#requireControl();
@@ -218,16 +218,35 @@ export class IpcProjectRoomSource implements ProjectRoomSource {
       return {message: "Objective committed. The scheduler is assigning the minimum relevant specialist team."};
     }
 
-    const run = requireRun(snapshot, command.type === "instruction.submit" ? command.runId : undefined);
+    let run = requireRun(snapshot, command.type === "instruction.submit" ? command.runId : undefined);
     if (command.type === "instruction.submit") {
       this.#selectedRunId = run.id;
-      await this.#client.request("instruction.submit", {
-        ...commandContext(run.revision, this.#actorId, this.#attachmentId, lease),
-        runId: run.id,
-        target: {kind: command.target.kind, id: command.target.id},
-        text: command.text,
-      }, {signal});
-      return {message: `Instruction committed to ${command.target.label}. Watch CHAT & WORK for the next controller event.`};
+      let submitted: ControllerRpcResults["instruction.submit"] | undefined;
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        try {
+          submitted = await this.#client.request("instruction.submit", {
+            ...commandContext(run.revision, this.#actorId, this.#attachmentId, lease),
+            runId: run.id,
+            target: {kind: command.target.kind, id: command.target.id},
+            text: command.text,
+          }, {signal});
+          break;
+        } catch (error) {
+          if (!(error instanceof ControllerIpcError) || error.code !== "RUN_REVISION_CONFLICT" || attempt === 4) throw error;
+          snapshot = await this.#client.request("snapshot.get", {recentEventLimit: 0}, {signal});
+          run = requireRun(snapshot, command.runId);
+        }
+      }
+      if (submitted === undefined) throw new ControllerIpcError("RUN_REVISION_CONFLICT", "chat could not obtain a current run revision", true);
+      if (run.state === "PAUSED") {
+        await this.#client.request("run.resume", {
+          ...commandContext(submitted.runRevision, this.#actorId, this.#attachmentId, lease),
+          runId: run.id,
+        }, {signal});
+      }
+      const recipient = run.sessions.find((session) => session.id === submitted.message.to);
+      const displayName = recipient === undefined ? command.target.label : DISPLAY_NAMES[recipient.role] ?? recipient.role;
+      return {message: `Message sent to ${displayName}. The agent turn is queued; its live work and final reply will appear in CHAT & WORK.`};
     }
     if (command.type === "approval.decide") {
       if (command.decision === "APPROVED") {
@@ -482,8 +501,8 @@ export function softwareAgentSnapshotToProjectRoom(
   const catalogAssignments = catalogAssignmentsForRun(run);
   const agents = run?.sessions.map((session): ProjectRoomAgent => {
     const activeTask = run.tasks.find((task) => task.id === session.currentTaskId)
-      ?? run.tasks.find((task) => task.sessionId === session.id && ["READY", "RUNNING"].includes(task.state))
-      ?? run.tasks.find((task) => task.sessionId === session.id)
+      ?? run.tasks.findLast((task) => task.sessionId === session.id && ["READY", "RUNNING"].includes(task.state))
+      ?? run.tasks.findLast((task) => task.sessionId === session.id)
       ?? null;
     const events = runEvents.filter((event) => event.data.sessionId === session.id || event.actor.id === session.id);
     const last = events.at(-1);

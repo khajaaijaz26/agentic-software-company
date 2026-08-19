@@ -3,7 +3,7 @@
 ## Implementation status
 
 Authenticated local IPC is active. The current controller advertises descriptor
-`software-agent.controller/v2` and protocol range 1 through 2. The v0.4
+`software-agent.controller/v2` and protocol range 1 through 2. The v0.5
 runtime-v2 method set is implemented alongside camelCase compatibility methods.
 Primary run lifecycle and project-room flows use the dotted surface; several
 inspection and approval commands still use compatibility calls.
@@ -114,7 +114,7 @@ receives:
   "requestId": "rpc_0123456789abcdef0123456789abcdef",
   "protocolVersion": 2,
   "instanceId": "ctl_0123456789abcdef0123456789abcdef",
-  "buildVersion": "0.4.1",
+  "buildVersion": "0.5.0",
   "serverTime": "2026-08-19T12:00:00.000Z"
 }
 ```
@@ -192,7 +192,7 @@ The dotted method namespace is the current runtime contract:
 | `run.cancel` | command context plus `runId` | command receipt |
 | `question.ask` | command context plus `runId`, `sessionId`, and `prompt` | question plus resulting run revision |
 | `question.answer` | command context plus `runId`, `questionId`, and `answer` | question plus resulting run revision |
-| `instruction.submit` | command context plus `runId`, target `{kind,id}`, and `text` | mailbox message plus resulting run revision |
+| `instruction.submit` | command context plus `runId`, target `{kind,id}`, and `text` | queued mailbox message plus resulting run revision; the same commit creates a runnable conversation task |
 | `daemon.stop` | `{}` | `software-agent.daemon-stop/v1` acceptance |
 
 Mutation-lease methods do not carry an actor. The IPC service binds them to
@@ -211,6 +211,14 @@ instead carries the complete command context:
   "mutationLease": {"leaseId": "mut_123", "fence": 4}
 }
 ```
+
+For a running or terminal run, `instruction.submit` schedules the new turn
+after the atomic command commit. A paused run stays paused so the returned
+revision can be used safely by `run.resume`; the project-room adapter performs
+that second command. Team-targeted text is deterministically routed to one of
+the three execution seats without a separate model call. Model completion is
+reported later through `software-agent.turn.completed`, not in the instruction
+receipt.
 
 `run.create` requires `expectedRunRevision: 0`. Every other run-bound command
 compares the supplied revision with the current stream version. Command IDs are

@@ -50,8 +50,8 @@ import {
 import {EXIT_CODES, emit, emitError, processIo, type Io, type OutputMode} from "./output.js";
 import {IpcProjectRoomSource, softwareAgentSnapshotToProjectRoom} from "./project-room-source.js";
 
-const VERSION = "0.4.1";
-const BUILD = "software-agent-v0.4.1";
+const VERSION = "0.5.0";
+const BUILD = "software-agent-v0.5.0";
 const CLI_NAME = "software-agent";
 
 interface Runtime {
@@ -111,9 +111,9 @@ function buildProgram(runtime: Runtime): Command {
     .version(`${VERSION} (${BUILD}; schema v1; plugin API v1)`, "-V, --version")
     .option("-p, --project <id-or-path>", "select a project path")
     .option("-r, --run <run-id>", "select a run")
-    .option("--workspace <name>", "reserved workspace selector (rejected in v0.4)")
-    .option("--profile <name>", "reserved profile selector (rejected in v0.4)")
-    .option("--config <path>", "reserved override path (rejected in v0.4)")
+    .option("--workspace <name>", "reserved workspace selector (rejected in v0.5)")
+    .option("--profile <name>", "reserved profile selector (rejected in v0.5)")
+    .option("--config <path>", "reserved override path (rejected in v0.5)")
     .option("--json", "emit one JSON result")
     .option("--ndjson", "emit newline-delimited events/results")
     .option("--plain", "stable output without cursor control")
@@ -121,9 +121,9 @@ function buildProgram(runtime: Runtime): Command {
     .addOption(new Option("--unicode <mode>", "symbol mode").choices(["auto", "on", "off"]).default("auto"))
     .option("--non-interactive", "never prompt")
     .option("--offline", "block provider/network use")
-    .option("--timeout <duration>", "reserved foreground timeout (rejected in v0.4)")
-    .option("--log-level <level>", "reserved diagnostic level (rejected in v0.4)")
-    .option("--trace-id <id>", "reserved correlation ID (rejected in v0.4)")
+    .option("--timeout <duration>", "reserved foreground timeout (rejected in v0.5)")
+    .option("--log-level <level>", "reserved diagnostic level (rejected in v0.5)")
+    .option("--trace-id <id>", "reserved correlation ID (rejected in v0.5)")
     .option("--redact <level>", "redaction level", "standard")
     .option("-y, --yes", "accept ordinary local confirmations only")
     .action(async (_options: unknown, command: Command) => {
@@ -171,7 +171,7 @@ function buildProgram(runtime: Runtime): Command {
     .action(async (path: string | undefined, options: {name?: string; write: boolean; mode?: string; repo?: string; gitStrategy?: string}, command: Command) => {
       const globals = global(command);
       if (options.mode !== undefined || options.repo !== undefined || options.gitStrategy !== undefined) {
-        throw new CliError("CAPABILITY_UNAVAILABLE", "init mode, repository mode, and git strategy overrides are reserved in v0.4", EXIT_CODES.CAPABILITY_UNAVAILABLE);
+        throw new CliError("CAPABILITY_UNAVAILABLE", "init mode, repository mode, and git strategy overrides are reserved in v0.5", EXIT_CODES.CAPABILITY_UNAVAILABLE);
       }
       const workspace = resolve(path ?? globals.project ?? process.cwd());
       const name = options.name ?? basename(workspace);
@@ -199,7 +199,7 @@ function buildProgram(runtime: Runtime): Command {
       .action(async (request: string[], options: {file?: string; stdin?: boolean; planOnly?: boolean; background?: boolean; budget?: string; maxParallel?: string}, command: Command) => {
         const globals = global(command);
         if (options.planOnly) {
-          throw new CliError("CAPABILITY_UNAVAILABLE", "--plan-only is not available in the live v0.4 scheduler yet", EXIT_CODES.CAPABILITY_UNAVAILABLE);
+          throw new CliError("CAPABILITY_UNAVAILABLE", "--plan-only is not available in the live v0.5 scheduler yet", EXIT_CODES.CAPABILITY_UNAVAILABLE);
         }
         if (options.budget !== undefined && !["economy", "balanced", "quality"].includes(options.budget)) {
           throw new CliError("BUDGET_MODE_INVALID", "--budget must be economy, balanced, or quality", EXIT_CODES.USAGE);
@@ -951,12 +951,42 @@ async function withController<T>(globals: GlobalOptions, callback: (controller: 
     }
     client = await connectWithRetry(selectedWorkspace, connectError);
   }
+  client = await replaceOutdatedController(selectedWorkspace, client);
   try {
     return await callback(new ControllerClientFacade(client, selectedWorkspace));
   } finally {
     await client.close();
     await daemon?.close();
   }
+}
+
+async function replaceOutdatedController(workspacePath: string, client: ControllerIpcClient): Promise<ControllerIpcClient> {
+  if (embeddedControllerMode() || client.descriptor.buildVersion === VERSION) return client;
+  const previousInstanceId = client.descriptor.instanceId;
+  const previousBuild = client.descriptor.buildVersion;
+  try {
+    await client.request("daemon.stop", {});
+  } finally {
+    await client.close();
+  }
+  const {controllerDaemonStatus, ensureControllerDaemon} = await import("../../controller-daemon/src/index.js");
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    const status = await controllerDaemonStatus({workspace: workspacePath});
+    if (!status.running || status.descriptor?.instanceId !== previousInstanceId) break;
+    await new Promise((resolvePromise) => setTimeout(resolvePromise, 50));
+  }
+  const remaining = await controllerDaemonStatus({workspace: workspacePath});
+  if (remaining.running && remaining.descriptor?.instanceId === previousInstanceId) {
+    throw new CliError(
+      "CONTROLLER_UPGRADE_TIMEOUT",
+      `controller ${previousBuild} did not stop during upgrade to ${VERSION}`,
+      EXIT_CODES.TRANSIENT_FAILURE,
+      "Close other Software Agent terminals for this project and retry.",
+    );
+  }
+  await ensureControllerDaemon({workspace: workspacePath, heartbeatIntervalMs: 1_000, buildVersion: VERSION});
+  return await connectWithRetry(workspacePath, new Error(`replacing controller ${previousBuild} with ${VERSION}`));
 }
 
 async function presentProjectRoom(
@@ -1130,13 +1160,13 @@ function global(command: Command): GlobalOptions {
     ["--trace-id", options.traceId],
   ].find(([, value]) => value !== undefined);
   if (reserved !== undefined) {
-    throw new CliError("CAPABILITY_UNAVAILABLE", `${reserved[0]} is reserved but not active in v0.4`, EXIT_CODES.CAPABILITY_UNAVAILABLE);
+    throw new CliError("CAPABILITY_UNAVAILABLE", `${reserved[0]} is reserved but not active in v0.5`, EXIT_CODES.CAPABILITY_UNAVAILABLE);
   }
   if (options.unicode !== undefined && options.unicode !== "auto") {
-    throw new CliError("CAPABILITY_UNAVAILABLE", "explicit Unicode mode is reserved in v0.4", EXIT_CODES.CAPABILITY_UNAVAILABLE);
+    throw new CliError("CAPABILITY_UNAVAILABLE", "explicit Unicode mode is reserved in v0.5", EXIT_CODES.CAPABILITY_UNAVAILABLE);
   }
   if (options.redact !== undefined && options.redact !== "standard") {
-    throw new CliError("CAPABILITY_UNAVAILABLE", "only the standard redaction policy is available in v0.4", EXIT_CODES.CAPABILITY_UNAVAILABLE);
+    throw new CliError("CAPABILITY_UNAVAILABLE", "only the standard redaction policy is available in v0.5", EXIT_CODES.CAPABILITY_UNAVAILABLE);
   }
   return options;
 }

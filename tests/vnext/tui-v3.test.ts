@@ -206,7 +206,7 @@ function input(state: ProjectRoomState, value: string, pressed: ProjectRoomKey =
   return action === null ? state : projectRoomReducer(state, action);
 }
 
-describe("Software Agent v0.4 project room", () => {
+describe("Software Agent v0.5 project room", () => {
   it("uses the A7 responsive breakpoints and short-terminal fallback", () => {
     expect(projectRoomLayout(59, 30)).toBe("plain");
     expect(projectRoomLayout(60, 30)).toBe("narrow");
@@ -371,22 +371,60 @@ describe("Software Agent v0.4 project room", () => {
     expect(state.notice).toContain("26 named roles");
   });
 
-  it("uses an explicit target in the composer and queues a versioned instruction", () => {
+  it("defaults normal chat to the Software Agent team and queues a versioned instruction", () => {
     let state = readyState();
     state = input(state, "Add focused tests");
     expect(state.overlay.kind).toBe("composer");
-    expect(state.composerTarget).toMatchObject({kind: "agent", id: "agent_engineer"});
+    expect(state.composerTarget).toMatchObject({kind: "run", id: "run_demo", label: "Software Agent team"});
     state = input(state, "", key({return: true}));
     expect(state.pendingCommand?.command).toMatchObject({
       type: "instruction.submit",
       text: "Add focused tests",
-      target: {kind: "agent", id: "agent_engineer"},
+      target: {kind: "run", id: "run_demo"},
     });
     const commandId = state.pendingCommand?.id;
     expect(commandId).toBeTypeOf("number");
     state = projectRoomReducer(state, {type: "command.started", id: commandId ?? 0});
     state = projectRoomReducer(state, {type: "command.succeeded", id: commandId ?? 0});
-    expect(state.notice).toContain("active schedulable turn");
+    expect(state.notice).toContain("live model and tool activity");
+  });
+
+  it("renders user follow-ups and the agent's actual final response as conversation", () => {
+    const state = projectRoomReducer(
+      createInitialProjectRoomState({width: 120, height: 32, now: Date.parse(NOW)}),
+      {type: "snapshot.received", snapshot: snapshot({
+        cursor: 14,
+        importantEvents: [
+          {
+            sequence: 13,
+            eventId: "event_user_message",
+            occurredAt: "2026-08-19T11:59:51.000Z",
+            type: "software-agent.instruction.submitted",
+            severity: "INFO",
+            summary: "What changed in the terminal?",
+            agentId: "agent_orchestrator",
+            taskId: "task_chat",
+            approvalId: null,
+          },
+          {
+            sequence: 14,
+            eventId: "event_agent_reply",
+            occurredAt: "2026-08-19T11:59:52.000Z",
+            type: "software-agent.turn.completed",
+            severity: "INFO",
+            summary: "You can now type naturally, see live work, and continue the conversation with retained context.",
+            agentId: "agent_orchestrator",
+            taskId: "task_chat",
+            approvalId: null,
+          },
+        ],
+      })},
+    );
+
+    const output = renderProjectRoomText(state, {width: 120, height: 32, ascii: true, noColor: true});
+    expect(output).toContain("YOU > What changed in the terminal?");
+    expect(output).toContain("Master Orchestrator > [REPLY] You can now type naturally");
+    expect(output).not.toContain("mailbox.message");
   });
 
   it("changes composer targets explicitly and preserves escaped slash input", () => {
@@ -394,6 +432,7 @@ describe("Software Agent v0.4 project room", () => {
     state = projectRoomReducer(state, {type: "overlay.composer"});
     state = input(state, "", key({tab: true}));
     expect(state.overlay.kind).toBe("target");
+    state = input(state, "", key({downArrow: true}));
     state = input(state, "", key({downArrow: true}));
     state = input(state, "", key({return: true}));
     expect(state.composerTarget).toMatchObject({kind: "agent", id: "agent_reviewer"});

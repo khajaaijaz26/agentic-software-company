@@ -34,7 +34,7 @@ Requirements: Node.js 22.14 or newer, npm, and Git. Node.js 24 LTS is recommende
 1. Install and verify the current release:
 
    ```powershell
-   npm install -g "https://github.com/khajaaijaz26/software-agent/releases/download/v0.4.1/software-agent-0.4.1.tgz"
+   npm install -g "https://github.com/khajaaijaz26/software-agent/releases/download/v0.5.0/software-agent-0.5.0.tgz"
    software-agent --version
    ```
 
@@ -65,7 +65,7 @@ GitHub repositories are edited through a normal local Git checkout, so every fil
 ### macOS or Linux
 
 ```bash
-npm install -g "https://github.com/khajaaijaz26/software-agent/releases/download/v0.4.1/software-agent-0.4.1.tgz"
+npm install -g "https://github.com/khajaaijaz26/software-agent/releases/download/v0.5.0/software-agent-0.5.0.tgz"
 cd /path/to/your-project
 software-agent start "Understand this project, find errors, fix them, and run all tests"
 ```
@@ -99,6 +99,24 @@ software-agent start "Implement the requested change and verify it"
 
 Anthropic Messages is supported in the same way with `ANTHROPIC_API_KEY` and `anthropic/<model-id>`. Run `software-agent setup` at any time for the non-interactive secure setup sequence.
 
+### Chat naturally, then keep going
+
+Inside the project room, just type a message and press Enter. You do not need a special `prompt` command:
+
+```text
+YOU › Fix the login test and explain the cause.
+Software Engineer › read_file completed for src/auth.ts
+Software Engineer › write_file completed for src/auth.ts
+Software Engineer › ✓ The null-session branch is fixed and the focused test passes.
+
+YOU › Now add a regression test for that edge case.
+Software Engineer › ✓ Added the regression case and verified the focused suite.
+```
+
+The first message creates the project objective. Every later message becomes a durable, schedulable conversation turn—not merely a saved note. The controller keeps a bounded recent conversation history, routes team-targeted messages to the Master Orchestrator, Software Engineer, or Reviewer & QA, shows model/tool/file activity while the turn runs, and then prints the model's actual final reply. Short continuations such as `continue` stay with the recent specialist when appropriate.
+
+Normal chat targets the **Software Agent team** so routing stays simple. Press Tab while composing, or use `/target`, only when you want to address one specific active agent or task. A real conversational answer requires a connected OpenAI or Anthropic model; `deterministic/local` is an offline orchestration demo rather than a general-purpose AI assistant.
+
 ## The project room
 
 The terminal UI combines familiar coding-agent chat with a truthful, live view of the team. Type normally to start chatting; press `/` for commands:
@@ -107,15 +125,15 @@ The terminal UI combines familiar coding-agent chat with a truthful, live view o
 ❯_ ●─●─● ✓ SOFTWARE AGENT                  project @ main | RUNNING
 ┌─ CHAT & WORK ───────────────────────┬─ AGENT WALL · 26 ROLES ───────────────┐
 │ YOU › Fix the login error           │ 01 Master Orchestrator · WORKING      │
-│ Orchestrator › Plan committed       │ 02 Product Manager · WAITING FOR WORK │
+│ Orchestrator › ✓ Plan committed     │ 02 Product Manager · WAITING FOR WORK │
 │ Backend Engineer › read_file auth.ts│ 03 UX/UI Designer · WAITING FOR WORK  │
 │ Backend Engineer › write_file       │ 04 Backend Engineer · WORKING         │
-│ Reviewer › tests are running        │ 05 Security Engineer · BLOCKED        │
+│ Backend Engineer › ✓ Login fixed    │ 05 Security Engineer · BLOCKED        │
 │ FILES auth.ts · auth.test.ts        │ …  21 more named specialist roles     │
 │ TOOLS search_code · read_file       │ Inactive roles use 0 model tokens     │
 └─────────────────────────────────────┴────────────────────────────────────────┘
 APPROVALS 1 | MODEL openai/<model> | TOKENS balanced 18,420/50,000
-CHAT [to: Backend Engineer] > type a prompt or press / for commands
+CHAT [to: Software Agent team] > type a prompt or press / for commands
 ```
 
 The responsive UI includes the 26-role wall, committed chat/work history, current file and tool activity, direct typing, slash commands, model/settings controls, exact approval packets, reconnect/resync states, and a read-only fallback when another terminal owns the mutation lease.
@@ -151,6 +169,7 @@ Software Agent uses a current, widely adopted stack while keeping the installed 
 | Capability | What Software Agent does |
 | --- | --- |
 | Visible collaboration | Splits chat/work and a 26-role wall, showing who is working, waiting, blocked, or done plus current files, tools, tokens, and cost. |
+| Continuous conversation | Turns every follow-up into an executable, durable agent turn with bounded history and a clearly labeled final reply. |
 | Honest specialization | Exposes all 26 named roles while activating only the bounded orchestrator, delivery specialist, and reviewer seats needed by the current run. |
 | Safe coding tools | Provides bounded file discovery, token-efficient code search, exact-revision reads, atomic writes, and shell-free verification commands. |
 | Human authority | Turns process execution and connected mutations into exact, expiring, single-use approval packets. Silence and `--yes` are never approval. |
@@ -183,7 +202,8 @@ This is an architectural comparison, not a claim that every other tool behaves i
 3. The Software Engineer retrieves only relevant repository context, edits through fenced exact-revision writes, and requests approval before running a process.
 4. Reviewer & QA works independently and can run in parallel where the graph permits.
 5. Handoffs, tool activity, model usage, token reservations, and evidence become replayable events.
-6. The controller accepts a result only when its run, task, turn, attempt, lease, revision, and fencing epoch still match.
+6. Follow-up chat messages create new routed turns and carry a bounded recent conversation instead of becoming inert mailbox notes.
+7. The controller accepts a result only when its run, task, turn, attempt, lease, revision, and fencing epoch still match.
 
 ## Spend fewer tokens deliberately
 
@@ -295,7 +315,7 @@ The primary platform is TypeScript. A separately named Python/MCP compatibility 
 
 ## Current boundaries
 
-Software Agent v0.4 is a local developer preview. Its catalog contains 26 visible named roles, while this release intentionally activates at most three durable execution seats per run to bound cost and preserve independent review. It has no OS-level sandbox or Windows named-pipe peer-SID verification, no vector RAG index, no signed event export, and no enabled remote mutation executor. Treat model output and repository content as untrusted. Review changes and approvals before relying on results.
+Software Agent v0.5 is a local developer preview. Its catalog contains 26 visible named roles, while this release intentionally activates at most three durable execution seats per run to bound cost and preserve independent review. Conversation history is deliberately bounded rather than an unlimited memory. It has no OS-level sandbox or Windows named-pipe peer-SID verification, no vector RAG index, no signed event export, and no enabled remote mutation executor. Treat model output and repository content as untrusted. Review changes and approvals before relying on results.
 
 Visual assets are original to this repository; generation and composition details are recorded in [asset provenance](docs/assets/PROVENANCE.md).
 

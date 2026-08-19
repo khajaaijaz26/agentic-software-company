@@ -37,6 +37,57 @@ function result(input: AgentModelInvocation, text: string, toolCalls: ModelResul
 }
 
 describe("controller-owned Software Agent execution", () => {
+  it("sends bounded prior conversation plus the current user message to the selected model", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "software-agent-conversation-"));
+    temporaryDirectories.push(workspace);
+    const manifest = StepManifestSchema.parse({
+      schema: "software-agent.step/v1",
+      runId: "run_chat",
+      taskId: "task_chat",
+      taskRevision: 1,
+      sessionId: "session_orchestrator",
+      turnId: "turn_chat",
+      turnRevision: 2,
+      attemptId: "attempt_chat",
+      leaseId: "lease_chat",
+      fencingEpoch: 1,
+      leaseExpiresAt: "2099-08-19T00:00:00.000Z",
+      role: "master-orchestrator",
+      taskTitle: "Answer user: What changed?",
+      objective: "Improve the terminal experience",
+      interaction: "conversation",
+      prompt: "What changed?",
+      conversation: [
+        {role: "user", content: "Please improve the terminal.", speaker: "User"},
+        {role: "assistant", content: "The team completed the first pass.", speaker: "Software Engineer"},
+      ],
+      workspaceRevision: "workspace:test:v1",
+      simulatedWorkMs: 10,
+      heartbeatIntervalMs: 10_000,
+      limits: {wallTimeMs: 60_000, maxOutputBytes: 1_048_576},
+    });
+    const invokeModel = vi.fn(async (input: AgentModelInvocation): Promise<ModelResult> => result(input, "The terminal now supports follow-up chat.", []));
+
+    const completed = await executeSoftwareAgentStep({
+      manifest,
+      signal: new AbortController().signal,
+      onFrame: () => undefined,
+    }, {
+      workspace,
+      invokeModel,
+      resolveModel: async () => ({providerId: "fake", modelId: "coding-model", routingRevision: 1}),
+    });
+
+    const request = invokeModel.mock.calls[0]?.[0].request;
+    expect(request?.messages).toEqual([
+      {role: "user", content: "[User]\nPlease improve the terminal."},
+      {role: "assistant", content: "[Software Engineer]\nThe team completed the first pass."},
+      expect.objectContaining({role: "user", content: expect.stringContaining("Current user message: What changed?")}),
+    ]);
+    expect(request?.system).toContain("continuous terminal conversation");
+    expect(completed.summary).toBe("The terminal now supports follow-up chat.");
+  });
+
   it("uses model tool calls to read an exact revision, atomically write, and report live evidence", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "software-agent-execution-"));
     temporaryDirectories.push(workspace);

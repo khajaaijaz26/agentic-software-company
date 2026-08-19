@@ -55,6 +55,13 @@ export const StepManifestSchema = z.object({
   role: z.enum(["master-orchestrator", "software-engineer", "reviewer-qa"]),
   taskTitle: z.string().min(1).max(4096),
   objective: z.string().min(1).max(256_000),
+  interaction: z.enum(["workflow", "conversation"]).optional(),
+  prompt: z.string().min(1).max(4096).optional(),
+  conversation: z.array(z.object({
+    role: z.enum(["user", "assistant"]),
+    content: z.string().min(1).max(16_384),
+    speaker: z.string().min(1).max(128).optional(),
+  }).strict()).max(12).optional(),
   workspaceRevision: z.string().min(1).max(512),
   simulatedWorkMs: z.number().int().min(10).max(30_000),
   heartbeatIntervalMs: z.number().int().min(10).max(10_000),

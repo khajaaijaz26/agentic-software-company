@@ -28,12 +28,12 @@ For remote GitHub projects, connect once with `gh auth login`. You may skip both
 The public GitHub release is available now:
 
 ```powershell
-npm install -g "https://github.com/khajaaijaz26/software-agent/releases/download/v0.4.1/software-agent-0.4.1.tgz"
+npm install -g "https://github.com/khajaaijaz26/software-agent/releases/download/v0.5.0/software-agent-0.5.0.tgz"
 software-agent --version
 software-agent setup
 ```
 
-GitHub publishes the SHA-256 digest for `software-agent-0.4.1.tgz` on the release page so it can be checked independently after download.
+GitHub publishes the SHA-256 digest for `software-agent-0.5.0.tgz` on the release page so it can be checked independently after download.
 
 ## Global npm registry installation
 
@@ -179,7 +179,7 @@ Do not pass a raw key to `--credential`; it is rejected. Raw keys are accepted o
 ## macOS and Linux
 
 ```bash
-npm install -g "https://github.com/khajaaijaz26/software-agent/releases/download/v0.4.1/software-agent-0.4.1.tgz"
+npm install -g "https://github.com/khajaaijaz26/software-agent/releases/download/v0.5.0/software-agent-0.5.0.tgz"
 cd /path/to/your-project
 export OPENAI_API_KEY="your-key"
 software-agent providers add openai --model <model-id> --credential env://OPENAI_API_KEY
@@ -233,6 +233,8 @@ software-agent run --budget economy "Make one focused fix"
 The live room supports three responsive layouts and a plain fallback. Common keys are displayed in its footer. Important interactions include:
 
 - type normally to begin a chat prompt; no compose shortcut is required;
+- press Enter to send; the message becomes a runnable agent turn and its final model reply appears in `CHAT & WORK`;
+- keep typing follow-up messages as you would in another terminal coding assistant; recent conversation context is carried forward within a bounded token budget;
 - press `/` to open the complete searchable command menu, including current project, model, token, and API settings;
 - type to filter the menu, use ↑/↓ to browse all commands, Tab to complete one, and Enter to run it;
 - view chat and committed file/tool activity on one half of a wide terminal and all 26 named roles on the other half;
@@ -252,6 +254,8 @@ Agent and event labels are deliberately literal:
 | `DONE` / `FAILED` | The agent is terminal. |
 | `LIVE SCROLL` | The event panel automatically follows new committed events. |
 | `SCROLL PAUSED` | Only the event view stopped following; agent execution is not paused. Press `Ctrl+F` or use `/follow` to resume live scrolling. |
+| `YOU ›` | Your committed objective or follow-up message. |
+| `✓` / `[REPLY]` | The selected model's actual final answer for that agent turn. |
 
 Useful in-room slash commands:
 
@@ -291,7 +295,7 @@ software-agent integrations test vercel --json
 software-agent integrations test supabase --json
 ```
 
-These adapters currently discover status and produce governed mutation plans. Software Agent v0.4 does not silently execute remote pushes, deployments, or database migrations.
+These adapters currently discover status and produce governed mutation plans. Software Agent v0.5 does not silently execute remote pushes, deployments, or database migrations.
 
 ## Controller lifecycle
 

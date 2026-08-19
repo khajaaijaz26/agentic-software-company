@@ -323,7 +323,7 @@ describe("catalog, terminal safety, controller replay, and CLI ABI", () => {
     }
   });
 
-  it("uses versioned machine envelopes for a complete headless v0.4 run", async () => {
+  it("uses versioned machine envelopes for a complete headless v0.5 run", async () => {
     const workspace = temporaryDirectory();
     const output: string[] = [];
     const error: string[] = [];

@@ -14,6 +14,38 @@ independent version lines.
 - Server-push event subscriptions and very-large-run snapshot compaction.
 - Signed export/import and an automated Python-state migration tool.
 
+## [npm 0.5.0] - 2026-08-19
+
+### Added
+
+- Continuous project-room conversation: every submitted follow-up now creates
+  a durable, schedulable agent task and produces an actual model reply.
+- Bounded cross-turn conversation context with explicit user/assistant roles,
+  specialist labels, and a 12-message / 24,000-character controller limit.
+- Automatic team routing for ordinary chat to Master Orchestrator, Software
+  Engineer, or Reviewer & QA, while `/target` still supports explicit routing.
+- Clear `YOU` and `REPLY` entries beside live model, tool, file, token, and
+  agent-status activity in the split terminal room.
+
+### Changed
+
+- Normal chat now targets the Software Agent team by default, so users can type
+  and press Enter without first understanding internal session identifiers.
+- Successful, failed, or canceled historical runs can accept a new
+  conversational turn; stale unfinished work is superseded before scheduling.
+- The newest assigned task is projected on each agent card, and superseded
+  canceled work no longer distorts successful progress percentages.
+
+### Fixed
+
+- Targeted instructions are no longer inert mailbox records: they are consumed
+  by the scheduler, passed to the selected native model with recent context,
+  and committed as visible final responses.
+- Paused runs preserve revision-safe command composition and are resumed by the
+  project-room adapter only after the chat turn has committed.
+- Chat submission rebases across concurrent live-work revisions, and a newly
+  installed CLI replaces an older detached controller before opening a room.
+
 ## [npm 0.4.1] - 2026-08-19
 
 ### Added

@@ -311,8 +311,8 @@ export function renderProjectRoomText(state: ProjectRoomState, options: ProjectR
     );
   } else {
     lines.push(clip(runProgressText(run, ascii), width, ascii), "CHAT & WORK", clip(`YOU > ${run.objective}`, width, ascii));
-    for (const event of meaningfulWorkEvents(state.events).slice(-8)) {
-      lines.push(clip(`${workEventSpeaker(event, run)} > ${glyph(event.severity, ascii)} ${event.summary}`, width, ascii));
+    for (const event of chatAndWorkEvents(state.events).slice(-8)) {
+      lines.push(clip(`${workEventSpeaker(event, run)} > ${chatEventMarker(event, ascii)}${event.summary}`, width, ascii));
     }
     lines.push(
       `AGENT WALL | ${state.snapshot?.roster.filter((agent) => agent.state === "WORKING").length ?? 0} working | ${state.snapshot?.roster.length ?? 0} named roles`,
@@ -465,7 +465,7 @@ function WorkstreamPanel({state, run, width, noColor, ascii}: {
   readonly noColor: boolean;
   readonly ascii: boolean;
 }): React.JSX.Element {
-  const events = meaningfulWorkEvents(state.events).slice(-Math.max(5, Math.min(10, state.height - 18)));
+  const events = chatAndWorkEvents(state.events).slice(-Math.max(5, Math.min(10, state.height - 18)));
   const working = run?.agents.filter((agent) => isAgentWorking(agent.state)) ?? [];
   const files = [...new Set((run?.agents ?? []).flatMap((agent) => agent.requestedFiles))].slice(-4);
   const tools = [...new Set((run?.agents ?? []).flatMap((agent) => agent.requestedTools))].slice(-4);
@@ -477,15 +477,15 @@ function WorkstreamPanel({state, run, width, noColor, ascii}: {
       </Box>
       {run === null
         ? <Text><Text {...textColorProp(noColor ? undefined : "cyan")}>YOU › </Text>Type a project request below. Press / for commands.</Text>
-        : <Text wrap="truncate"><Text {...textColorProp(noColor ? undefined : "cyan")}>YOU › </Text>{safe(run.objective, 180)}</Text>
+        : <Text wrap="truncate"><Text {...textColorProp(noColor ? undefined : "cyan")}>YOU (objective) › </Text>{safe(run.objective, 180)}</Text>
       }
-      <Text dimColor>{ascii ? "-" : "─"} committed controller activity {ascii ? "-" : "─"}</Text>
+      <Text dimColor>{ascii ? "-" : "─"} conversation and live work {ascii ? "-" : "─"}</Text>
       {events.length === 0
         ? <Text dimColor>No work events yet. Waiting roles consume no model tokens.</Text>
         : events.map((event) => (
-            <Text key={event.eventId} inverse={event.eventId === state.selectedEventId && state.focus === "events"} wrap="truncate">
+            <Text key={event.eventId} inverse={event.eventId === state.selectedEventId && state.focus === "events"} wrap={isAgentReply(event) ? "wrap" : "truncate"}>
               <Text {...textColorProp(noColor ? undefined : eventTone(event.severity))}>{workEventSpeaker(event, run)} › </Text>
-              {glyph(event.severity, ascii)} {safe(event.summary, 180)}
+              {chatEventMarker(event, ascii)}{safe(event.summary, isAgentReply(event) ? 800 : 180)}
             </Text>
           ))
       }
@@ -578,6 +578,20 @@ function WorkspaceStatusStrip({state, run, noColor, ascii}: {
 
 function meaningfulWorkEvents(events: readonly ProjectRoomEvent[]): readonly ProjectRoomEvent[] {
   return events.filter((event) => !/(?:mutation\.renewed|heartbeat|lease\.renewed)/u.test(event.type));
+}
+
+function chatAndWorkEvents(events: readonly ProjectRoomEvent[]): readonly ProjectRoomEvent[] {
+  return meaningfulWorkEvents(events).filter((event) => /(?:instruction\.submitted|turn\.completed|model\.(?:started|completed)|tool\.(?:started|completed|failed)|approval\.(?:requested|approved|denied|consumed)|attempt\.failed|turn\.failed|task\.failed|run\.failed)/u.test(event.type));
+}
+
+function isAgentReply(event: ProjectRoomEvent): boolean {
+  return event.type === "software-agent.turn.completed";
+}
+
+function chatEventMarker(event: ProjectRoomEvent, ascii: boolean): string {
+  if (event.type === "software-agent.instruction.submitted") return "";
+  if (isAgentReply(event)) return ascii ? "[REPLY] " : "✓ ";
+  return `${glyph(event.severity, ascii)} `;
 }
 
 function workEventSpeaker(event: ProjectRoomEvent, run: ProjectRoomRun | null): string {
@@ -723,7 +737,7 @@ function ComposerLine({state, noColor, ascii}: {readonly state: ProjectRoomState
     <Box borderStyle={ascii ? "classic" : "single"} paddingX={1} marginTop={1} {...borderColorProp(noColor ? undefined : active ? "magenta" : undefined)}>
       <Text bold>CHAT </Text>
       <Text>[to: {targetLabel(state.composerTarget)}] </Text>
-      <Text inverse={active}>{active ? state.composerText || " " : "type to prompt · / for commands"}</Text>
+      <Text inverse={active}>{active ? state.composerText || " " : "type naturally · / for commands"}</Text>
       {active ? <Text dimColor>  Tab target | Enter send | Esc close</Text> : null}
     </Box>
   );
@@ -739,6 +753,7 @@ function Overlay({state, noColor, ascii}: {readonly state: ProjectRoomState; rea
       <Text bold>SOFTWARE AGENT HELP</Text>
       <Text>1 Agents | 2 Chat/work | 3 Approvals | 4 Tokens | 5 Settings | Tab focus</Text>
       <Text>Type to chat | / Slash command | Ctrl+K Palette | Ctrl+F Live scroll | Esc or Ctrl+C Leave</Text>
+      <Text>Press Enter to send. Every normal follow-up becomes a runnable agent turn; ✓ marks its final reply.</Text>
       <Text>/api connect openai [model] | /model provider/model | /tokens 25|50|100</Text>
       <Text>/agents | /status | /settings | /project | /search | /clear | /help</Text>
       <Text>IDLE means not executing. SCROLL PAUSED affects only the event view, never the run.</Text>
@@ -890,7 +905,7 @@ function footerText(state: ProjectRoomState): string {
   if (state.overlay.kind === "composer") return "Chat: type a prompt or /command | Tab target | Enter send | Esc close";
   if (state.overlay.kind === "api-key") return "Secure key entry: paste | Enter connect | Esc discard";
   if (state.overlay.kind !== "none") return "Overlay: arrows move | Enter confirm | Esc close";
-  return "Type to Chat  / Commands  1 Agents  2 Chat  3 Approvals  4 Tokens  5 Settings  Ctrl+F Live  ? Help  Esc Leave";
+  return "Type naturally  Enter Send  / Commands  1 Agents  2 Chat  3 Approvals  4 Tokens  Ctrl+F Live  5 Settings  ? Help  Esc Leave";
 }
 
 function plainFooterText(state: ProjectRoomState): string {
@@ -898,7 +913,7 @@ function plainFooterText(state: ProjectRoomState): string {
   if (state.overlay.kind === "composer") return "Type prompt or /command | Tab Target | Enter Send | Esc Close";
   if (state.overlay.kind === "api-key") return "Paste key | Enter Connect | Esc Discard";
   if (state.overlay.kind !== "none") return "Arrows Move | Enter Confirm | Esc Close";
-  return "Type to Chat | / Commands | Tab Focus | ? Help | Esc Leave";
+  return "Type naturally | Enter Send | / Commands | Tab Focus | ? Help | Esc Leave";
 }
 
 function renderOverlayText(state: ProjectRoomState, width: number, ascii: boolean): readonly string[] {
@@ -922,6 +937,7 @@ function renderOverlayText(state: ProjectRoomState, width: number, ascii: boolea
   if (overlay.kind === "help") return [
     "SOFTWARE AGENT HELP",
     "1 Agents | 2 Chat/work | 3 Approvals | 4 Tokens | 5 Settings | Type to chat | / Slash commands",
+    "Enter sends a runnable agent turn; [REPLY] is the model's final answer.",
     "/api connect openai [model] | /model provider/model | /tokens 25|50|100 | /agents | /status | /settings",
     "IDLE means not executing. SCROLL PAUSED affects only the event view, never the run.",
   ];
@@ -1012,7 +1028,8 @@ function visibleAgents(agents: readonly ProjectRoomAgent[], selectedId: string |
 }
 
 function targetLabel(target: ComposerTarget): string {
-  return target.kind === "objective" ? target.label : `${target.kind}:${target.label}`;
+  if (target.kind === "objective" || target.kind === "run") return target.label;
+  return `${target.kind}:${target.label}`;
 }
 
 function targetKey(target: ComposerTarget): string {
@@ -1036,11 +1053,12 @@ interface AgentProgressSummary {
 }
 
 function summarizeTasks(tasks: readonly ProjectRoomTask[]): TaskProgressSummary {
-  const passed = tasks.filter((task) => task.state === "PASSED").length;
-  const failed = tasks.filter((task) => task.state === "FAILED" || task.state === "CANCELED").length;
-  const running = tasks.filter((task) => task.state === "RUNNING").length;
-  const waiting = tasks.filter((task) => task.state === "READY" || task.state === "BLOCKED").length;
-  const total = tasks.length;
+  const current = tasks.filter((task) => task.state !== "CANCELED");
+  const passed = current.filter((task) => task.state === "PASSED").length;
+  const failed = current.filter((task) => task.state === "FAILED").length;
+  const running = current.filter((task) => task.state === "RUNNING").length;
+  const waiting = current.filter((task) => task.state === "READY" || task.state === "BLOCKED").length;
+  const total = current.length;
   return {total, passed, failed, running, waiting, percent: total === 0 ? 0 : Math.round((passed / total) * 100)};
 }
 

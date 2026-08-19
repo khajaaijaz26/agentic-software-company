@@ -21,6 +21,13 @@
     "role": { "enum": ["master-orchestrator", "software-engineer", "reviewer-qa"] },
     "taskTitle": { "type": "string", "minLength": 1, "maxLength": 4096 },
     "objective": { "type": "string", "minLength": 1, "maxLength": 256000 },
+    "interaction": { "enum": ["workflow", "conversation"] },
+    "prompt": { "type": "string", "minLength": 1, "maxLength": 4096 },
+    "conversation": {
+      "type": "array",
+      "maxItems": 12,
+      "items": { "$ref": "#/$defs/conversationMessage" }
+    },
     "workspaceRevision": { "type": "string", "minLength": 1, "maxLength": 512 },
     "simulatedWorkMs": { "type": "integer", "minimum": 10, "maximum": 30000 },
     "heartbeatIntervalMs": { "type": "integer", "minimum": 10, "maximum": 10000 },
@@ -29,6 +36,16 @@
   "$defs": {
     "id": { "type": "string", "minLength": 1 },
     "revision": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+    "conversationMessage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "content"],
+      "properties": {
+        "role": { "enum": ["user", "assistant"] },
+        "content": { "type": "string", "minLength": 1, "maxLength": 16384 },
+        "speaker": { "type": "string", "minLength": 1, "maxLength": 128 }
+      }
+    },
     "limits": {
       "type": "object",
       "additionalProperties": false,

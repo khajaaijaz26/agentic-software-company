@@ -520,9 +520,10 @@ export function isContiguousUpdate(cursor: number, update: ProjectRoomCommittedU
 
 export function targetCandidates(snapshot: ProjectRoomSnapshot | null): readonly ComposerTarget[] {
   if (snapshot?.run === null || snapshot === null) return [{kind: "objective", label: "new objective"}];
+  const team: ComposerTarget = {kind: "run", id: snapshot.run.id, label: "Software Agent team"};
   const agents = snapshot.run.agents.map((agent): ComposerTarget => ({kind: "agent", id: agent.id, label: agent.displayName}));
   const tasks = snapshot.run.tasks.map((task): ComposerTarget => ({kind: "task", id: task.id, label: task.title}));
-  return [...agents, ...tasks, {kind: "run", id: snapshot.run.id, label: "whole run"}];
+  return [team, ...agents, ...tasks];
 }
 
 export function filteredPaletteActions(query: string): readonly string[] {
@@ -926,7 +927,7 @@ function commandSuccessNotice(command: ProjectRoomCommand): string {
     case "objective.create":
       return "Objective committed. The scheduler is assigning work; watch RUN PROGRESS and agent status.";
     case "instruction.submit":
-      return "Instruction committed. It will run when the selected target has an active schedulable turn.";
+      return "Message committed. The selected agent turn is queued; live model and tool activity will appear in CHAT & WORK.";
     case "approval.decide":
       return "Approval decision committed. Waiting work can now continue if policy permits it.";
     case "provider.connect":
@@ -946,11 +947,8 @@ function commandSuccessNotice(command: ProjectRoomCommand): string {
 
 function defaultComposerTarget(snapshot: ProjectRoomSnapshot | null, selectedAgentId: string | null): ComposerTarget {
   if (snapshot?.run === null || snapshot === null) return {kind: "objective", label: "new objective"};
-  const agent = snapshot.run.agents.find((candidate) => candidate.id === selectedAgentId) ?? snapshot.run.agents[0];
-  if (agent !== undefined) return {kind: "agent", id: agent.id, label: agent.displayName};
-  const task = snapshot.run.tasks[0];
-  if (task !== undefined) return {kind: "task", id: task.id, label: task.title};
-  return {kind: "run", id: snapshot.run.id, label: "whole run"};
+  void selectedAgentId;
+  return {kind: "run", id: snapshot.run.id, label: "Software Agent team"};
 }
 
 function targetIndex(state: ProjectRoomState): number {

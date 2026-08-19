@@ -6,9 +6,12 @@ import {afterEach, describe, expect, it} from "vitest";
 
 import {
   LocalController,
+  type CompletedSoftwareAgentStepFrame,
   type MutationLeaseView,
   type SoftwareAgentCommandContext,
+  type SoftwareAgentStepExecutor,
 } from "../../apps/control-plane/src/controller.js";
+import {StepFrameSchema, type StepManifest} from "../../apps/worker-runtime/src/index.js";
 import {initializeProject} from "../../packages/config/src/index.js";
 
 const temporaryDirectories: string[] = [];
@@ -42,7 +45,89 @@ function command(
   };
 }
 
-describe("Software Agent v0.4 durable runtime", () => {
+describe("Software Agent v0.5 durable runtime", () => {
+  it("turns every follow-up message into a scheduled conversational agent reply with bounded history", async () => {
+    const workspace = temporaryDirectory();
+    await initializeProject(workspace, "Runtime conversation", true);
+    const manifests: StepManifest[] = [];
+    const stepExecutor: SoftwareAgentStepExecutor = async ({manifest}) => {
+      manifests.push(manifest);
+      return StepFrameSchema.parse({
+        schema: "software-agent.step-frame/v1",
+        kind: "worker.completed",
+        runId: manifest.runId,
+        taskId: manifest.taskId,
+        taskRevision: manifest.taskRevision,
+        sessionId: manifest.sessionId,
+        turnId: manifest.turnId,
+        turnRevision: manifest.turnRevision,
+        attemptId: manifest.attemptId,
+        leaseId: manifest.leaseId,
+        fencingEpoch: manifest.fencingEpoch,
+        at: new Date().toISOString(),
+        summary: manifest.interaction === "conversation"
+          ? `${manifest.role} replied to: ${manifest.prompt}`
+          : `${manifest.role} completed ${manifest.taskTitle}`,
+      }) as CompletedSoftwareAgentStepFrame;
+    };
+    const controller = await LocalController.open(workspace, {stepExecutor});
+    try {
+      const lease = controller.acquireMutationLease({
+        commandId: "cmd_chat_acquire",
+        attachmentId: "uia_chat",
+        actor: {type: "human", id: "local-user"},
+        correlationId: "corr_chat",
+      });
+      const created = controller.createRunV2({
+        ...command("cmd_chat_create", lease, 0),
+        objective: "Build a visible terminal assistant",
+        maxParallel: 2,
+      });
+      controller.resumeRunV2({...command("cmd_chat_resume", lease, created.revision), runId: created.id});
+      let current = await controller.waitForRunV2(created.id, ["SUCCEEDED"], 10_000);
+
+      const first = controller.submitInstructionV2({
+        ...command("cmd_chat_first", lease, current.revision),
+        runId: current.id,
+        target: {kind: "run", id: current.id},
+        text: "Explain what the team completed.",
+      });
+      expect(first.message.to).toBe(current.sessions.find((session) => session.role === "master-orchestrator")?.id);
+      current = await controller.waitForRunV2(current.id, ["SUCCEEDED"], 10_000);
+
+      const second = controller.submitInstructionV2({
+        ...command("cmd_chat_second", lease, current.revision),
+        runId: current.id,
+        target: {kind: "run", id: current.id},
+        text: "Update the README with that result.",
+      });
+      expect(second.message.to).toBe(current.sessions.find((session) => session.role === "software-engineer")?.id);
+      current = await controller.waitForRunV2(current.id, ["SUCCEEDED"], 10_000);
+
+      const conversational = manifests.filter((manifest) => manifest.interaction === "conversation");
+      expect(conversational).toHaveLength(2);
+      expect(conversational[0]).toMatchObject({
+        role: "master-orchestrator",
+        prompt: "Explain what the team completed.",
+        conversation: [],
+      });
+      expect(conversational[1]).toMatchObject({
+        role: "software-engineer",
+        prompt: "Update the README with that result.",
+      });
+      expect(conversational[1]?.conversation).toEqual([
+        {role: "user", content: "Explain what the team completed.", speaker: "User"},
+        {role: "assistant", content: "master-orchestrator replied to: Explain what the team completed.", speaker: "Master Orchestrator"},
+      ]);
+      expect(current.tasks.filter((task) => task.interaction === "conversation").map((task) => task.state)).toEqual(["PASSED", "PASSED"]);
+      const events = controller.historyV2({runId: current.id, afterCursor: 0, limit: 250}).events;
+      expect(events.filter((event) => event.eventType === "software-agent.instruction.submitted")).toHaveLength(2);
+      expect(events.filter((event) => event.eventType === "software-agent.turn.completed" && typeof event.data.taskId === "string" && event.data.taskId.startsWith("tsk_"))).toHaveLength(2);
+    } finally {
+      await controller.shutdown();
+    }
+  });
+
   it("runs the deterministic three-session fan-out concurrently and exposes a bounded snapshot", async () => {
     const workspace = temporaryDirectory();
     await initializeProject(workspace, "Runtime v3", true);

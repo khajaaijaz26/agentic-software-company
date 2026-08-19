@@ -2,17 +2,17 @@
 
 ## Status and authority boundaries
 
-This document describes the Software Agent v0.4 local developer platform.
+This document describes the Software Agent v0.5 local developer platform.
 
 Several surfaces coexist and must not be treated as one contract:
 
 | Surface | Implemented now | Current limitation |
 | --- | --- | --- |
 | Installed TypeScript CLI | `software-agent`, with a deprecated `agent-company` migration shim; primary lifecycle, provider, model, token, setup, inspection, and approval commands are active | Selected legacy inspection and connector-plan paths remain during migration |
-| Controller runtime v2 | event-sourced three-session runtime, bounded parallel DAG, durable assignments/turns/attempts/handoffs, mutation fencing, polling/history, questions and instructions | Automatic retries and complete external-side-effect reconciliation remain future work |
-| Project-room TUI | split chat/work and 26-role wall, direct typing, slash settings/provider commands, authenticated live IPC source, cursor resync, lease renewal, targeted instructions, approvals, model/tool activity, evidence, tokens, and cost | Very large projections still need pagination/compaction beyond current bounded event pages |
+| Controller runtime v2 | event-sourced three-session runtime, bounded parallel DAG, durable assignments/turns/attempts/handoffs, executable conversation turns, mutation fencing, and polling/history | Automatic retries and complete external-side-effect reconciliation remain future work |
+| Project-room TUI | split conversation/work and 26-role wall, direct typing, actual final replies, slash settings/provider commands, authenticated live IPC source, cursor resync, lease renewal, targeted instructions, approvals, model/tool activity, evidence, tokens, and cost | Very large projections still need pagination/compaction beyond current bounded event pages |
 | Model gateway | deterministic, native OpenAI Responses, and native Anthropic Messages adapters with tool continuations, routing, and one-use grants | Provider availability, price, or usage that cannot be verified remains `UNKNOWN` |
-| Token budgets | durable 25%/50%/100% accounts, per-agent reservations/reconciliation, approved extensions, snapshot projection, and live room display | The full ceiling is fixed at 100,000 tokens per run in v0.4 |
+| Token budgets | durable 25%/50%/100% accounts, per-agent reservations/reconciliation, approved extensions, snapshot projection, and live room display | The full ceiling is fixed at 100,000 tokens per run in v0.5 |
 | Python/MCP | `software_agent` compatibility package and deprecated `agentic_company` aliases | Separate state and orchestration; never a second TypeScript controller |
 
 The schemas in [`schemas/vnext`](../../schemas/vnext) describe these contracts
@@ -84,6 +84,9 @@ connects to it. Tests and deployments that set
 `SOFTWARE_AGENT_CONTROLLER_MODE=embedded` can create an in-process controller
 service for the command lifetime. Both paths use the socket or pipe: the CLI
 does not directly call `LocalController` for controller-backed commands.
+When the authenticated descriptor belongs to an older CLI build, the current
+CLI requests graceful daemon shutdown, waits for that exact instance to exit,
+and starts its matching controller before issuing application commands.
 
 IPC uses four-byte unsigned big-endian length-prefixed UTF-8 JSON frames with a
 1 MiB default frame limit. A descriptor and separate owner-private nonce file
@@ -103,7 +106,7 @@ table.
 
 ## Runtime-v2 execution model
 
-The v0.4 runtime builds a deterministic five-task DAG across exactly three
+The v0.5 runtime builds an initial deterministic five-task DAG across exactly three
 durable execution-seat roles:
 
 - `master-orchestrator`;
@@ -123,6 +126,15 @@ runs ready tasks concurrently up to that bound, never assigns two active tasks
 to the same session, and permits only one workspace-mutating attempt at a time.
 It persists assignments, turns, attempts, handoffs, questions, mailbox
 messages, evidence, and state changes.
+
+Every later project-room message creates a separate `conversation` task rather
+than an inert mailbox note. A team-targeted message is routed without an extra
+model call: change/build language selects Software Engineer, review/test
+language selects Reviewer & QA, and other questions select Master
+Orchestrator. Explicit run/task/agent targets remain available. The executor
+receives the current prompt plus at most 12 recent user/assistant messages and
+24,000 characters of prior conversation. The bound controls token growth and
+is not advertised as unlimited memory.
 
 Runtime-v2 run states are `PAUSED`, `RUNNING`, `PAUSING`, `RECOVERING`,
 `SUCCEEDED`, `FAILED`, and `CANCELED`. Task states are `BLOCKED`, `READY`,
@@ -149,7 +161,8 @@ Runtime-v2 sends a strict `software-agent.step/v1` manifest to an injectable
 step executor. The installed controller uses a controller-owned model/tool
 executor; direct runtime tests can use the child-worker executor. The manifest
 binds run, task revision, session, turn revision, attempt, lease, fencing epoch,
-workspace revision, role, objective, heartbeat cadence, and execution limits.
+workspace revision, role, objective, interaction kind, optional current prompt,
+bounded prior conversation, heartbeat cadence, and execution limits.
 It never contains provider or tool credentials.
 
 The executor emits strict `software-agent.step-frame/v1` heartbeat, activity,
@@ -205,6 +218,8 @@ authoritative snapshot when the server requests resynchronization.
   approval, detail, and token views;
 - normal typing for prompts and `/` commands for provider, model, token,
   settings, status, target, search, follow, and local-view operations;
+- team-targeted chat by default, clearly labeled user messages and final model
+  replies, plus live model/tool/file activity while each turn runs;
 - explicit composer targets and confirmation state;
 - focus, search, follow, help, reconnect, resync, stale, error, empty, and read-only states; and
 - `NO_COLOR`, ASCII, non-interactive text, and terminal-restoration behavior.
@@ -220,7 +235,12 @@ renews it before expiry, falls back to `READ_ONLY` when another room owns the
 lease, checks each intent's `expectedCursor` against a fresh snapshot, then
 uses the selected run's current revision in the runtime command. It releases
 the lease on leave or disposal. `objective.create` creates a paused runtime-v2
-run and immediately resumes it; `session.leave` can continue, pause, or cancel.
+run and immediately resumes it. `instruction.submit` creates a schedulable
+conversation task; a paused run is resumed only after the instruction receipt
+commits. Because live work can advance the stream between keystroke and append,
+chat submission alone may rebase and retry on a run-revision conflict; approval
+and other mutations retain strict cursor matching. `session.leave` can
+continue, pause, or cancel.
 
 The adapter derives activity, evidence, provider/model, usage, cost, token
 budgets, and approval panels from authoritative snapshots and recent events.

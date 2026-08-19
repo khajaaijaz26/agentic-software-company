@@ -13,6 +13,7 @@ import {
   type PlatformPaths,
 } from "../../packages/config/src/index.js";
 import type {CredentialBackend} from "../../packages/secret-broker/src/index.js";
+import {ControllerIpcError} from "../../packages/ipc/src/index.js";
 import type {SoftwareAgentRunView, SoftwareAgentSnapshot} from "../../apps/control-plane/src/controller.js";
 import {
   IpcProjectRoomSource,
@@ -176,6 +177,97 @@ describe("Software Agent project-room IPC adapter", () => {
     expect(create.mutationLease).toEqual({leaseId: "lease_ui", fence: 7});
     expect(resume).toMatchObject({expectedRunRevision: 5, runId: "run_one"});
     expect(calls.map(({method}) => method)).toContain("mutation.release");
+  });
+
+  it("submits normal chat as a runnable turn and resumes a paused run without sending UI-only target fields", async () => {
+    const calls: Array<{method: string; params: unknown}> = [];
+    const paused = {...run, state: "PAUSED" as const};
+    const request = vi.fn(async (method: string, params: unknown) => {
+      calls.push({method, params});
+      if (method === "mutation.acquire") return {
+        leaseId: "lease_chat",
+        attachmentId: "ui_chat",
+        fence: 3,
+        acquiredAt: "2026-08-19T00:00:00.000Z",
+        expiresAt: "2099-08-19T00:00:00.000Z",
+        state: "ACTIVE",
+      };
+      if (method === "snapshot.get") return {...snapshot([paused]), recentEvents: []};
+      if (method === "instruction.submit") return {
+        message: {
+          id: "message_chat",
+          from: "local-user",
+          to: "session_engineer",
+          kind: "INSTRUCTION",
+          payload: "Fix the failing test",
+          createdAt: "2026-08-19T00:00:01.000Z",
+        },
+        runRevision: 8,
+      };
+      if (method === "run.resume") return {schema: "software-agent.command-receipt/v2", accepted: true, runId: run.id, revision: 9};
+      if (method === "mutation.release") return {leaseId: "lease_chat", attachmentId: "ui_chat", fence: 3, acquiredAt: "2026-08-19T00:00:00.000Z", expiresAt: "2026-08-19T00:00:02.000Z", state: "RELEASED"};
+      throw new Error(`unexpected method ${method}`);
+    }) as unknown as ProjectRoomRpcClient["request"];
+    const source = new IpcProjectRoomSource({request}, {attachmentId: "ui_chat"});
+    await source.initialize();
+    const result = await source.execute({
+      type: "instruction.submit",
+      runId: run.id,
+      text: "Fix the failing test",
+      target: {kind: "run", id: run.id, label: "Software Agent team"},
+      expectedCursor: 3,
+    }, new AbortController().signal);
+    await source.dispose();
+
+    const submitted = calls.find(({method}) => method === "instruction.submit")?.params as Record<string, unknown>;
+    expect(submitted.target).toEqual({kind: "run", id: run.id});
+    expect(calls.find(({method}) => method === "run.resume")?.params).toMatchObject({expectedRunRevision: 8, runId: run.id});
+    expect(result.message).toContain("Message sent to Software Engineer");
+    expect(result.message).toContain("final reply");
+  });
+
+  it("rebases chat safely when live agent events advance the run revision", async () => {
+    const instructionRevisions: number[] = [];
+    let snapshotCalls = 0;
+    const request = vi.fn(async (method: string, params: unknown) => {
+      if (method === "mutation.acquire") return {
+        leaseId: "lease_rebase",
+        attachmentId: "ui_rebase",
+        fence: 4,
+        acquiredAt: "2026-08-19T00:00:00.000Z",
+        expiresAt: "2099-08-19T00:00:00.000Z",
+        state: "ACTIVE",
+      };
+      if (method === "snapshot.get") {
+        snapshotCalls += 1;
+        const revision = snapshotCalls === 1 ? 5 : 7;
+        return {...snapshot([{...run, revision}]), cursor: snapshotCalls === 1 ? 4 : 6, recentEvents: []};
+      }
+      if (method === "instruction.submit") {
+        const revision = (params as {expectedRunRevision: number}).expectedRunRevision;
+        instructionRevisions.push(revision);
+        if (instructionRevisions.length === 1) throw new ControllerIpcError("RUN_REVISION_CONFLICT", "live event won the first append", true);
+        return {
+          message: {id: "message_rebased", from: "local-user", to: "session_engineer", kind: "INSTRUCTION", payload: "Continue the fix", createdAt: "2026-08-19T00:00:02.000Z"},
+          runRevision: 10,
+        };
+      }
+      if (method === "mutation.release") return {leaseId: "lease_rebase", attachmentId: "ui_rebase", fence: 4, acquiredAt: "2026-08-19T00:00:00.000Z", expiresAt: "2026-08-19T00:00:03.000Z", state: "RELEASED"};
+      throw new Error(`unexpected method ${method}`);
+    }) as unknown as ProjectRoomRpcClient["request"];
+    const source = new IpcProjectRoomSource({request}, {attachmentId: "ui_rebase"});
+    await source.initialize();
+    const result = await source.execute({
+      type: "instruction.submit",
+      runId: run.id,
+      text: "Continue the fix",
+      target: {kind: "run", id: run.id, label: "Software Agent team"},
+      expectedCursor: 3,
+    }, new AbortController().signal);
+    await source.dispose();
+
+    expect(instructionRevisions).toEqual([5, 7]);
+    expect(result.message).toContain("Message sent to Software Engineer");
   });
 
   it("stores API keys only in the injected secure backend and rotates/removes them transactionally", async () => {

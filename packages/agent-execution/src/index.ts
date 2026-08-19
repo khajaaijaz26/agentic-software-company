@@ -244,20 +244,29 @@ export async function executeSoftwareAgentStep(
   });
   const route = await options.resolveModel(manifest);
   const files = await workspace.listFiles();
+  const conversational = manifest.interaction === "conversation";
+  const currentPrompt = manifest.prompt ?? manifest.taskTitle;
   const initialInput = [
     `Objective: ${manifest.objective}`,
-    `Assigned task: ${manifest.taskTitle}`,
+    conversational ? `Current user message: ${currentPrompt}` : `Assigned task: ${manifest.taskTitle}`,
     `Role: ${manifest.role}`,
     `Workspace revision: ${manifest.workspaceRevision}`,
+    conversational ? "Reply directly to the current user message after completing any necessary bounded repository work." : "",
     "Visible files (bounded):",
     files.slice(0, 400).join("\n") || "(empty workspace)",
     files.length > 400 ? `... ${files.length - 400} additional files omitted; use list_files.` : "",
   ].filter((value) => value !== "").join("\n\n");
-  const system = rolePrompt(manifest.role);
+  const system = rolePrompt(manifest.role, conversational);
   const tools = manifest.role === "software-engineer"
     ? TOOL_DEFINITIONS
     : TOOL_DEFINITIONS.filter((tool) => tool.name !== "write_file");
-  const messages: ModelMessage[] = [{role: "user", content: initialInput}];
+  const messages: ModelMessage[] = [
+    ...(manifest.conversation ?? []).map((message): ModelMessage => ({
+      role: message.role,
+      content: message.speaker === undefined ? message.content : `[${message.speaker}]\n${message.content}`,
+    })),
+    {role: "user", content: initialInput},
+  ];
   let pendingToolResults: readonly ModelToolResult[] = [];
   let providerContinuationId: string | undefined;
   let finalText = "";
@@ -279,7 +288,7 @@ export async function executeSoftwareAgentStep(
         system,
         input: turn === 1 ? initialInput : "Continue from the tool results. Complete the assigned task and report only verified evidence.",
         maxOutputTokens,
-        messages: route.providerId === "openai" && providerContinuationId !== undefined ? [] : messages,
+        messages: route.providerId === "openai" && providerContinuationId !== undefined ? [] : [...messages],
         tools,
         ...(pendingToolResults.length === 0 ? {} : {toolResults: pendingToolResults}),
         ...(route.providerId === "openai" && providerContinuationId !== undefined ? {providerContinuationId} : {}),
@@ -440,16 +449,19 @@ async function executeTool(
   }
 }
 
-function rolePrompt(role: StepManifest["role"]): string {
+function rolePrompt(role: StepManifest["role"], conversational: boolean): string {
   const shared = [
     "You are one logical specialist inside Software Agent, a visible multi-agent coding platform.",
     "Use the provided repository tools; never invent file contents, commands, test results, or completed work.",
     "Inspect before acting, keep changes narrowly scoped, conserve tokens, and finish with concise verified evidence.",
     "Never request or reveal credentials. Never access generated state, dependencies, or paths outside the workspace.",
   ].join(" ");
-  if (role === "master-orchestrator") return `${shared} You are the Master Orchestrator. Analyze the objective, repository shape, dependencies, and acceptance checks. Coordinate through a precise implementation plan; do not edit files.`;
-  if (role === "software-engineer") return `${shared} You are the Software Engineer. Implement the assigned change completely. Read exact revisions before writes, make atomic edits, and run the smallest relevant verification commands before reporting completion.`;
-  return `${shared} You are Reviewer & QA. Independently inspect the resulting repository, run bounded verification, identify concrete defects and risks, and report evidence. Do not edit files.`;
+  const conversation = conversational
+    ? " This is a continuous terminal conversation. Use the supplied conversation history, answer the user's current message directly in natural language, and do not merely restate internal workflow events."
+    : "";
+  if (role === "master-orchestrator") return `${shared}${conversation} You are the Master Orchestrator. Analyze the objective, repository shape, dependencies, and acceptance checks. Give a clear direct answer or coordinate through a precise implementation plan; do not edit files.`;
+  if (role === "software-engineer") return `${shared}${conversation} You are the Software Engineer. When the user requests a change, implement it completely. Read exact revisions before writes, make atomic edits, run the smallest relevant verification commands, then explain the result directly.`;
+  return `${shared}${conversation} You are Reviewer & QA. Independently inspect the repository, run bounded verification when needed, identify concrete defects and risks, and answer with evidence. Do not edit files.`;
 }
 
 function reserve(

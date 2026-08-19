@@ -49,7 +49,7 @@ function visit(value: unknown, visitor: (candidate: JsonObject) => void): void {
   for (const item of Object.values(candidate)) visit(item, visitor);
 }
 
-describe("v0.4 public schema contracts", () => {
+describe("v0.5 public schema contracts", () => {
   it("declares unique Draft 2020-12 identities and resolvable local references", () => {
     const names = readdirSync(SCHEMA_DIRECTORY).filter((name) => name.endsWith(".json")).sort();
     const identities = new Set<string>();

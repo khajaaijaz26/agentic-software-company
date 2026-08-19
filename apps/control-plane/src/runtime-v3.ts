@@ -48,6 +48,8 @@ export interface SoftwareAgentTaskView {
   readonly state: SoftwareAgentTaskState;
   readonly revision: number;
   readonly sessionId: string;
+  readonly interaction?: "workflow" | "conversation";
+  readonly instructionId?: string | undefined;
   readonly activeTurnId?: string | undefined;
   readonly summary: string;
 }
@@ -285,6 +287,7 @@ export class SoftwareAgentRuntime {
   readonly #executeStep: SoftwareAgentStepExecutor;
   readonly #mutationLeaseTtlMs: number;
   readonly #running = new Map<string, Promise<void>>();
+  readonly #reschedule = new Set<string>();
   readonly #abort = new Map<string, AbortController>();
   #workspaceMutationAttempt: string | undefined;
   #closing = false;
@@ -489,6 +492,7 @@ export class SoftwareAgentRuntime {
         mutatesWorkspace: task.mutatesWorkspace,
         state: task.state,
         sessionId: task.sessionId,
+        interaction: task.interaction ?? "workflow",
       }, input.correlationId, input.commandId)),
     ];
     this.#events.append({
@@ -621,23 +625,32 @@ export class SoftwareAgentRuntime {
     this.#assertCommandLease(input);
     const run = this.getRun(input.runId);
     this.#assertRunRevision(run, input.expectedRunRevision);
-    const recipient = instructionRecipient(run, input.target);
+    if (run.state === "PAUSING") {
+      throw new SoftwareAgentRuntimeError("RUN_PAUSING", `run ${run.id} is still pausing; retry after it reaches PAUSED`);
+    }
+    const session = instructionSession(run, input.target, text);
     const now = new Date().toISOString();
     const instructionId = deterministicId("ins", input.commandId);
+    const taskId = deterministicId("tsk", `${input.commandId}:conversation`);
     const message: MailboxMessageView = {
       id: deterministicId("msg", `${input.commandId}:instruction`),
       from: input.actor.id,
-      to: recipient,
+      to: session.id,
       kind: "INSTRUCTION",
       payload: text,
       createdAt: now,
     };
-    const response = instructionCommandResultJson({message, runRevision: input.expectedRunRevision + 2});
-    const result = this.#appendCommand(input, "instruction.submit", operation, [
+    const superseded = ["FAILED", "CANCELED"].includes(run.state)
+      ? run.tasks.filter((task) => task.state !== "PASSED" && task.state !== "CANCELED")
+      : [];
+    const reopensTerminalRun = ["SUCCEEDED", "FAILED", "CANCELED"].includes(run.state);
+    const events: EventToAppend[] = [
       runtimeEvent("software-agent.instruction.submitted", input.actor, now, {
         runId: run.id,
         instructionId,
         target: {kind: input.target.kind, id: input.target.id},
+        sessionId: session.id,
+        taskId,
         text,
         submittedAt: now,
       }, input.correlationId, input.causationId),
@@ -650,7 +663,32 @@ export class SoftwareAgentRuntime {
         payload: message.payload,
         createdAt: message.createdAt,
       }, input.correlationId, instructionId),
-    ], response);
+      ...superseded.map((task) => runtimeEvent("software-agent.task.canceled", SYSTEM_ACTOR, now, {
+        runId: run.id,
+        taskId: task.id,
+        reason: "superseded by a new conversational turn",
+      }, input.correlationId, instructionId)),
+      runtimeEvent("software-agent.task.created", SYSTEM_ACTOR, now, {
+        runId: run.id,
+        taskId,
+        title: conversationTaskTitle(session.role, text),
+        role: session.role,
+        dependsOn: [],
+        mutatesWorkspace: session.role === "software-engineer",
+        state: "READY",
+        sessionId: session.id,
+        interaction: "conversation",
+        instructionId,
+      }, input.correlationId, instructionId),
+      ...(!reopensTerminalRun ? [] : [runtimeEvent("software-agent.run.state_changed", input.actor, now, {
+        runId: run.id,
+        state: "RUNNING",
+        reason: "conversation submitted",
+      }, input.correlationId, instructionId)]),
+    ];
+    const response = instructionCommandResultJson({message, runRevision: input.expectedRunRevision + events.length});
+    const result = this.#appendCommand(input, "instruction.submit", operation, events, response);
+    if (run.state === "RUNNING" || reopensTerminalRun) queueMicrotask(() => this.#ensureScheduled(run.id));
     return instructionCommandResultFromJson(result.receipt.response);
   }
 
@@ -712,7 +750,7 @@ export class SoftwareAgentRuntime {
 
   public getRun(runId: string): SoftwareAgentRunView {
     const run = this.#runs().find((candidate) => candidate.id === runId);
-    if (!run) throw new SoftwareAgentRuntimeError("RUN_NOT_FOUND", `unknown v0.4 run ${runId}`);
+    if (!run) throw new SoftwareAgentRuntimeError("RUN_NOT_FOUND", `unknown Software Agent run ${runId}`);
     return run;
   }
 
@@ -854,7 +892,11 @@ export class SoftwareAgentRuntime {
   }
 
   #ensureScheduled(runId: string): void {
-    if (this.#closing || this.#running.has(runId)) return;
+    if (this.#closing) return;
+    if (this.#running.has(runId)) {
+      this.#reschedule.add(runId);
+      return;
+    }
     const cancellation = new AbortController();
     this.#abort.set(runId, cancellation);
     const promise = this.#schedule(runId, cancellation.signal)
@@ -862,6 +904,11 @@ export class SoftwareAgentRuntime {
       .finally(() => {
         this.#running.delete(runId);
         this.#abort.delete(runId);
+        const reschedule = this.#reschedule.delete(runId);
+        if (reschedule && !this.#closing) {
+          const run = this.#runs().find((candidate) => candidate.id === runId);
+          if (run?.state === "RUNNING") queueMicrotask(() => this.#ensureScheduled(runId));
+        }
       });
     this.#running.set(runId, promise);
   }
@@ -870,7 +917,7 @@ export class SoftwareAgentRuntime {
     while (!signal.aborted && !this.#closing) {
       let run = this.getRun(runId);
       if (run.state !== "RUNNING") return;
-      if (run.tasks.every((task) => task.state === "PASSED")) {
+      if (run.tasks.length > 0 && run.tasks.every((task) => task.state === "PASSED" || task.state === "CANCELED")) {
         this.#appendInternal(run.id, `run-succeeded:${run.revision}`, [runtimeEvent("software-agent.run.state_changed", SYSTEM_ACTOR, new Date().toISOString(), {
           runId: run.id,
           state: "SUCCEEDED",
@@ -1006,6 +1053,11 @@ export class SoftwareAgentRuntime {
       role: task.role,
       taskTitle: task.title,
       objective: run.objective,
+      interaction: task.interaction ?? "workflow",
+      ...(task.interaction === "conversation" ? {
+        prompt: instructionTextForTask(this.#events.load(run.id), task.id) ?? task.title,
+        conversation: conversationHistory(this.#events.load(run.id), run, task.id),
+      } : {}),
       workspaceRevision: `workspace:${createHash("sha256").update(this.#workspace, "utf8").digest("hex").slice(0, 24)}:v1`,
       simulatedWorkMs: task.id.endsWith(":implementation") || task.id.endsWith(":test-plan-risk") ? 180 : 70,
       heartbeatIntervalMs: 5_000,
@@ -1094,7 +1146,7 @@ export class SoftwareAgentRuntime {
       return;
     }
     const now = frame.at;
-    const dependentTasks = run.tasks.filter((candidate) => candidate.dependsOn.includes(task.id));
+    const dependentTasks = run.tasks.filter((candidate) => candidate.state !== "CANCELED" && candidate.dependsOn.includes(task.id));
     const events: EventToAppend[] = [
       runtimeEvent("software-agent.attempt.completed", SYSTEM_ACTOR, now, {runId: run.id, attemptId: attempt.id, taskId: task.id, completedAt: now}),
       runtimeEvent("software-agent.turn.completed", {type: "agent", id: session.id}, now, {
@@ -1266,7 +1318,7 @@ function task(
 ): SoftwareAgentTaskView {
   const sessionId = sessions.get(role);
   if (sessionId === undefined) throw new SoftwareAgentRuntimeError("CORRUPT_RUNTIME", `no session exists for role ${role}`);
-  return {id, title, role, dependsOn, mutatesWorkspace, state, revision: 1, sessionId, summary: ""};
+  return {id, title, role, dependsOn, mutatesWorkspace, state, revision: 1, sessionId, interaction: "workflow", summary: ""};
 }
 
 function reduceRuntime(events: readonly StoredEvent[]): SoftwareAgentRunView[] {
@@ -1312,16 +1364,29 @@ function reduceRuntime(events: readonly StoredEvent[]): SoftwareAgentRunView[] {
           dependsOn: Array.isArray(data.dependsOn) ? data.dependsOn.map(String) : [],
           mutatesWorkspace: data.mutatesWorkspace === true,
           state: String(data.state) as SoftwareAgentTaskState,
-          revision: 1, sessionId: String(data.sessionId), summary: "",
+          revision: 1,
+          sessionId: String(data.sessionId),
+          interaction: data.interaction === "conversation" ? "conversation" : "workflow",
+          ...(typeof data.instructionId === "string" ? {instructionId: data.instructionId} : {}),
+          summary: "",
         });
         break;
       case "software-agent.task.ready":
       case "software-agent.task.started":
       case "software-agent.task.passed":
-      case "software-agent.task.failed": {
+      case "software-agent.task.failed":
+      case "software-agent.task.canceled": {
         const taskView = run.tasks.get(String(data.taskId));
         if (taskView) {
-          const state = envelope.eventType.endsWith(".ready") ? "READY" : envelope.eventType.endsWith(".started") ? "RUNNING" : envelope.eventType.endsWith(".passed") ? "PASSED" : "FAILED";
+          const state = envelope.eventType.endsWith(".ready")
+            ? "READY"
+            : envelope.eventType.endsWith(".started")
+              ? "RUNNING"
+              : envelope.eventType.endsWith(".passed")
+                ? "PASSED"
+                : envelope.eventType.endsWith(".canceled")
+                  ? "CANCELED"
+                  : "FAILED";
           run.tasks.set(taskView.id, {
             ...taskView,
             state,
@@ -1577,22 +1642,80 @@ function questionCommandResultFromJson(value: unknown): QuestionCommandResult {
   };
 }
 
-function instructionRecipient(run: SoftwareAgentRunView, target: InstructionTarget): string {
+function instructionSession(run: SoftwareAgentRunView, target: InstructionTarget, text: string): AgentSessionViewV2 {
   if (target.kind === "agent") {
-    if (!run.sessions.some((session) => session.id === target.id)) {
+    const session = run.sessions.find((candidate) => candidate.id === target.id);
+    if (session === undefined) {
       throw new SoftwareAgentRuntimeError("SESSION_NOT_FOUND", `unknown instruction target agent ${target.id}`);
     }
-    return target.id;
+    return session;
   }
   if (target.kind === "task") {
     const task = run.tasks.find((candidate) => candidate.id === target.id);
     if (!task) throw new SoftwareAgentRuntimeError("TASK_NOT_FOUND", `unknown instruction target task ${target.id}`);
-    return task.sessionId;
+    const session = run.sessions.find((candidate) => candidate.id === task.sessionId);
+    if (!session) throw new SoftwareAgentRuntimeError("CORRUPT_RUNTIME", `task ${task.id} has no agent session`);
+    return session;
   }
   if (target.id !== run.id) throw new SoftwareAgentRuntimeError("RUN_NOT_FOUND", `instruction target ${target.id} is not run ${run.id}`);
-  const orchestrator = run.sessions.find((session) => session.role === "master-orchestrator");
-  if (!orchestrator) throw new SoftwareAgentRuntimeError("CORRUPT_RUNTIME", "run has no orchestrator session");
-  return orchestrator.id;
+  const normalized = text.trim().toLowerCase();
+  const requestedRole: SoftwareAgentRole = /\b(?:add|build|change|code|create|debug|edit|fix|implement|integrate|modify|patch|refactor|remove|rename|update|write)\b/u.test(normalized)
+    ? "software-engineer"
+    : /\b(?:audit|check|review|test|verify|verification|quality|risk|security)\b/u.test(normalized)
+      ? "reviewer-qa"
+      : /^(?:also|continue|do it|go ahead|next|proceed|same|then|yes)\b/u.test(normalized)
+        ? [...run.tasks].reverse().find((task) => task.interaction === "conversation")?.role ?? "master-orchestrator"
+        : "master-orchestrator";
+  const selected = run.sessions.find((session) => session.role === requestedRole);
+  if (!selected) throw new SoftwareAgentRuntimeError("CORRUPT_RUNTIME", `run has no ${requestedRole} session`);
+  return selected;
+}
+
+function conversationTaskTitle(role: SoftwareAgentRole, text: string): string {
+  const prefix = role === "software-engineer" ? "Implement user request" : role === "reviewer-qa" ? "Review user request" : "Answer user";
+  return sanitizeTerminal(`${prefix}: ${text.replaceAll("\n", " ")}`, 512);
+}
+
+function instructionTextForTask(events: readonly StoredEvent[], taskId: string): string | undefined {
+  const value = events.findLast((event) => event.eventType === "software-agent.instruction.submitted" && event.data.taskId === taskId)?.data.text;
+  return typeof value === "string" && value.trim() !== "" ? sanitizeTerminal(value.trim(), 4096) : undefined;
+}
+
+function conversationHistory(
+  events: readonly StoredEvent[],
+  run: SoftwareAgentRunView,
+  currentTaskId: string,
+): NonNullable<StepManifest["conversation"]> {
+  const conversationTasks = new Map(run.tasks
+    .filter((task) => task.interaction === "conversation")
+    .map((task) => [task.id, task]));
+  const messages: Array<{role: "user" | "assistant"; content: string; speaker?: string}> = [];
+  for (const event of events) {
+    const taskId = typeof event.data.taskId === "string" ? event.data.taskId : undefined;
+    if (taskId === undefined || taskId === currentTaskId || !conversationTasks.has(taskId)) continue;
+    if (event.eventType === "software-agent.instruction.submitted" && typeof event.data.text === "string") {
+      messages.push({role: "user", content: event.data.text, speaker: "User"});
+      continue;
+    }
+    if (event.eventType !== "software-agent.turn.completed" || typeof event.data.summary !== "string") continue;
+    const task = conversationTasks.get(taskId);
+    messages.push({role: "assistant", content: event.data.summary, speaker: roleDisplayName(task?.role)});
+  }
+  const bounded: Array<{role: "user" | "assistant"; content: string; speaker?: string}> = [];
+  let characters = 0;
+  for (const message of messages.slice(-12).reverse()) {
+    const content = sanitizeTerminal(message.content.trim(), 6_000);
+    if (content === "" || characters + content.length > 24_000) continue;
+    bounded.push({...message, content});
+    characters += content.length;
+  }
+  return bounded.reverse();
+}
+
+function roleDisplayName(role: SoftwareAgentRole | undefined): string {
+  if (role === "software-engineer") return "Software Engineer";
+  if (role === "reviewer-qa") return "Reviewer & QA";
+  return "Master Orchestrator";
 }
 
 function instructionCommandResultJson(result: InstructionCommandResult): JsonObject {

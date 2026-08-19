@@ -28,6 +28,8 @@
     "state": { "enum": ["BLOCKED", "READY", "RUNNING", "PASSED", "FAILED", "CANCELED"] },
     "revision": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
     "sessionId": { "type": "string", "minLength": 1, "maxLength": 512 },
+    "interaction": { "enum": ["workflow", "conversation"] },
+    "instructionId": { "type": "string", "minLength": 1, "maxLength": 512 },
     "activeTurnId": { "type": "string", "minLength": 1, "maxLength": 512 },
     "summary": { "type": "string" }
   }
