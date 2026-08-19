@@ -302,6 +302,141 @@ export class MacOSKeychainBackend extends CommandCredentialBackend {
   }
 }
 
+const WINDOWS_CREDENTIAL_NATIVE = String.raw`
+using System;
+using System.Runtime.InteropServices;
+
+public static class SoftwareAgentCredentialNative {
+  [StructLayout(LayoutKind.Sequential)]
+  public struct CREDENTIAL {
+    public UInt32 Flags;
+    public UInt32 Type;
+    public IntPtr TargetName;
+    public IntPtr Comment;
+    public System.Runtime.InteropServices.ComTypes.FILETIME LastWritten;
+    public UInt32 CredentialBlobSize;
+    public IntPtr CredentialBlob;
+    public UInt32 Persist;
+    public UInt32 AttributeCount;
+    public IntPtr Attributes;
+    public IntPtr TargetAlias;
+    public IntPtr UserName;
+  }
+
+  [DllImport("advapi32.dll", EntryPoint = "CredWriteW", CharSet = CharSet.Unicode, SetLastError = true)]
+  public static extern bool CredWrite(ref CREDENTIAL credential, UInt32 flags);
+
+  [DllImport("advapi32.dll", EntryPoint = "CredReadW", CharSet = CharSet.Unicode, SetLastError = true)]
+  public static extern bool CredRead(string target, UInt32 type, UInt32 flags, out IntPtr credential);
+
+  [DllImport("advapi32.dll", EntryPoint = "CredDeleteW", CharSet = CharSet.Unicode, SetLastError = true)]
+  public static extern bool CredDelete(string target, UInt32 type, UInt32 flags);
+
+  [DllImport("advapi32.dll", EntryPoint = "CredFree")]
+  public static extern void CredFree(IntPtr credential);
+}
+`;
+
+const WINDOWS_CREDENTIAL_PREAMBLE = String.raw`
+$ErrorActionPreference = 'Stop'
+Add-Type -TypeDefinition @'
+${WINDOWS_CREDENTIAL_NATIVE}
+'@
+$target = '__SOFTWARE_AGENT_CREDENTIAL_TARGET__'
+`;
+
+const WINDOWS_CREDENTIAL_READ = `${WINDOWS_CREDENTIAL_PREAMBLE}
+$pointer = [IntPtr]::Zero
+if (-not [SoftwareAgentCredentialNative]::CredRead($target, 1, 0, [ref]$pointer)) { exit 2 }
+try {
+  $credential = [Runtime.InteropServices.Marshal]::PtrToStructure($pointer, [type][SoftwareAgentCredentialNative+CREDENTIAL])
+  $bytes = New-Object byte[] $credential.CredentialBlobSize
+  if ($credential.CredentialBlobSize -gt 0) {
+    [Runtime.InteropServices.Marshal]::Copy($credential.CredentialBlob, $bytes, 0, $credential.CredentialBlobSize)
+  }
+  [Console]::Out.Write([Text.Encoding]::Unicode.GetString($bytes))
+} finally {
+  [SoftwareAgentCredentialNative]::CredFree($pointer)
+}
+`;
+
+const WINDOWS_CREDENTIAL_WRITE = `${WINDOWS_CREDENTIAL_PREAMBLE}
+$secret = [Console]::In.ReadToEnd()
+if ([String]::IsNullOrEmpty($secret)) { exit 3 }
+$targetPointer = [Runtime.InteropServices.Marshal]::StringToCoTaskMemUni($target)
+$userPointer = [Runtime.InteropServices.Marshal]::StringToCoTaskMemUni([Environment]::UserName)
+$bytes = [Text.Encoding]::Unicode.GetBytes($secret)
+$blobPointer = [Runtime.InteropServices.Marshal]::AllocHGlobal($bytes.Length)
+try {
+  [Runtime.InteropServices.Marshal]::Copy($bytes, 0, $blobPointer, $bytes.Length)
+  $credential = New-Object SoftwareAgentCredentialNative+CREDENTIAL
+  $credential.Type = 1
+  $credential.TargetName = $targetPointer
+  $credential.CredentialBlobSize = $bytes.Length
+  $credential.CredentialBlob = $blobPointer
+  $credential.Persist = 2
+  $credential.UserName = $userPointer
+  if (-not [SoftwareAgentCredentialNative]::CredWrite([ref]$credential, 0)) { exit 4 }
+} finally {
+  for ($index = 0; $index -lt $bytes.Length; $index += 1) {
+    [Runtime.InteropServices.Marshal]::WriteByte($blobPointer, $index, 0)
+  }
+  [Array]::Clear($bytes, 0, $bytes.Length)
+  [Runtime.InteropServices.Marshal]::FreeHGlobal($blobPointer)
+  [Runtime.InteropServices.Marshal]::FreeCoTaskMem($targetPointer)
+  [Runtime.InteropServices.Marshal]::FreeCoTaskMem($userPointer)
+}
+`;
+
+const WINDOWS_CREDENTIAL_DELETE = `${WINDOWS_CREDENTIAL_PREAMBLE}
+if (-not [SoftwareAgentCredentialNative]::CredDelete($target, 1, 0)) { exit 2 }
+`;
+
+/** Windows Credential Manager adapter. Secret bytes travel over stdin only. */
+export class WindowsCredentialManagerBackend implements CredentialBackend {
+  public readonly scheme = "manager" as const;
+
+  public constructor(private readonly runner: CredentialCommandRunner = new SpawnCredentialCommandRunner()) {}
+
+  public async get(reference: string): Promise<string> {
+    validateWindowsCredentialReference(reference);
+    const result = await this.runner.run(
+      "powershell.exe",
+      powershellCredentialArgs(WINDOWS_CREDENTIAL_READ, reference),
+      {timeoutMs: 15_000},
+    );
+    if (result.exitCode !== 0) throw new SecretUnavailableError({scheme: this.scheme, reference});
+    return result.stdout;
+  }
+
+  public list(): Promise<readonly string[]> {
+    return Promise.resolve([]);
+  }
+
+  public async set(reference: string, value: string): Promise<void> {
+    validateWindowsCredentialReference(reference);
+    if (value === "") throw new Error("secret value must not be empty");
+    const result = await this.runner.run(
+      "powershell.exe",
+      powershellCredentialArgs(WINDOWS_CREDENTIAL_WRITE, reference),
+      {stdin: value, timeoutMs: 15_000},
+    );
+    if (result.exitCode !== 0) {
+      throw new UnsupportedCredentialBackendError(this.scheme, `Windows Credential Manager rejected the secure write (PowerShell exit ${result.exitCode})`);
+    }
+  }
+
+  public async delete(reference: string): Promise<boolean> {
+    validateWindowsCredentialReference(reference);
+    const result = await this.runner.run(
+      "powershell.exe",
+      powershellCredentialArgs(WINDOWS_CREDENTIAL_DELETE, reference),
+      {timeoutMs: 15_000},
+    );
+    return result.exitCode === 0;
+  }
+}
+
 export class UnsupportedCredentialBackend implements CredentialBackend {
   public readonly scheme = "keychain" as const;
 
@@ -338,9 +473,7 @@ export function createPlatformCredentialBackend(options: PlatformCredentialBacke
       : new UnsupportedCredentialBackend("macOS Keychain command 'security' is unavailable; configure env:// instead");
   }
   if (system === "win32") {
-    return new UnsupportedCredentialBackend(
-      "a safe Credential Manager helper is not installed; plaintext and cmdkey argv fallbacks are prohibited, so configure env:// instead",
-    );
+    return new WindowsCredentialManagerBackend(runner);
   }
   return new UnsupportedCredentialBackend(`platform ${system} has no supported credential-store adapter; configure env:// instead`);
 }
@@ -402,6 +535,18 @@ function validateOpaqueReference(reference: string): void {
   if (reference.length < 1 || reference.length > 256 || hasControlCharacters(reference)) {
     throw new Error("invalid credential-store reference");
   }
+}
+
+function validateWindowsCredentialReference(reference: string): void {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/u.test(reference)) {
+    throw new Error("invalid Windows Credential Manager reference");
+  }
+}
+
+function powershellCredentialArgs(script: string, reference: string): readonly string[] {
+  const bound = script.replaceAll("__SOFTWARE_AGENT_CREDENTIAL_TARGET__", `SoftwareAgent:${reference}`);
+  const encoded = Buffer.from(bound, "utf16le").toString("base64");
+  return ["-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", encoded];
 }
 
 function hasControlCharacters(value: string): boolean {

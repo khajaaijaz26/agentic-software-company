@@ -1,7 +1,18 @@
+import {mkdtemp, readFile, rm} from "node:fs/promises";
+import {tmpdir} from "node:os";
+import {join} from "node:path";
+
 import {describe, expect, it, vi} from "vitest";
 
 import type {ApprovalRecord} from "../../packages/approval-service/src/index.js";
 import type {StoredEvent} from "../../packages/contracts/src/index.js";
+import {
+  initializeProject,
+  loadProjectConfig,
+  loadUserProviderConfig,
+  type PlatformPaths,
+} from "../../packages/config/src/index.js";
+import type {CredentialBackend} from "../../packages/secret-broker/src/index.js";
 import type {SoftwareAgentRunView, SoftwareAgentSnapshot} from "../../apps/control-plane/src/controller.js";
 import {
   IpcProjectRoomSource,
@@ -107,7 +118,7 @@ describe("Software Agent project-room IPC adapter", () => {
 
     expect(room).toMatchObject({projectName: "Demo", branch: "main", cursor: 3, controller: {mode: "CONTROL"}});
     expect(room.run?.agents[0]).toMatchObject({
-      displayName: "Software Engineer",
+      displayName: "Backend Engineer",
       provider: "openai",
       model: "gpt-5-codex",
       tokens: {input: 100, output: 40},
@@ -115,6 +126,14 @@ describe("Software Agent project-room IPC adapter", () => {
       requestedTools: ["write_file"],
       approvalId: "approval_one",
     });
+    expect(room.roster).toHaveLength(26);
+    expect(room.roster.find((agent) => agent.id === "backend-engineer")).toMatchObject({
+      state: "WORKING",
+      status: "WORKING NOW",
+      taskTitle: "Implement the change",
+      sessionId: "session_engineer",
+    });
+    expect(room.roster.find((agent) => agent.id === "frontend-engineer")).toMatchObject({status: "WAITING FOR WORK", sessionId: null});
     expect(room.approvals[0]).toMatchObject({id: "approval_one", risk: "A3_PROCESS_EXECUTION"});
   });
 
@@ -157,5 +176,87 @@ describe("Software Agent project-room IPC adapter", () => {
     expect(create.mutationLease).toEqual({leaseId: "lease_ui", fence: 7});
     expect(resume).toMatchObject({expectedRunRevision: 5, runId: "run_one"});
     expect(calls.map(({method}) => method)).toContain("mutation.release");
+  });
+
+  it("stores API keys only in the injected secure backend and rotates/removes them transactionally", async () => {
+    const root = await mkdtemp(join(tmpdir(), "software-agent-room-provider-"));
+    const workspace = join(root, "workspace");
+    const platformPaths: PlatformPaths = {
+      config: join(root, "home", "config"),
+      data: join(root, "home", "data"),
+      state: join(root, "home", "state"),
+      cache: join(root, "home", "cache"),
+      runtime: join(root, "home", "runtime"),
+    };
+    const secrets = new Map<string, string>();
+    const backend: CredentialBackend = {
+      scheme: "manager",
+      get(reference) {
+        const value = secrets.get(reference);
+        return value === undefined ? Promise.reject(new Error("missing test credential")) : Promise.resolve(value);
+      },
+      list: () => Promise.resolve([...secrets.keys()]),
+      set(reference, value) {
+        secrets.set(reference, value);
+        return Promise.resolve();
+      },
+      delete(reference) {
+        return Promise.resolve(secrets.delete(reference));
+      },
+    };
+    const request = vi.fn(async (method: string) => {
+      if (method === "mutation.acquire") return {
+        leaseId: "lease_provider",
+        attachmentId: "ui_provider",
+        fence: 1,
+        acquiredAt: "2026-08-19T00:00:00.000Z",
+        expiresAt: "2099-08-19T00:00:00.000Z",
+        state: "ACTIVE",
+      };
+      if (method === "mutation.release") return {
+        leaseId: "lease_provider",
+        attachmentId: "ui_provider",
+        fence: 1,
+        acquiredAt: "2026-08-19T00:00:00.000Z",
+        expiresAt: "2026-08-19T00:00:01.000Z",
+        state: "RELEASED",
+      };
+      throw new Error(`unexpected method ${method}`);
+    }) as unknown as ProjectRoomRpcClient["request"];
+    const source = new IpcProjectRoomSource({request}, {
+      workspace,
+      attachmentId: "ui_provider",
+      credentialBackend: backend,
+      platformPaths,
+    });
+    const firstSecret = "provider-key-value-one";
+    const secondSecret = "provider-key-value-two";
+    try {
+      await initializeProject(workspace, "Provider test");
+      await source.initialize();
+      await source.execute({type: "provider.connect", providerId: "openai", model: "gpt-test", secret: firstSecret, expectedCursor: 0}, new AbortController().signal);
+      const first = await loadUserProviderConfig(platformPaths);
+      const firstReference = first.providers.openai?.credential;
+      expect(firstReference).toMatch(/^manager:\/\/provider\/openai\//u);
+      expect(secrets.get(firstReference?.replace("manager://", "") ?? "")).toBe(firstSecret);
+      expect(await loadProjectConfig(workspace)).toMatchObject({models: {default: "openai/gpt-test"}});
+
+      await source.execute({type: "provider.connect", providerId: "openai", model: "gpt-next", secret: secondSecret, expectedCursor: 0}, new AbortController().signal);
+      const rotated = await loadUserProviderConfig(platformPaths);
+      expect(rotated.providers.openai?.credential).not.toBe(firstReference);
+      expect([...secrets.values()]).toEqual([secondSecret]);
+
+      const files = `${await readFile(join(platformPaths.config, "providers.toml"), "utf8")}\n${await readFile(join(workspace, ".software-agent", "project.toml"), "utf8")}`;
+      expect(files).not.toContain(firstSecret);
+      expect(files).not.toContain(secondSecret);
+
+      await source.execute({type: "provider.remove", providerId: "openai", expectedCursor: 0}, new AbortController().signal);
+      expect((await loadUserProviderConfig(platformPaths)).providers.openai).toBeUndefined();
+      expect((await loadProjectConfig(workspace)).models.default).toBe("deterministic/local");
+      expect(secrets.size).toBe(0);
+    } finally {
+      await source.dispose();
+      await rm(root, {recursive: true, force: true});
+    }
   });
 });

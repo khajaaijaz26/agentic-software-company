@@ -14,6 +14,7 @@ import {
   renderProjectRoomText,
   terminalLogoText,
 } from "../../apps/operator-console/src/project-room.js";
+import {softwareAgentRoster} from "../../packages/agent-registry/src/index.js";
 
 const NO_KEY: ProjectRoomKey = {
   upArrow: false,
@@ -40,6 +41,31 @@ function key(overrides: Partial<ProjectRoomKey>): ProjectRoomKey {
   return {...NO_KEY, ...overrides};
 }
 
+function roster(): ProjectRoomSnapshot["roster"] {
+  return softwareAgentRoster().map((definition) => {
+    const sessionId = definition.id === "orchestrator"
+      ? "agent_orchestrator"
+      : definition.id === "frontend-engineer"
+        ? "agent_engineer"
+        : definition.id === "qa-strategist"
+          ? "agent_reviewer"
+          : null;
+    const working = definition.id === "frontend-engineer";
+    const blocked = definition.id === "qa-strategist";
+    return {
+      id: definition.id,
+      displayName: definition.displayName,
+      capabilities: definition.capabilities,
+      state: working ? "WORKING" : blocked ? "BLOCKED" : "WAITING",
+      status: working ? "WORKING NOW" : blocked ? "WAITING ON DEPENDENCY" : "WAITING FOR WORK",
+      activity: working ? "Applying a bounded UI patch" : blocked ? "Waiting for plan approval" : "Available; no task is assigned.",
+      taskTitle: working ? "Build the project room" : blocked ? "Review the terminal" : "No assigned task",
+      sessionId,
+      model: working ? "openai/gpt-test" : blocked ? "anthropic/claude-test" : "Not allocated",
+    };
+  });
+}
+
 function snapshot(overrides: Partial<ProjectRoomSnapshot> = {}): ProjectRoomSnapshot {
   return {
     schema: "software-agent.project-room/v1",
@@ -49,6 +75,13 @@ function snapshot(overrides: Partial<ProjectRoomSnapshot> = {}): ProjectRoomSnap
     generatedAt: NOW,
     cursor: 12,
     controller: {state: "CONNECTED", mode: "CONTROL"},
+    roster: roster(),
+    settings: {
+      workspace: "C:\\work\\demo",
+      defaultModel: "openai/gpt-test",
+      tokenMode: "balanced",
+      providers: [{providerId: "openai", enabled: true, model: "openai/gpt-test", credentialReference: "manager://provider/openai"}],
+    },
     run: {
       id: "run_demo",
       objective: "Implement the interactive terminal",
@@ -172,7 +205,7 @@ function input(state: ProjectRoomState, value: string, pressed: ProjectRoomKey =
   return action === null ? state : projectRoomReducer(state, action);
 }
 
-describe("Software Agent v0.3 project room", () => {
+describe("Software Agent v0.4 project room", () => {
   it("uses the A7 responsive breakpoints and short-terminal fallback", () => {
     expect(projectRoomLayout(59, 30)).toBe("plain");
     expect(projectRoomLayout(60, 30)).toBe("narrow");
@@ -240,26 +273,69 @@ describe("Software Agent v0.3 project room", () => {
     expect(state.overlay.kind).toBe("none");
 
     state = input(state, "/");
+    state = input(state, "search");
+    state = input(state, "", key({return: true}));
     state = input(state, "engineer");
     expect(state.overlay).toMatchObject({kind: "search", query: "engineer"});
     state = input(state, "", key({return: true}));
     expect(state.selectedEventId).toBe("event_12");
 
-    state = input(state, "f");
+    state = input(state, "f", key({ctrl: true}));
     expect(state.followEvents).toBe(false);
     state = input(state, "k", key({ctrl: true}));
     expect(state.overlay.kind).toBe("palette");
     state = input(state, "", key({escape: true}));
-    state = input(state, "q");
+    state = input(state, "c", key({ctrl: true}));
     expect(state.overlay.kind).toBe("leave");
+
+    state = readyState();
+    state = input(state, "Fix the failing tests");
+    expect(state.overlay.kind).toBe("composer");
+    expect(state.composerText).toBe("Fix the failing tests");
+  });
+
+  it("uses chat slash commands for secure API setup, models, tokens, settings, and the 26-role wall", () => {
+    let state = readyState();
+    state = input(state, "/");
+    state = input(state, "api connect openai gpt-test");
+    state = input(state, "", key({return: true}));
+    expect(state.overlay).toMatchObject({kind: "api-key", providerId: "openai", model: "gpt-test", value: ""});
+    state = input(state, "sk-private-test-value");
+    const masked = renderProjectRoomText(state, {width: 120, height: 32, ascii: true, noColor: true});
+    expect(masked).toContain("MASKED 21 characters");
+    expect(masked).not.toContain("sk-private-test-value");
+    state = input(state, "", key({return: true}));
+    expect(state.pendingCommand?.command).toMatchObject({
+      type: "provider.connect",
+      providerId: "openai",
+      model: "gpt-test",
+      expectedCursor: 12,
+    });
+
+    state = readyState();
+    state = input(state, "/");
+    state = input(state, "tokens 25");
+    state = input(state, "", key({return: true}));
+    expect(state.pendingCommand?.command).toMatchObject({type: "tokens.mode", mode: "economy"});
+
+    state = readyState();
+    state = input(state, "/");
+    state = input(state, "settings");
+    state = input(state, "", key({return: true}));
+    expect(state.overlay.kind).toBe("settings");
+
+    state = readyState();
+    state = input(state, "/");
+    state = input(state, "agents");
+    state = input(state, "", key({return: true}));
+    expect(state.notice).toContain("26 named roles");
   });
 
   it("uses an explicit target in the composer and queues a versioned instruction", () => {
     let state = readyState();
-    state = input(state, "c");
+    state = input(state, "Add focused tests");
     expect(state.overlay.kind).toBe("composer");
     expect(state.composerTarget).toMatchObject({kind: "agent", id: "agent_engineer"});
-    state = input(state, "Add focused tests");
     state = input(state, "", key({return: true}));
     expect(state.pendingCommand?.command).toMatchObject({
       type: "instruction.submit",
@@ -275,7 +351,7 @@ describe("Software Agent v0.3 project room", () => {
 
   it("changes composer targets explicitly and preserves escaped slash input", () => {
     let state = readyState();
-    state = input(state, "c");
+    state = projectRoomReducer(state, {type: "overlay.composer"});
     state = input(state, "", key({tab: true}));
     expect(state.overlay.kind).toBe("target");
     state = input(state, "", key({downArrow: true}));
@@ -313,14 +389,17 @@ describe("Software Agent v0.3 project room", () => {
     const live = renderProjectRoomText(readyState(), {width: 120, height: 32, ascii: true, noColor: true});
     expect(live).toContain(">_ o-o-o [OK] SOFTWARE AGENT");
     expect(live).toContain("RUN WORKING (RUNNING)");
+    expect(live).toContain("CHAT & WORK");
+    expect(live).toContain("AGENT WALL");
     expect(live).toContain("WORKING NOW");
+    expect(live).toContain("WAITING FOR WORK");
     expect(live).toContain("Tasks [");
     expect(live).toContain("Applying a bounded UI patch");
     expect(live).toContain("openai/gpt-test");
     expect(live).toContain("TOKENS & COST");
     expect(live).toContain("APPROVALS");
     expect(live).toContain("EVENTS");
-    expect(live).toContain("f Live Scroll");
+    expect(live).toContain("Ctrl+F Live");
     expect(live).not.toContain("active UNKNOWN");
     expect(live).not.toContain("\u001b");
 

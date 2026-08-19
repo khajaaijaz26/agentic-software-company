@@ -3,6 +3,7 @@ import {render, useStdout} from "ink";
 
 import type {ControllerSnapshot} from "../../control-plane/src/controller.js";
 import type {JsonValue, StoredEvent} from "../../../packages/contracts/src/index.js";
+import {softwareAgentRoster} from "../../../packages/agent-registry/src/index.js";
 import {
   createInitialProjectRoomState,
   projectRoomReducer,
@@ -28,6 +29,7 @@ export type {
   ProjectRoomLayout,
   ProjectRoomProps,
   ProjectRoomRenderOptions,
+  ProjectRoomCommandResult,
   ProjectRoomSource,
   TerminalOutput,
   TerminalRestorer,
@@ -50,6 +52,8 @@ export type {
   ProjectRoomCommittedUpdate,
   ProjectRoomEvent,
   ProjectRoomKey,
+  ProjectRoomRosterAgent,
+  ProjectRoomSettings,
   ProjectRoomSnapshot,
   ProjectRoomState,
 } from "./project-room-state.js";
@@ -156,6 +160,32 @@ export function controllerSnapshotToProjectRoom(snapshot: ControllerSnapshot): P
     };
   }) ?? [];
   const cursor = snapshot.events.at(-1)?.sequence ?? 0;
+  const roster = softwareAgentRoster().map((definition) => {
+    const agent = agents.find((candidate) => candidate.role === definition.id);
+    return agent === undefined
+      ? {
+          id: definition.id,
+          displayName: definition.displayName,
+          capabilities: definition.capabilities,
+          state: "WAITING" as const,
+          status: "WAITING FOR WORK",
+          activity: "Available; no task is assigned.",
+          taskTitle: "No assigned task",
+          sessionId: null,
+          model: "Not allocated",
+        }
+      : {
+          id: definition.id,
+          displayName: definition.displayName,
+          capabilities: definition.capabilities,
+          state: /FAILED/u.test(agent.state) ? "FAILED" as const : /RUNNING/u.test(agent.state) ? "WORKING" as const : "WAITING" as const,
+          status: /RUNNING/u.test(agent.state) ? "WORKING NOW" : /FAILED/u.test(agent.state) ? "FAILED" : "WAITING FOR WORK",
+          activity: agent.activity,
+          taskTitle: agent.taskTitle,
+          sessionId: agent.id,
+          model: `${agent.provider}/${agent.model}`,
+        };
+  });
   return {
     schema: "software-agent.project-room/v1",
     projectId: snapshot.projectId,
@@ -164,6 +194,8 @@ export function controllerSnapshotToProjectRoom(snapshot: ControllerSnapshot): P
     generatedAt: snapshot.generatedAt,
     cursor,
     controller: {state: "CONNECTED", mode: "CONTROL"},
+    roster,
+    settings: {workspace: "UNKNOWN", defaultModel: "deterministic/local", tokenMode: "balanced", providers: []},
     run: run === null ? null : {
       id: run.id,
       objective: run.objective,

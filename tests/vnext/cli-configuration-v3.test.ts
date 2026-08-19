@@ -1,4 +1,4 @@
-import {mkdtempSync, readFileSync, rmSync} from "node:fs";
+import {mkdirSync, mkdtempSync, readFileSync, rmSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 
@@ -88,5 +88,34 @@ describe("Software Agent setup CLI", () => {
     expect(JSON.parse(output.join("")).data).toMatchObject({
       code: "SECRET_UNAVAILABLE",
     });
+  });
+
+  it("opens local workspaces and existing GitHub checkouts in the project room", async () => {
+    const home = temporaryDirectory("software-agent-cli-home-");
+    const localWorkspace = temporaryDirectory("software-agent-cli-local-");
+    const githubCheckout = temporaryDirectory("software-agent-cli-github-");
+    process.env.SOFTWARE_AGENT_HOME = home;
+    mkdirSync(join(githubCheckout, ".git"));
+    const output: string[] = [];
+    const io = {stdout: (value: string) => output.push(value), stderr: () => undefined};
+
+    expect(await runCli(["node", "software-agent", "--plain", "open", localWorkspace], io)).toBe(0);
+    expect(output.join("\n")).toContain("AGENT WALL");
+    expect(output.join("\n")).toContain("26 named roles");
+    expect(readFileSync(join(localWorkspace, ".software-agent", "project.toml"), "utf8")).toContain("software-agent.project/v2");
+
+    output.length = 0;
+    expect(await runCli(["node", "software-agent", "--project", localWorkspace, "--json", "agents", "list"], io)).toBe(0);
+    const roster = JSON.parse(output.join("")).data as Array<{id: string; status: string}>;
+    expect(roster).toHaveLength(26);
+    expect(roster.find((agent) => agent.id === "orchestrator")?.status).toBe("WAITING FOR WORK");
+
+    output.length = 0;
+    expect(await runCli([
+      "node", "software-agent", "--plain", "open", "https://github.com/example/example.git",
+      "--destination", githubCheckout,
+    ], io)).toBe(0);
+    expect(output.join("\n")).toContain("AGENT WALL");
+    expect(readFileSync(join(githubCheckout, ".software-agent", "project.toml"), "utf8")).toContain("software-agent.project/v2");
   });
 });

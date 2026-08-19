@@ -21,11 +21,11 @@
 
 ![Three coordinated Software Agent workstreams connected through a local controller and human approval checkpoint](docs/images/software-agent-hero.png)
 
-Software Agent is a local-first, event-sourced coding platform—not a single chatbot with several role labels. A durable controller coordinates three logical specialists, streams their activity into a responsive terminal room, protects tools with leases and approvals, and records evidence in SQLite so a run can survive terminal disconnects and controller restarts.
+Software Agent is a local-first, event-sourced coding platform—not a single chatbot with several role labels. Its split terminal gives half the screen to chat and committed file/tool activity and half to a wall of all 26 named roles. The durable controller activates only the minimum relevant execution seats, so an inactive role truthfully says `WAITING FOR WORK` and consumes no model tokens. Runs, approvals, usage, and evidence are recorded in SQLite so work can survive terminal disconnects and controller restarts.
 
 ## Install and run
 
-Requirements: Node.js 22.14 or newer, npm, and Git. Node.js 24 LTS is recommended.
+Requirements: Node.js 22.14 or newer, npm, and Git. Node.js 24 LTS is recommended. GitHub URL checkout also requires the [GitHub CLI](https://cli.github.com/) (`gh`); local folders do not.
 
 > **Copy only commands inside the code blocks.** Do not type headings such as “Install Software Agent,” and do not copy the `PS C:\...>` prompt shown by PowerShell.
 
@@ -34,7 +34,7 @@ Requirements: Node.js 22.14 or newer, npm, and Git. Node.js 24 LTS is recommende
 1. Install and verify the current release:
 
    ```powershell
-   npm install -g "https://github.com/khajaaijaz26/software-agent/releases/download/v0.3.2/software-agent-0.3.2.tgz"
+   npm install -g "https://github.com/khajaaijaz26/software-agent/releases/download/v0.4.0/software-agent-0.4.0.tgz"
    software-agent --version
    ```
 
@@ -52,10 +52,20 @@ Requirements: Node.js 22.14 or newer, npm, and Git. Node.js 24 LTS is recommende
 
 If the terminal already shows `PS C:\path\to\your-project>`, run only step 3. The first launch creates private `.software-agent/` state and opens the live project room.
 
+You can also open a local folder or create/reuse a GitHub working checkout directly:
+
+```powershell
+software-agent open C:\path\to\your-project
+software-agent open https://github.com/OWNER/REPOSITORY
+software-agent open OWNER/REPOSITORY --github
+```
+
+GitHub repositories are edited through a normal local Git checkout, so every file change remains reviewable with standard Git tools. Run `gh auth login` once before opening a remote repository; private repositories use that GitHub CLI authentication.
+
 ### macOS or Linux
 
 ```bash
-npm install -g "https://github.com/khajaaijaz26/software-agent/releases/download/v0.3.2/software-agent-0.3.2.tgz"
+npm install -g "https://github.com/khajaaijaz26/software-agent/releases/download/v0.4.0/software-agent-0.4.0.tgz"
 cd /path/to/your-project
 software-agent start "Understand this project, find errors, fix them, and run all tests"
 ```
@@ -64,7 +74,20 @@ The verified GitHub release works now; GitHub publishes its SHA-256 digest on th
 
 ### Connect a real AI model
 
-Without a configured provider, the deterministic offline adapter demonstrates orchestration and finishes quickly. For real repository work, configure a reference to your own API key—never store the key in the repository:
+Without a configured provider, the deterministic offline adapter demonstrates orchestration and finishes quickly. For real repository work, open `software-agent`, press `/`, and enter one of these commands **inside the Software Agent chat box**:
+
+```text
+/api connect openai <model-id>
+/api connect anthropic <model-id>
+/api test openai
+/model openai/<model-id>
+/tokens balanced
+/settings
+```
+
+The key-entry box is masked. On Windows the key is written through stdin to Windows Credential Manager; macOS uses Keychain and Linux uses Secret Service when available. Only a `manager://` or `keychain://` reference is saved in configuration. The raw key is never rendered, logged, committed, sent over controller IPC, or written to the repository.
+
+For automation, environment references remain available:
 
 ```powershell
 $env:OPENAI_API_KEY = "your-key"
@@ -74,34 +97,38 @@ software-agent models use openai/<model-id>
 software-agent start "Implement the requested change and verify it"
 ```
 
-Anthropic Messages is supported in the same way with `ANTHROPIC_API_KEY` and `anthropic/<model-id>`. Run `software-agent setup` at any time for the secure setup sequence.
+Anthropic Messages is supported in the same way with `ANTHROPIC_API_KEY` and `anthropic/<model-id>`. Run `software-agent setup` at any time for the non-interactive secure setup sequence.
 
 ## The project room
 
-The terminal UI is designed around work, not chat bubbles. It stays attached to committed controller state and shows the three specialists side by side on wide terminals:
+The terminal UI combines familiar coding-agent chat with a truthful, live view of the team. Type normally to start chatting; press `/` for commands:
 
 ```text
-❯_ ●─●─● ✓ SOFTWARE AGENT                         project @ main       RUNNING
-● RUN WORKING (RUNNING)  Tasks [██████░░░░░░] 2/5 passed  1 working  2 idle
-┌ MASTER ORCHESTRATOR ─────┬ SOFTWARE ENGINEER ──────┬ REVIEWER & QA ─────────┐
-│ IDLE - NOT WORKING  1/1  │ WORKING NOW        1/2  │ WAITING FOR HANDOFF 0/2│
-│ Last: plan committed     │ Now: search_code → read │ Last: review queued     │
-│ model / tokens / cost    │ files / tools / evidence│ blocker / approval      │
-├──────────────────────────┴──────────────────────────┴────────────────────────┤
-│ EVENTS: LIVE SCROLL       APPROVALS          TOKEN BUDGET: 18,420 / 50,000 │
-└──────────────────────────────────────────────────────────────────────────────┘
+❯_ ●─●─● ✓ SOFTWARE AGENT                  project @ main | RUNNING
+┌─ CHAT & WORK ───────────────────────┬─ AGENT WALL · 26 ROLES ───────────────┐
+│ YOU › Fix the login error           │ 01 Master Orchestrator · WORKING      │
+│ Orchestrator › Plan committed       │ 02 Product Manager · WAITING FOR WORK │
+│ Backend Engineer › read_file auth.ts│ 03 UX/UI Designer · WAITING FOR WORK  │
+│ Backend Engineer › write_file       │ 04 Backend Engineer · WORKING         │
+│ Reviewer › tests are running        │ 05 Security Engineer · BLOCKED        │
+│ FILES auth.ts · auth.test.ts        │ …  21 more named specialist roles     │
+│ TOOLS search_code · read_file       │ Inactive roles use 0 model tokens     │
+└─────────────────────────────────────┴────────────────────────────────────────┘
+APPROVALS 1 | MODEL openai/<model> | TOKENS balanced 18,420/50,000
+CHAT [to: Backend Engineer] > type a prompt or press / for commands
 ```
 
-The UI includes responsive wide, medium, narrow, and plain-text layouts; keyboard navigation; event search/follow; targeted instructions; exact approval packets; reconnect/resync states; and a read-only fallback when another terminal owns the mutation lease.
+The responsive UI includes the 26-role wall, committed chat/work history, current file and tool activity, direct typing, slash commands, model/settings controls, exact approval packets, reconnect/resync states, and a read-only fallback when another terminal owns the mutation lease.
 
 | Screen label | Exact meaning |
 | --- | --- |
 | `WORKING NOW` | The agent currently owns an executing turn. |
+| `WAITING FOR WORK` | The named role is available but has no assigned execution seat; it is not using model tokens. |
 | `WAITING FOR INPUT/HANDOFF` | The agent cannot continue until the named dependency arrives. |
 | `IDLE - NOT WORKING` | The session exists, but no turn is executing. The card shows its last activity. |
 | `DONE` / `FAILED` | The agent reached a terminal state. |
 | `LIVE SCROLL` | New committed events automatically remain visible. |
-| `SCROLL PAUSED` | Only automatic event scrolling is paused; the run and agents are unaffected. Press `f` to resume. |
+| `SCROLL PAUSED` | Only automatic event scrolling is paused; the run and agents are unaffected. Press `Ctrl+F` or use `/follow` to resume. |
 
 ## Modern technology stack
 
@@ -115,7 +142,7 @@ Software Agent uses a current, widely adopted stack while keeping the installed 
 | Durable coordination | Built-in SQLite, WAL, event sourcing, idempotency receipts | Restartable runs, tasks, leases, approvals, evidence, and replay. |
 | AI providers | OpenAI Responses API, Anthropic Messages API, BYOK secret references | Native model calls, tool results, streaming normalization, usage, and cost. |
 | Repository retrieval | Bounded file listing, literal code search, exact SHA-256 reads | RAG-style selective context without forcing a heavy vector database into every install. |
-| Security boundary | HMAC-SHA-256 local IPC, named pipes/Unix sockets, lease fencing | Keeps credentials and mutation authority in the controller. |
+| Security boundary | OS credential stores, HMAC-SHA-256 local IPC, named pipes/Unix sockets, lease fencing | Keeps raw API keys out of repositories, worker processes, and controller messages. |
 | Compatibility | Python 3.10–3.14 and MCP compatibility package | Preserves existing Python/MCP integrations without making Python the primary runtime. |
 | Quality and delivery | Vitest, ESLint, tsup, GitHub Actions | Tests, static checks, builds, package smoke tests, and Windows/macOS/Linux verification. |
 
@@ -123,8 +150,8 @@ Software Agent uses a current, widely adopted stack while keeping the installed 
 
 | Capability | What Software Agent does |
 | --- | --- |
-| Visible collaboration | Shows which agent owns each task, its current activity, model, tools, files, evidence, blocker, tokens, and cost. |
-| Real specialization | Uses durable Master Orchestrator, Software Engineer, and Reviewer & QA sessions with assignments, turns, mailboxes, and handoffs. |
+| Visible collaboration | Splits chat/work and a 26-role wall, showing who is working, waiting, blocked, or done plus current files, tools, tokens, and cost. |
+| Honest specialization | Exposes all 26 named roles while activating only the bounded orchestrator, delivery specialist, and reviewer seats needed by the current run. |
 | Safe coding tools | Provides bounded file discovery, token-efficient code search, exact-revision reads, atomic writes, and shell-free verification commands. |
 | Human authority | Turns process execution and connected mutations into exact, expiring, single-use approval packets. Silence and `--yes` are never approval. |
 | BYOK models | Supports native OpenAI Responses and Anthropic Messages adapters; keys are resolved controller-side from `env://` or supported secure-store references. |
@@ -138,8 +165,8 @@ This is an architectural comparison, not a claim that every other tool behaves i
 
 | Area | Typical single-agent CLI | Software Agent |
 | --- | --- | --- |
-| Work display | One conversation or activity stream | Three visible specialist cards plus run/task progress and committed events |
-| Coordination | One model handles planning, coding, and review sequentially | Durable orchestrator, engineer, and independent reviewer sessions with handoffs |
+| Work display | One conversation or activity stream | Split chat/work view plus all 26 named roles and live run/task progress |
+| Coordination | One model handles planning, coding, and review sequentially | Durable orchestrator, relevant delivery specialist, and independent reviewer seats with handoffs |
 | Restart behavior | Terminal session often owns transient state | Controller and SQLite event log survive UI disconnects and support deterministic replay |
 | Tool authority | Broad confirmation or process-level permission | Exact actor/action/resource/environment binding, expiry, and single-use approval consumption |
 | Context use | Large prompt dumps can repeatedly resend repository text | Search-first retrieval and exact file reads feed only relevant context into each turn |
@@ -234,6 +261,8 @@ See [Architecture](docs/architecture/architecture.md), [local IPC](docs/protocol
 
 ```bash
 software-agent                         # open or create the local project room
+software-agent open C:\path\to\repo  # open a local project
+software-agent open OWNER/REPO --github # check out/open a GitHub project
 software-agent start "your objective" # create a run and watch it live
 software-agent run --json "objective" # headless/machine flow
 software-agent runs list
@@ -266,7 +295,7 @@ The primary platform is TypeScript. A separately named Python/MCP compatibility 
 
 ## Current boundaries
 
-Software Agent v0.3 is a local developer preview. It has no OS-level sandbox or Windows named-pipe peer-SID verification, no vector RAG index, no signed event export, and no enabled remote mutation executor. Treat model output and repository content as untrusted. Review changes and approvals before relying on results.
+Software Agent v0.4 is a local developer preview. Its catalog contains 26 visible named roles, while this release intentionally activates at most three durable execution seats per run to bound cost and preserve independent review. It has no OS-level sandbox or Windows named-pipe peer-SID verification, no vector RAG index, no signed event export, and no enabled remote mutation executor. Treat model output and repository content as untrusted. Review changes and approvals before relying on results.
 
 Visual assets are original to this repository; generation and composition details are recorded in [asset provenance](docs/assets/PROVENANCE.md).
 

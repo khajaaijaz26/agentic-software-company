@@ -5,7 +5,7 @@
   "description": "UI projection consumed by the reducer-driven Ink project room. This is an adapter contract, not the controller snapshot wire shape.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema", "projectId", "projectName", "branch", "generatedAt", "cursor", "controller", "run", "approvals", "importantEvents"],
+  "required": ["schema", "projectId", "projectName", "branch", "generatedAt", "cursor", "controller", "roster", "settings", "run", "approvals", "importantEvents"],
   "properties": {
     "schema": { "const": "software-agent.project-room/v1" },
     "projectId": { "type": "string", "minLength": 1 },
@@ -22,6 +22,8 @@
         "mode": { "enum": ["CONTROL", "READ_ONLY"] }
       }
     },
+    "roster": { "type": "array", "minItems": 26, "maxItems": 26, "items": { "$ref": "#/$defs/rosterAgent" } },
+    "settings": { "$ref": "#/$defs/settings" },
     "run": {
       "oneOf": [
         { "$ref": "#/$defs/run" },
@@ -84,6 +86,46 @@
         "requestedFiles": { "type": "array", "items": { "type": "string" } },
         "requestedTools": { "type": "array", "items": { "type": "string" } },
         "evidence": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "rosterAgent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "displayName", "capabilities", "state", "status", "activity", "taskTitle", "sessionId", "model"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "displayName": { "type": "string", "minLength": 1 },
+        "capabilities": { "type": "array", "items": { "type": "string" } },
+        "state": { "enum": ["WORKING", "WAITING", "BLOCKED", "DONE", "FAILED"] },
+        "status": { "type": "string", "minLength": 1 },
+        "activity": { "type": "string" },
+        "taskTitle": { "type": "string" },
+        "sessionId": { "type": ["string", "null"] },
+        "model": { "type": "string", "minLength": 1 }
+      }
+    },
+    "settings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workspace", "defaultModel", "tokenMode", "providers"],
+      "properties": {
+        "workspace": { "type": "string", "minLength": 1 },
+        "defaultModel": { "type": "string", "minLength": 1 },
+        "tokenMode": { "enum": ["economy", "balanced", "quality"] },
+        "providers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["providerId", "enabled", "model", "credentialReference"],
+            "properties": {
+              "providerId": { "type": "string", "minLength": 1 },
+              "enabled": { "type": "boolean" },
+              "model": { "type": "string", "minLength": 1 },
+              "credentialReference": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
       }
     },
     "task": {

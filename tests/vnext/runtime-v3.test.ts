@@ -42,7 +42,7 @@ function command(
   };
 }
 
-describe("Software Agent v0.3 durable runtime", () => {
+describe("Software Agent v0.4 durable runtime", () => {
   it("runs the deterministic three-session fan-out concurrently and exposes a bounded snapshot", async () => {
     const workspace = temporaryDirectory();
     await initializeProject(workspace, "Runtime v3", true);

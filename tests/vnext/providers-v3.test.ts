@@ -28,7 +28,7 @@ import {
   EnvironmentSecretBroker,
   LinuxSecretServiceBackend,
   SecretBackendBroker,
-  UnsupportedCredentialBackendError,
+  WindowsCredentialManagerBackend,
   createPlatformCredentialBackend,
   parseSecretReference,
   scrubSecretEnvironment,
@@ -556,11 +556,28 @@ describe("Software Agent broker grants, routing, and BYOK boundaries", () => {
     expect(await backend.get("openai/default")).toBe("stored-secret");
   });
 
-  it("uses an explicit unsupported backend rather than plaintext fallback", async () => {
-    const backend = createPlatformCredentialBackend({platform: "win32", commandAvailable: () => false});
+  it("uses Windows Credential Manager with secret bytes on stdin and never argv", async () => {
+    const calls: Array<{command: string; args: readonly string[]; stdin?: string}> = [];
+    const runner: CredentialCommandRunner = {
+      run(command, args, options) {
+        calls.push({command, args, ...(options.stdin === undefined ? {} : {stdin: options.stdin})});
+        const encoded = args.at(-1) ?? "";
+        const script = Buffer.from(encoded, "base64").toString("utf16le");
+        const read = script.includes("CredRead");
+        return Promise.resolve({stdout: read ? "manager-secret" : "", stderr: "", exitCode: 0});
+      },
+    };
+    const backend = createPlatformCredentialBackend({platform: "win32", runner});
+    expect(backend).toBeInstanceOf(WindowsCredentialManagerBackend);
     const broker = new SecretBackendBroker([backend]);
-    await expect(broker.resolve(parseSecretReference("keychain://openai/default"), "test"))
-      .rejects.toBeInstanceOf(UnsupportedCredentialBackendError);
+    const reference = parseSecretReference("manager://provider/openai");
+    await broker.set(reference, "manager-secret");
+    expect((await broker.resolve(reference, "provider test")).value).toBe("manager-secret");
+    expect(await broker.delete(reference)).toBe(true);
+    expect(calls.some((call) => call.stdin === "manager-secret")).toBe(true);
+    expect(calls.flatMap((call) => call.args).join(" ")).not.toContain("manager-secret");
+    expect(calls.map((call) => Buffer.from(call.args.at(-1) ?? "", "base64").toString("utf16le")).join("\n")).toContain("SoftwareAgent:provider/openai");
+    expect(calls.every((call) => call.command === "powershell.exe")).toBe(true);
   });
 });
 

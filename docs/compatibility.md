@@ -4,7 +4,7 @@
 
 | Concern | Current TypeScript application | Python/MCP compatibility |
 | --- | --- | --- |
-| Distribution | npm package `software-agent` 0.3.x | Python package `software-agent-compat` 1.0.0 |
+| Distribution | npm package `software-agent` 0.4.x | Python package `software-agent-compat` 1.0.0 |
 | Runtime | Node.js 22.14 or newer | Python 3.10 or newer |
 | Primary command | `software-agent` | `software-agent-reference`, `software-agent-mcp` |
 | Deprecated aliases | npm `agent-company` shim | `agentic-company`, `agentic-company-mcp`, and `agentic_company` import |

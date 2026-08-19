@@ -1,6 +1,17 @@
 import {randomUUID} from "node:crypto";
+import {resolve} from "node:path";
 
 import type {ApprovalRecord} from "../../../packages/approval-service/src/index.js";
+import {AgentRegistry, softwareAgentRoster} from "../../../packages/agent-registry/src/index.js";
+import {
+  loadProjectConfig,
+  loadUserProviderConfig,
+  resolvePlatformPaths,
+  saveProjectConfig,
+  saveUserProviderConfig,
+  setProjectModel,
+  setProjectTokenMode,
+} from "../../../packages/config/src/index.js";
 import type {JsonValue, StoredEvent} from "../../../packages/contracts/src/index.js";
 import {
   ControllerIpcError,
@@ -10,6 +21,21 @@ import {
   type RpcRequestOptions,
 } from "../../../packages/ipc/src/index.js";
 import {sanitizeTerminal} from "../../../packages/observability/src/index.js";
+import {
+  AnthropicMessagesAdapter,
+  ModelGateway,
+  OpenAIResponsesAdapter,
+  parseModelIdentifier,
+} from "../../../packages/model-gateway/src/index.js";
+import {
+  EnvironmentCredentialBackend,
+  SecretBackendBroker,
+  createPlatformCredentialBackend,
+  parseSecretReference,
+  type CredentialBackend,
+  type SecretReference,
+} from "../../../packages/secret-broker/src/index.js";
+import type {PlatformPaths} from "../../../packages/config/src/index.js";
 import type {
   MutationLeaseView,
   SoftwareAgentRunView,
@@ -19,8 +45,11 @@ import type {
   ProjectRoomAgent,
   ProjectRoomApproval,
   ProjectRoomCommand,
+  ProjectRoomCommandResult,
   ProjectRoomCommittedUpdate,
   ProjectRoomEvent,
+  ProjectRoomRosterAgent,
+  ProjectRoomSettings,
   ProjectRoomSnapshot,
   ProjectRoomSource,
 } from "../../operator-console/src/dashboard.js";
@@ -35,6 +64,7 @@ export interface ProjectRoomRpcClient {
 }
 
 export interface IpcProjectRoomSourceOptions {
+  readonly workspace?: string;
   readonly branch?: string;
   readonly maxParallel?: number;
   readonly tokenMode?: "economy" | "balanced" | "quality";
@@ -42,6 +72,10 @@ export interface IpcProjectRoomSourceOptions {
   readonly attachmentId?: string;
   readonly pollWaitMs?: number;
   readonly runId?: string;
+  /** Test/embedding override. Production uses the operating-system credential store. */
+  readonly credentialBackend?: CredentialBackend;
+  /** Test/embedding override. Production uses the platform-standard Software Agent directories. */
+  readonly platformPaths?: PlatformPaths;
 }
 
 const DISPLAY_NAMES: Readonly<Record<string, string>> = Object.freeze({
@@ -59,21 +93,27 @@ export class IpcProjectRoomSource implements ProjectRoomSource {
   readonly #actorId: string;
   readonly #branch: string;
   readonly #client: ProjectRoomRpcClient;
+  readonly #credentialBackend: CredentialBackend;
   readonly #maxParallel: number;
   readonly #tokenMode: "economy" | "balanced" | "quality" | undefined;
+  readonly #workspace: string;
   readonly #pollWaitMs: number;
+  readonly #platformPaths: PlatformPaths;
   #lease: MutationLeaseView | null = null;
   #renewal: Promise<void> | null = null;
   #selectedRunId: string | undefined;
 
   public constructor(client: ProjectRoomRpcClient, options: IpcProjectRoomSourceOptions = {}) {
     this.#client = client;
+    this.#credentialBackend = options.credentialBackend ?? createPlatformCredentialBackend();
+    this.#workspace = resolve(options.workspace ?? process.cwd());
     this.#branch = cleanText(options.branch ?? "current workspace", 256);
     this.#maxParallel = boundedInteger(options.maxParallel ?? 3, 1, 3, "maxParallel");
     this.#tokenMode = options.tokenMode;
     this.#actorId = exactId(options.actorId ?? "local-user", "actorId");
     this.#attachmentId = exactId(options.attachmentId ?? `ui_${randomUUID().replaceAll("-", "")}`, "attachmentId");
     this.#pollWaitMs = boundedInteger(options.pollWaitMs ?? 4_000, 100, 10_000, "pollWaitMs");
+    this.#platformPaths = options.platformPaths ?? resolvePlatformPaths();
     this.#selectedRunId = options.runId;
   }
 
@@ -93,13 +133,26 @@ export class IpcProjectRoomSource implements ProjectRoomSource {
 
   public async load(signal: AbortSignal): Promise<ProjectRoomSnapshot> {
     await this.#maintainLease();
-    const [snapshot, approvals] = await Promise.all([
+    const [snapshot, approvals, project, providers] = await Promise.all([
       this.#client.request("snapshot.get", {recentEventLimit: 250}, {signal}),
       this.#client.request("listApprovals", {}, {signal}),
+      loadProjectConfig(this.#workspace),
+      loadUserProviderConfig(this.#platformPaths),
     ]);
     return softwareAgentSnapshotToProjectRoom(snapshot, approvals, {
       branch: this.#branch,
       control: this.#lease !== null,
+      settings: {
+        workspace: this.#workspace,
+        defaultModel: project.models.default,
+        tokenMode: project.project.default_profile,
+        providers: Object.entries(providers.providers).map(([providerId, provider]) => ({
+          providerId,
+          enabled: provider.enabled,
+          model: `${providerId}/${provider.defaultModel}`,
+          credentialReference: provider.credential,
+        })),
+      },
       ...(this.#selectedRunId === undefined ? {} : {runId: this.#selectedRunId}),
     });
   }
@@ -125,7 +178,26 @@ export class IpcProjectRoomSource implements ProjectRoomSource {
     return {cursor: committedCursor, events: events.map(toProjectRoomEvent), snapshot};
   }
 
-  public async execute(command: ProjectRoomCommand, signal: AbortSignal): Promise<void> {
+  public async execute(command: ProjectRoomCommand, signal: AbortSignal): Promise<ProjectRoomCommandResult> {
+    if (command.type === "provider.test") return await testProviderConnection(command.providerId, signal, this.#platformPaths, this.#credentialBackend);
+    if (command.type === "provider.connect") {
+      await this.#requireControl();
+      return await connectProvider(this.#workspace, command.providerId, command.model, command.secret, this.#platformPaths, this.#credentialBackend);
+    }
+    if (command.type === "provider.remove") {
+      await this.#requireControl();
+      return await removeProvider(this.#workspace, command.providerId, this.#platformPaths, this.#credentialBackend);
+    }
+    if (command.type === "model.select") {
+      await this.#requireControl();
+      return await selectProjectModel(this.#workspace, command.model, this.#platformPaths);
+    }
+    if (command.type === "tokens.mode") {
+      await this.#requireControl();
+      await setProjectTokenMode(this.#workspace, command.mode);
+      return {message: `Token mode is now ${command.mode} (${tokenModePercent(command.mode)}% allowance) for new runs.`};
+    }
+
     const snapshot = await this.#client.request("snapshot.get", {recentEventLimit: 0}, {signal});
     if (snapshot.cursor !== command.expectedCursor) {
       throw new ControllerIpcError("CURSOR_CONFLICT", `expected committed cursor ${command.expectedCursor}, found ${snapshot.cursor}`, true);
@@ -143,7 +215,7 @@ export class IpcProjectRoomSource implements ProjectRoomSource {
         ...commandContext(created.revision, this.#actorId, this.#attachmentId, lease),
         runId: created.id,
       }, {signal});
-      return;
+      return {message: "Objective committed. The scheduler is assigning the minimum relevant specialist team."};
     }
 
     const run = requireRun(snapshot, command.type === "instruction.submit" ? command.runId : undefined);
@@ -155,7 +227,7 @@ export class IpcProjectRoomSource implements ProjectRoomSource {
         target: {kind: command.target.kind, id: command.target.id},
         text: command.text,
       }, {signal});
-      return;
+      return {message: `Instruction committed to ${command.target.label}. Watch CHAT & WORK for the next controller event.`};
     }
     if (command.type === "approval.decide") {
       if (command.decision === "APPROVED") {
@@ -166,7 +238,7 @@ export class IpcProjectRoomSource implements ProjectRoomSource {
           : "denied in the Software Agent project room";
         await this.#client.request("deny", {approvalId: command.approvalId, reason}, {signal});
       }
-      return;
+      return {message: `Approval ${command.decision.toLowerCase().replaceAll("_", " ")} and committed.`};
     }
     if (command.disposition === "pause" && run.state === "RUNNING") {
       await this.#client.request("run.pause", {
@@ -180,6 +252,7 @@ export class IpcProjectRoomSource implements ProjectRoomSource {
       }, {signal});
     }
     await this.dispose();
+    return {message: `Session disposition committed: ${command.disposition}.`};
   }
 
   public async changeRunState(
@@ -249,15 +322,164 @@ export class IpcProjectRoomSource implements ProjectRoomSource {
   }
 }
 
+async function connectProvider(
+  workspace: string,
+  providerId: "openai" | "anthropic",
+  requestedModel: string,
+  secret: string,
+  paths: PlatformPaths,
+  backend: CredentialBackend,
+): Promise<ProjectRoomCommandResult> {
+  if (secret.length < 8 || secret.length > 4_096 || /[\r\n\0]/u.test(secret)) {
+    throw new Error("the API key is malformed; nothing was stored");
+  }
+  const fullModel = normalizeProviderModel(providerId, requestedModel);
+  const parsed = parseModelIdentifier(fullModel);
+  const current = await loadUserProviderConfig(paths);
+  const currentProject = await loadProjectConfig(workspace);
+  const reference: SecretReference = {scheme: backend.scheme, reference: `provider/${providerId}/${randomUUID()}`};
+  const broker = new SecretBackendBroker([backend]);
+  await broker.set(reference, secret);
+  let providerConfigChanged = false;
+  try {
+    await saveUserProviderConfig({
+      ...current,
+      revision: current.revision + 1,
+      providers: {
+        ...current.providers,
+        [providerId]: {
+          enabled: true,
+          credential: `${reference.scheme}://${reference.reference}`,
+          defaultModel: parsed.modelId,
+        },
+      },
+      defaults: {...current.defaults, model: fullModel},
+    }, paths);
+    providerConfigChanged = true;
+    await saveProjectConfig(workspace, {
+      ...currentProject,
+      mapping_revision: currentProject.mapping_revision + 1,
+      models: {...currentProject.models, default: fullModel},
+    });
+  } catch (error) {
+    if (providerConfigChanged) await saveUserProviderConfig(current, paths).catch(() => undefined);
+    await saveProjectConfig(workspace, currentProject).catch(() => undefined);
+    await broker.delete(reference).catch(() => false);
+    throw error;
+  }
+  const previous = current.providers[providerId];
+  if (previous !== undefined) {
+    const previousReference = parseSecretReference(previous.credential);
+    if (previousReference.scheme !== "env" && `${previousReference.scheme}://${previousReference.reference}` !== `${reference.scheme}://${reference.reference}`) {
+      await providerSecretBroker(backend).delete(previousReference).catch(() => false);
+    }
+  }
+  return {
+    message: `${providerId} connected with ${fullModel}. The key is in the OS credential store; project files contain only ${reference.scheme}://${reference.reference}.`,
+  };
+}
+
+async function testProviderConnection(
+  providerId: "openai" | "anthropic",
+  signal: AbortSignal,
+  paths: PlatformPaths,
+  backend: CredentialBackend,
+): Promise<ProjectRoomCommandResult> {
+  const config = await loadUserProviderConfig(paths);
+  const provider = config.providers[providerId];
+  if (!provider?.enabled) throw new Error(`${providerId} is not configured and enabled`);
+  const gateway = new ModelGateway();
+  const broker = providerSecretBroker(backend);
+  const credential = parseSecretReference(provider.credential);
+  if (providerId === "openai") gateway.register(new OpenAIResponsesAdapter({secretBroker: broker, credential}));
+  else gateway.register(new AnthropicMessagesAdapter({secretBroker: broker, credential}));
+  const models = await gateway.discover(signal);
+  const configured = `${providerId}/${provider.defaultModel}`;
+  const available = models.some((model) => `${model.providerId}/${model.modelId}` === configured);
+  return {
+    message: `${providerId} verified: ${models.length} model${models.length === 1 ? "" : "s"} discovered; ${configured} is ${available ? "available" : "not present in the returned catalog"}.`,
+  };
+}
+
+async function removeProvider(
+  workspace: string,
+  providerId: "openai" | "anthropic",
+  paths: PlatformPaths,
+  backend: CredentialBackend,
+): Promise<ProjectRoomCommandResult> {
+  const current = await loadUserProviderConfig(paths);
+  const provider = current.providers[providerId];
+  if (provider === undefined) throw new Error(`${providerId} is not configured`);
+  const reference = parseSecretReference(provider.credential);
+  const providers = Object.fromEntries(Object.entries(current.providers).filter(([id]) => id !== providerId));
+  const roles = Object.fromEntries(Object.entries(current.defaults.roles).filter(([, model]) => !model.startsWith(`${providerId}/`)));
+  const nextProviders = {
+    ...current,
+    revision: current.revision + 1,
+    providers,
+    defaults: {
+      model: current.defaults.model.startsWith(`${providerId}/`) ? "deterministic/local" : current.defaults.model,
+      roles,
+    },
+  };
+  const project = await loadProjectConfig(workspace);
+  await saveUserProviderConfig(nextProviders, paths);
+  try {
+    if (project.models.default.startsWith(`${providerId}/`)) {
+      await saveProjectConfig(workspace, {
+        ...project,
+        mapping_revision: project.mapping_revision + 1,
+        models: {...project.models, default: "deterministic/local"},
+      });
+    }
+  } catch (error) {
+    await saveUserProviderConfig(current, paths).catch(() => undefined);
+    throw error;
+  }
+  let deleted = false;
+  if (reference.scheme !== "env") deleted = await providerSecretBroker(backend).delete(reference).catch(() => false);
+  return {message: `${providerId} removed. ${reference.scheme === "env" ? "The environment variable was not changed." : deleted ? "The OS credential was deleted." : "The saved credential reference was removed; deletion from the OS store could not be confirmed."}`};
+}
+
+async function selectProjectModel(workspace: string, model: string, paths: PlatformPaths): Promise<ProjectRoomCommandResult> {
+  const parsed = parseModelIdentifier(model);
+  if (parsed.providerId !== "deterministic") {
+    const provider = (await loadUserProviderConfig(paths)).providers[parsed.providerId];
+    if (provider === undefined) throw new Error(`configure ${parsed.providerId} with /api connect before selecting ${model}`);
+    if (!provider.enabled) throw new Error(`${parsed.providerId} is disabled`);
+  }
+  await setProjectModel(workspace, model);
+  return {message: `Project model changed to ${model}. In-flight turns keep their existing grant; new turns use this route.`};
+}
+
+function providerSecretBroker(backend: CredentialBackend = createPlatformCredentialBackend()): SecretBackendBroker {
+  return new SecretBackendBroker([
+    new EnvironmentCredentialBackend(process.env, false),
+    backend,
+  ]);
+}
+
+function normalizeProviderModel(providerId: "openai" | "anthropic", value: string): string {
+  const full = value.includes("/") ? value : `${providerId}/${value}`;
+  const parsed = parseModelIdentifier(full);
+  if (parsed.providerId !== providerId) throw new Error(`model ${full} does not belong to ${providerId}`);
+  return `${parsed.providerId}/${parsed.modelId}`;
+}
+
+function tokenModePercent(mode: "economy" | "balanced" | "quality"): number {
+  return mode === "economy" ? 25 : mode === "balanced" ? 50 : 100;
+}
+
 export function softwareAgentSnapshotToProjectRoom(
   snapshot: SoftwareAgentSnapshot,
   approvals: readonly ApprovalRecord[],
-  options: {readonly branch: string; readonly control: boolean; readonly runId?: string},
+  options: {readonly branch: string; readonly control: boolean; readonly runId?: string; readonly settings?: ProjectRoomSettings},
 ): ProjectRoomSnapshot {
   const run = (options.runId === undefined ? undefined : snapshot.runs.find((candidate) => candidate.id === options.runId))
     ?? [...snapshot.runs].sort((left, right) => right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id))[0]
     ?? null;
   const runEvents = run === null ? [] : snapshot.recentEvents.filter((event) => event.streamId === run.id);
+  const catalogAssignments = catalogAssignmentsForRun(run);
   const agents = run?.sessions.map((session): ProjectRoomAgent => {
     const activeTask = run.tasks.find((task) => task.id === session.currentTaskId)
       ?? run.tasks.find((task) => task.sessionId === session.id && ["READY", "RUNNING"].includes(task.state))
@@ -269,10 +491,11 @@ export function softwareAgentSnapshotToProjectRoom(
     const modelEvent = events.findLast((event) => typeof event.data.model === "string");
     const modelRoute = textValue(modelEvent?.data.model) ?? "deterministic/local";
     const split = modelRoute.indexOf("/");
+    const definition = catalogAssignments.get(session.id);
     return {
       id: session.id,
-      role: session.role,
-      displayName: DISPLAY_NAMES[session.role] ?? session.role,
+      role: definition?.id ?? session.role,
+      displayName: definition?.displayName ?? DISPLAY_NAMES[session.role] ?? session.role,
       state: session.state,
       taskId: activeTask?.id ?? "",
       taskTitle: activeTask?.title ?? "Waiting for assignment",
@@ -295,6 +518,9 @@ export function softwareAgentSnapshotToProjectRoom(
     .filter((approval) => approval.status === "PENDING" || approval.status === "APPROVED")
     .map(toProjectRoomApproval);
   const tokenBudget = run === null ? undefined : snapshot.tokenBudgets.find((candidate) => candidate.runId === run.id);
+  const roster = buildProjectRoomRoster(agents, run?.tasks ?? [], run?.state ?? null);
+  const meaningfulEvents = (run === null ? snapshot.recentEvents : runEvents)
+    .filter((event) => !/software-agent\.(?:mutation\.renewed|lease\.heartbeat|worker\.heartbeat)/u.test(event.eventType));
   return {
     schema: "software-agent.project-room/v1",
     projectId: snapshot.projectId,
@@ -303,6 +529,13 @@ export function softwareAgentSnapshotToProjectRoom(
     generatedAt: snapshot.generatedAt,
     cursor: snapshot.cursor,
     controller: {state: "CONNECTED", mode: options.control ? "CONTROL" : "READ_ONLY"},
+    roster,
+    settings: options.settings ?? {
+      workspace: "UNKNOWN",
+      defaultModel: "deterministic/local",
+      tokenMode: "balanced",
+      providers: [],
+    },
     run: run === null ? null : {
       id: run.id,
       objective: run.objective,
@@ -317,8 +550,84 @@ export function softwareAgentSnapshotToProjectRoom(
         : {used: tokenBudget.spentTokens, limit: tokenBudget.effectiveLimitTokens},
     },
     approvals: mappedApprovals,
-    importantEvents: snapshot.recentEvents.map(toProjectRoomEvent),
+    importantEvents: meaningfulEvents.map(toProjectRoomEvent),
   };
+}
+
+function catalogAssignmentsForRun(run: SoftwareAgentRunView | null): ReadonlyMap<string, ReturnType<AgentRegistry["get"]>> {
+  const assignments = new Map<string, ReturnType<AgentRegistry["get"]>>();
+  if (run === null) return assignments;
+  const registry = new AgentRegistry();
+  const activated = new Set(registry.activateFor(run.objective).map((definition) => definition.id));
+  const objective = run.objective.toLowerCase();
+  for (const session of run.sessions) {
+    if (session.role === "master-orchestrator") {
+      assignments.set(session.id, registry.get("orchestrator"));
+      continue;
+    }
+    if (session.role === "reviewer-qa") {
+      const task = run.tasks.find((candidate) => candidate.id === session.currentTaskId)
+        ?? run.tasks.find((candidate) => candidate.sessionId === session.id && candidate.state !== "PASSED");
+      assignments.set(session.id, registry.get(/final|independent review|code review/iu.test(task?.title ?? "") ? "code-reviewer" : "qa-strategist"));
+      continue;
+    }
+    const keywordChoice = /frontend|react|terminal|screen|ui|ux/iu.test(objective)
+      ? "frontend-engineer"
+      : /github|vercel|supabase|integration|webhook/iu.test(objective)
+        ? "integration-engineer"
+        : /database|sql|migration|schema/iu.test(objective)
+          ? "data-database-engineer"
+          : /deploy|docker|infrastructure|ci|release/iu.test(objective)
+            ? "devops-platform"
+            : /security|auth|secret|permission/iu.test(objective)
+              ? "security-engineer"
+              : /documentation|readme|docs/iu.test(objective)
+                ? "technical-writer"
+                : "backend-engineer";
+    const roleId = activated.has(keywordChoice) ? keywordChoice : activated.has("backend-engineer") ? "backend-engineer" : keywordChoice;
+    assignments.set(session.id, registry.get(roleId));
+  }
+  return assignments;
+}
+
+function buildProjectRoomRoster(
+  agents: readonly ProjectRoomAgent[],
+  tasks: readonly SoftwareAgentRunView["tasks"][number][],
+  runState: string | null,
+): readonly ProjectRoomRosterAgent[] {
+  return softwareAgentRoster().map((definition): ProjectRoomRosterAgent => {
+    const agent = agents.find((candidate) => candidate.role === definition.id);
+    if (agent === undefined) {
+      return {
+        id: definition.id,
+        displayName: definition.displayName,
+        capabilities: definition.capabilities,
+        state: "WAITING",
+        status: "WAITING FOR WORK",
+        activity: "Available; no task is assigned, so no model tokens are being used.",
+        taskTitle: "No assigned task",
+        sessionId: null,
+        model: "Not allocated",
+      };
+    }
+    const assignedTasks = tasks.filter((task) => task.sessionId === agent.id);
+    const failed = agent.state === "FAILED" || assignedTasks.some((task) => task.state === "FAILED");
+    const done = runState === "SUCCEEDED" || (assignedTasks.length > 0 && assignedTasks.every((task) => task.state === "PASSED"));
+    const working = /RUNNING|PLANNING/u.test(agent.state) || assignedTasks.some((task) => task.state === "RUNNING");
+    const blocked = /WAITING|PAUSED/u.test(agent.state) || assignedTasks.some((task) => task.state === "BLOCKED") || agent.approvalId !== null;
+    const state: ProjectRoomRosterAgent["state"] = failed ? "FAILED" : done ? "DONE" : working ? "WORKING" : blocked ? "BLOCKED" : "WAITING";
+    return {
+      id: definition.id,
+      displayName: definition.displayName,
+      capabilities: definition.capabilities,
+      state,
+      status: state === "WORKING" ? "WORKING NOW" : state === "DONE" ? "DONE" : state === "FAILED" ? "FAILED" : state === "BLOCKED" ? "WAITING ON DEPENDENCY" : "WAITING FOR WORK",
+      activity: agent.activity,
+      taskTitle: agent.taskTitle,
+      sessionId: agent.id,
+      model: `${agent.provider}/${agent.model}`,
+    };
+  });
 }
 
 function commandContext(expectedRunRevision: number, actorId: string, attachmentId: string, lease: MutationLeaseView) {
@@ -402,7 +711,20 @@ function eventSummary(event: StoredEvent | undefined): string | null {
   return textValue(event.data.summary)
     ?? textValue(event.data.message)
     ?? textValue(event.data.prompt)
+    ?? textValue(event.data.text)
+    ?? textValue(event.data.objective)
+    ?? textValue(event.data.payload)
+    ?? toolEventSummary(event)
     ?? event.eventType.replace(/^software-agent\./u, "").replaceAll("_", " ");
+}
+
+function toolEventSummary(event: StoredEvent): string | null {
+  const tool = textValue(event.data.tool);
+  const path = textValue(event.data.path);
+  if (tool !== null && path !== null) return `${tool}: ${path}`;
+  if (path !== null) return path;
+  if (tool !== null) return tool;
+  return null;
 }
 
 function uniqueText(events: readonly StoredEvent[], field: string): readonly string[] {

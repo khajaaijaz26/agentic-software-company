@@ -2,7 +2,7 @@
 
 ## Scope
 
-This model covers the local TypeScript v0.3 CLI, its project state, attachment
+This model covers the local TypeScript v0.4 CLI, its project state, attachment
 and artifact handling, model/tool boundaries, provider CLI adapters, the active
 local IPC/controller boundary, child worker processes, and the Python MCP
 compatibility server.
@@ -27,7 +27,7 @@ compatibility server.
 
 ## Assumptions
 
-- v0.3 runs under a trusted local user account on a non-compromised OS.
+- v0.4 runs under a trusted local user account on a non-compromised OS.
 - The workspace and provider CLI binaries are selected by that user.
 - OS filesystem permissions and provider authentication work as documented.
 - A local administrator, debugger, malicious dependency, or compromised user
@@ -40,9 +40,9 @@ compatibility server.
 | --- | --- | --- |
 | Agent self-approves a mutation | Approval decisions require human actor; exact binding; signed short-lived authorization and atomic consume | Local code/files can be tampered with; trusted decision UX and event signing remain pending |
 | Approval replay or substitution | Expiry, canonical operation/binding hashes, SQLite atomic single use | Clock rollback and database-owner tampering are not cryptographically prevented |
-| Unknown or destructive remote action | Deny unknowns, A5 default denial, selected hard denials, v0.3 remote mutations are plans | Future executors need provider-side preconditions and reconciliation |
+| Unknown or destructive remote action | Deny unknowns, A5 default denial, selected hard denials, v0.4 remote mutations are plans | Future executors need provider-side preconditions and reconciliation |
 | Prompt injection in file/repo/provider output | Content treated as data; attachment heuristic scan; terminal sanitization | Heuristics are incomplete; model isolation and provenance-aware context needed |
-| Secret exfiltration | Provider-owned auth; reduced child environment; redaction; reference boundary | Environment backend exposes plaintext to this process; OS keychain and egress policy pending |
+| Secret exfiltration | Masked entry; Windows Credential Manager/macOS Keychain/Linux Secret Service; stdin-only Windows writes; unique rotation references; reduced child environment; redaction; reference boundary | A compromised local account/process can read credentials; environment-reference mode exposes plaintext to the CLI; provider egress policy remains operator-owned |
 | Path traversal or symlink escape | Realpath/allowed roots; directory symlinks skipped; digest-derived artifact paths | TOCTOU is possible between path check and read; descriptor-relative handles would improve this |
 | Malicious attachment | Size/count/type rules, EICAR marker, secret/PII checks, no implicit transfer | Not a full malware sandbox or DLP product; archives are not recursively inspected |
 | Event deletion or rewrite | Application append API, optimistic stream versions, WAL/full sync | User controlling files can rewrite DB; signing/anchoring and backup verification pending |
@@ -70,7 +70,7 @@ compatibility server.
 - Production deploy, promotion, rollback, environment changes, and deletion
   must be A4/A5 and bound to the exact project/deployment.
 - Logs can contain secrets or customer data and need redaction/classification.
-- v0.3 only probes and inventories, or emits remote mutation plans.
+- v0.4 only probes and inventories, or emits remote mutation plans.
 
 ### Supabase
 

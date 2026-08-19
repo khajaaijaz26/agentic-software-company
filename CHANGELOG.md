@@ -14,6 +14,45 @@ independent version lines.
 - Server-push event subscriptions and very-large-run snapshot compaction.
 - Signed export/import and an automated Python-state migration tool.
 
+## [npm 0.4.0] - 2026-08-19
+
+### Added
+
+- A wide split-screen project room with committed chat/file/tool activity on
+  one half and a compact wall of all 26 named specialist roles on the other.
+- Truthful role states: `WORKING NOW`, `WAITING FOR WORK`, dependency-blocked,
+  done, and failed. Unassigned roles remain visible without model allocation or
+  token consumption.
+- Direct typing for prompts plus in-room slash commands for agents, status,
+  settings, API connection/testing/removal, model selection, token mode,
+  targets, search, follow, local view clearing, and help.
+- `software-agent open` for existing local projects, full GitHub URLs, SSH
+  URLs, and `OWNER/REPO` shorthand, with safe reuse of existing Git checkouts.
+- Masked OpenAI and Anthropic key entry inside the terminal room with atomic
+  provider rotation and rollback-safe project/user configuration updates.
+- Native Windows Credential Manager writes, reads, and deletes through Win32
+  credential APIs; secret bytes travel only over child-process stdin.
+
+### Changed
+
+- Normal printable input now begins a prompt immediately. Live-event follow is
+  available through `Ctrl+F` or `/follow`, and leaving uses Escape or `Ctrl+C`.
+- The room projects model/provider/token settings and filters lease heartbeat
+  noise from the human work stream.
+- GitHub and installation documentation now starts with copy-paste commands,
+  explains local/GitHub project opening, documents slash commands, and clearly
+  separates the 26-role catalog from the bounded active execution seats.
+
+### Security
+
+- Raw API keys are never rendered, written to project/provider configuration,
+  committed to events, or sent over controller IPC. Secure-store references
+  use unique rotation identifiers, and old credentials are deleted only after
+  the new configuration commits.
+- Windows credential scripts are UTF-16LE encoded for PowerShell, bind only
+  validated opaque targets, zero native secret buffers, and are verified by a
+  real disposable write/read/delete round trip.
+
 ## [npm 0.3.2] - 2026-08-19
 
 ### Added

@@ -38,6 +38,32 @@ export interface ProjectRoomAgent {
   readonly evidence: readonly string[];
 }
 
+export interface ProjectRoomRosterAgent {
+  readonly id: string;
+  readonly displayName: string;
+  readonly capabilities: readonly string[];
+  readonly state: "WORKING" | "WAITING" | "BLOCKED" | "DONE" | "FAILED";
+  readonly status: string;
+  readonly activity: string;
+  readonly taskTitle: string;
+  readonly sessionId: string | null;
+  readonly model: string;
+}
+
+export interface ProjectRoomProviderSetting {
+  readonly providerId: string;
+  readonly enabled: boolean;
+  readonly model: string;
+  readonly credentialReference: string;
+}
+
+export interface ProjectRoomSettings {
+  readonly workspace: string;
+  readonly defaultModel: string;
+  readonly tokenMode: "economy" | "balanced" | "quality";
+  readonly providers: readonly ProjectRoomProviderSetting[];
+}
+
 export interface ProjectRoomTask {
   readonly id: string;
   readonly title: string;
@@ -101,6 +127,8 @@ export interface ProjectRoomSnapshot {
     readonly state: string;
     readonly mode: ProjectRoomAccessMode;
   };
+  readonly roster: readonly ProjectRoomRosterAgent[];
+  readonly settings: ProjectRoomSettings;
   readonly run: ProjectRoomRun | null;
   readonly approvals: readonly ProjectRoomApproval[];
   readonly importantEvents: readonly ProjectRoomEvent[];
@@ -126,6 +154,11 @@ export type ProjectRoomCommand =
   | {readonly type: "objective.create"; readonly text: string; readonly expectedCursor: number}
   | {readonly type: "instruction.submit"; readonly runId: string; readonly text: string; readonly target: Exclude<ComposerTarget, {readonly kind: "objective"}>; readonly expectedCursor: number}
   | {readonly type: "approval.decide"; readonly approvalId: string; readonly decision: ApprovalDecision; readonly expectedCursor: number}
+  | {readonly type: "provider.connect"; readonly providerId: "openai" | "anthropic"; readonly model: string; readonly secret: string; readonly expectedCursor: number}
+  | {readonly type: "provider.test"; readonly providerId: "openai" | "anthropic"; readonly expectedCursor: number}
+  | {readonly type: "provider.remove"; readonly providerId: "openai" | "anthropic"; readonly expectedCursor: number}
+  | {readonly type: "model.select"; readonly model: string; readonly expectedCursor: number}
+  | {readonly type: "tokens.mode"; readonly mode: "economy" | "balanced" | "quality"; readonly expectedCursor: number}
   | {readonly type: "session.leave"; readonly disposition: LeaveDisposition; readonly expectedCursor: number};
 
 export interface PendingProjectRoomCommand {
@@ -140,6 +173,8 @@ export type ProjectRoomOverlay =
   | {readonly kind: "palette"; readonly query: string; readonly selected: number}
   | {readonly kind: "leave"; readonly selected: LeaveDisposition}
   | {readonly kind: "composer"}
+  | {readonly kind: "settings"}
+  | {readonly kind: "api-key"; readonly providerId: "openai" | "anthropic"; readonly model: string; readonly value: string}
   | {readonly kind: "target"; readonly selected: number}
   | {readonly kind: "approval-detail"; readonly approvalId: string}
   | {readonly kind: "approval-confirm"; readonly approvalId: string; readonly decision: ApprovalDecision};
@@ -190,7 +225,8 @@ export type ProjectRoomAction =
   | {readonly type: "overlay.search"}
   | {readonly type: "overlay.palette"}
   | {readonly type: "overlay.leave"}
-  | {readonly type: "overlay.composer"}
+  | {readonly type: "overlay.composer"; readonly prefill?: string}
+  | {readonly type: "overlay.settings"}
   | {readonly type: "overlay.target"}
   | {readonly type: "text.append"; readonly text: string}
   | {readonly type: "text.backspace"}
@@ -199,11 +235,12 @@ export type ProjectRoomAction =
   | {readonly type: "focus.set"; readonly focus: ProjectRoomFocus}
   | {readonly type: "selection.move"; readonly delta: -1 | 1}
   | {readonly type: "events.follow.toggle"}
+  | {readonly type: "events.clear.local"}
   | {readonly type: "approval.open"}
   | {readonly type: "approval.decision"; readonly decision: ApprovalDecision}
   | {readonly type: "mutation.blocked"}
   | {readonly type: "command.started"; readonly id: number}
-  | {readonly type: "command.succeeded"; readonly id: number}
+  | {readonly type: "command.succeeded"; readonly id: number; readonly message?: string}
   | {readonly type: "command.failed"; readonly id: number; readonly message: string}
   | {readonly type: "notice.clear"};
 
@@ -230,6 +267,8 @@ const FOCUS_ORDER: readonly ProjectRoomFocus[] = ["agents", "events", "approvals
 const LEAVE_ORDER: readonly LeaveDisposition[] = ["continue", "pause", "cancel"];
 const PALETTE_ACTIONS = [
   "Compose instruction",
+  "Open settings",
+  "Show all agents",
   "Review approvals",
   "Search committed events",
   "Toggle event follow",
@@ -291,10 +330,13 @@ export function projectRoomReducer(state: ProjectRoomState, action: ProjectRoomA
       return {...state, overlay: {kind: "palette", query: "", selected: 0}, notice: null};
     case "overlay.leave":
       return {...state, overlay: {kind: "leave", selected: "continue"}, notice: null};
+    case "overlay.settings":
+      return {...state, overlay: {kind: "settings"}, notice: null};
     case "overlay.composer":
       return {
         ...state,
         overlay: {kind: "composer"},
+        composerText: action.prefill ?? state.composerText,
         composerTarget: state.overlay.kind === "target" ? state.composerTarget : defaultComposerTarget(state.snapshot, state.selectedAgentId),
         notice: null,
       };
@@ -314,6 +356,8 @@ export function projectRoomReducer(state: ProjectRoomState, action: ProjectRoomA
       return moveSelection(state, action.delta);
     case "events.follow.toggle":
       return {...state, followEvents: !state.followEvents, notice: null};
+    case "events.clear.local":
+      return {...state, events: [], selectedEventId: null, notice: "Local chat/work view cleared. Durable controller history was not deleted."};
     case "approval.open":
       return openApproval(state);
     case "approval.decision":
@@ -324,7 +368,7 @@ export function projectRoomReducer(state: ProjectRoomState, action: ProjectRoomA
       return state.pendingCommand?.id === action.id ? {...state, commandInFlight: true, notice: "Sending committed command..."} : state;
     case "command.succeeded":
       return state.pendingCommand?.id === action.id
-        ? {...state, pendingCommand: null, commandInFlight: false, notice: commandSuccessNotice(state.pendingCommand.command)}
+        ? {...state, pendingCommand: null, commandInFlight: false, notice: action.message ?? commandSuccessNotice(state.pendingCommand.command)}
         : state;
     case "command.failed":
       return state.pendingCommand?.id === action.id
@@ -346,6 +390,7 @@ export function projectRoomInput(state: ProjectRoomState, input: string, key: Pr
 
   switch (state.overlay.kind) {
     case "help":
+    case "settings":
       return input === "?" || key.return ? {type: "overlay.close"} : null;
     case "search":
     case "palette":
@@ -357,6 +402,10 @@ export function projectRoomInput(state: ProjectRoomState, input: string, key: Pr
     case "composer":
       if (key.return) return {type: "input.confirm"};
       if (key.tab) return {type: "overlay.target"};
+      if (key.backspace || key.delete) return {type: "text.backspace"};
+      return printable(input, key) ? {type: "text.append", text: input} : null;
+    case "api-key":
+      if (key.return) return {type: "input.confirm"};
       if (key.backspace || key.delete) return {type: "text.backspace"};
       return printable(input, key) ? {type: "text.append", text: input} : null;
     case "target":
@@ -381,19 +430,19 @@ export function projectRoomInput(state: ProjectRoomState, input: string, key: Pr
   }
 
   if (key.ctrl && input.toLowerCase() === "k") return {type: "overlay.palette"};
+  if (key.ctrl && input.toLowerCase() === "f") return {type: "events.follow.toggle"};
   if (key.tab) return {type: "focus.next", reverse: key.shift};
-  if (key.upArrow || input === "k") return {type: "selection.move", delta: -1};
-  if (key.downArrow || input === "j") return {type: "selection.move", delta: 1};
+  if (key.upArrow) return {type: "selection.move", delta: -1};
+  if (key.downArrow) return {type: "selection.move", delta: 1};
   if (key.return && state.focus === "approvals") return {type: "approval.open"};
   if (input === "1") return {type: "focus.set", focus: "agents"};
   if (input === "2") return {type: "focus.set", focus: "events"};
   if (input === "3") return {type: "focus.set", focus: "approvals"};
   if (input === "4") return {type: "focus.set", focus: "tokens"};
-  if (!key.ctrl && input === "c") return {type: "overlay.composer"};
-  if (!key.ctrl && input === "/") return {type: "overlay.search"};
-  if (!key.ctrl && input === "f") return {type: "events.follow.toggle"};
+  if (input === "5") return {type: "overlay.settings"};
+  if (!key.ctrl && input === "/") return {type: "overlay.composer", prefill: "/"};
   if (!key.ctrl && input === "?") return {type: "overlay.help"};
-  if (!key.ctrl && input === "q") return {type: "overlay.leave"};
+  if (printable(input, key)) return {type: "overlay.composer", prefill: input};
   return null;
 }
 
@@ -478,6 +527,14 @@ function reconcileSelections(
 }
 
 function appendText(state: ProjectRoomState, text: string): ProjectRoomState {
+  if (state.overlay.kind === "api-key") {
+    const secretChunk = Array.from(text).filter((character) => {
+      const point = character.codePointAt(0) ?? 0;
+      return point > 0x20 && (point < 0x7f || point > 0x9f);
+    }).join("");
+    if (secretChunk === "") return state;
+    return {...state, overlay: {...state.overlay, value: `${state.overlay.value}${secretChunk}`.slice(0, 4_096)}, notice: null};
+  }
   const clean = terminalText(text, 8_192);
   if (clean === "") return state;
   if (state.overlay.kind === "composer") {
@@ -494,6 +551,7 @@ function appendText(state: ProjectRoomState, text: string): ProjectRoomState {
 
 function backspaceText(state: ProjectRoomState): ProjectRoomState {
   if (state.overlay.kind === "composer") return {...state, composerText: dropLastCodePoint(state.composerText)};
+  if (state.overlay.kind === "api-key") return {...state, overlay: {...state.overlay, value: dropLastCodePoint(state.overlay.value)}};
   if (state.overlay.kind === "search") return {...state, overlay: {kind: "search", query: dropLastCodePoint(state.overlay.query)}};
   if (state.overlay.kind === "palette") return {...state, overlay: {...state.overlay, query: dropLastCodePoint(state.overlay.query), selected: 0}};
   return state;
@@ -532,7 +590,20 @@ function confirmOverlay(state: ProjectRoomState): ProjectRoomState {
         decision: state.overlay.decision,
         expectedCursor: state.cursor,
       }, {kind: "approval-detail", approvalId: state.overlay.approvalId});
+    case "api-key": {
+      if (isReadOnly(state)) return {...state, overlay: {kind: "none"}, notice: "This Software Agent session is read-only; provider settings are disabled."};
+      const secret = state.overlay.value.trim();
+      if (secret.length < 8) return {...state, notice: "Enter the complete API key, or press Esc to cancel without saving anything."};
+      return queueCommand(state, {
+        type: "provider.connect",
+        providerId: state.overlay.providerId,
+        model: state.overlay.model,
+        secret,
+        expectedCursor: state.cursor,
+      }, {kind: "none"});
+    }
     case "help":
+    case "settings":
     case "approval-detail":
       return {...state, overlay: {kind: "none"}};
     case "none":
@@ -561,14 +632,108 @@ function submitComposer(state: ProjectRoomState): ProjectRoomState {
 }
 
 function executeSlashCommand(state: ProjectRoomState, command: string): ProjectRoomState {
-  switch (command.toLowerCase()) {
-    case "/help": return {...state, overlay: {kind: "help"}, composerText: "", notice: null};
-    case "/search": return {...state, overlay: {kind: "search", query: ""}, composerText: "", notice: null};
-    case "/follow": return {...state, overlay: {kind: "none"}, composerText: "", followEvents: !state.followEvents, notice: null};
-    case "/leave": return {...state, overlay: {kind: "leave", selected: "continue"}, composerText: "", notice: null};
-    case "/target": return {...state, overlay: {kind: "target", selected: targetIndex(state)}, composerText: "", notice: null};
-    default: return {...state, notice: `Unknown Software Agent command '${terminalText(command, 80)}'. Use /help.`};
+  const parts = command.trim().split(/\s+/u);
+  const root = parts[0]?.toLowerCase() ?? "";
+  const action = parts[1]?.toLowerCase();
+  const argument = parts[2];
+  const clearComposer = {composerText: "", overlay: {kind: "none"} as const};
+  switch (root) {
+    case "/help": return {...state, ...clearComposer, overlay: {kind: "help"}, notice: null};
+    case "/search": return {...state, ...clearComposer, overlay: {kind: "search", query: ""}, notice: null};
+    case "/follow": return {...state, ...clearComposer, followEvents: !state.followEvents, notice: null};
+    case "/leave": return {...state, ...clearComposer, overlay: {kind: "leave", selected: "continue"}, notice: null};
+    case "/target": return {...state, ...clearComposer, overlay: {kind: "target", selected: targetIndex(state)}, notice: null};
+    case "/settings": return {...state, ...clearComposer, overlay: {kind: "settings"}, notice: null};
+    case "/agents": return {
+      ...state,
+      ...clearComposer,
+      focus: "agents",
+      notice: `${state.snapshot?.roster.length ?? 0} named roles are visible; only assigned roles consume model tokens.`,
+    };
+    case "/approvals": return {...state, ...clearComposer, focus: "approvals", notice: null};
+    case "/events": return {...state, ...clearComposer, focus: "events", notice: null};
+    case "/status": return {...state, ...clearComposer, notice: runStatusNotice(state.snapshot?.run ?? null)};
+    case "/clear": return projectRoomReducer({...state, ...clearComposer}, {type: "events.clear.local"});
+    case "/project":
+      return {
+        ...state,
+        ...clearComposer,
+        overlay: {kind: "settings"},
+        notice: "Use software-agent open <local-path-or-github-url> to enter another project safely.",
+      };
+    case "/github":
+    case "/open":
+      return {
+        ...state,
+        ...clearComposer,
+        notice: `Open a project with: software-agent open ${terminalText(parts.slice(1).join(" ") || "https://github.com/OWNER/REPO", 160)}`,
+      };
+    case "/api": {
+      if (action === undefined || action === "status" || action === "list") {
+        return {...state, ...clearComposer, overlay: {kind: "settings"}, notice: null};
+      }
+      const providerId = supportedUiProvider(argument);
+      if (providerId === null) {
+        return {...state, ...clearComposer, notice: "Use /api connect openai [model], /api connect anthropic [model], /api test <provider>, or /api remove <provider>."};
+      }
+      if (action === "connect") {
+        if (isReadOnly(state)) return {...state, ...clearComposer, notice: "This session is read-only; provider settings are disabled."};
+        const model = terminalText(parts[3] ?? defaultProviderModel(providerId), 256);
+        return {
+          ...state,
+          ...clearComposer,
+          overlay: {kind: "api-key", providerId, model, value: ""},
+          notice: "Paste the key into the masked field. It is sent only to the OS credential store and is never written to project files.",
+        };
+      }
+      if (action === "test") {
+        return queueCommand({...state, ...clearComposer}, {type: "provider.test", providerId, expectedCursor: state.cursor}, {kind: "none"});
+      }
+      if (action === "remove") {
+        if (isReadOnly(state)) return {...state, ...clearComposer, notice: "This session is read-only; provider settings are disabled."};
+        return queueCommand({...state, ...clearComposer}, {type: "provider.remove", providerId, expectedCursor: state.cursor}, {kind: "none"});
+      }
+      return {...state, ...clearComposer, notice: "Unknown /api action. Use /help."};
+    }
+    case "/model": {
+      const model = parts[1];
+      if (model === undefined) return {...state, ...clearComposer, overlay: {kind: "settings"}, notice: "Use /model provider/model-id to change this project's default model."};
+      if (isReadOnly(state)) return {...state, ...clearComposer, notice: "This session is read-only; model settings are disabled."};
+      return queueCommand({...state, ...clearComposer}, {type: "model.select", model: terminalText(model, 256), expectedCursor: state.cursor}, {kind: "none"});
+    }
+    case "/tokens": {
+      if (action === undefined || action === "status") return {...state, ...clearComposer, overlay: {kind: "settings"}, notice: null};
+      const tokenMode = parseUiTokenMode(action);
+      if (tokenMode === null) return {...state, ...clearComposer, notice: "Use /tokens 25, /tokens 50, /tokens 100, or economy/balanced/quality."};
+      if (isReadOnly(state)) return {...state, ...clearComposer, notice: "This session is read-only; token settings are disabled."};
+      return queueCommand({...state, ...clearComposer}, {type: "tokens.mode", mode: tokenMode, expectedCursor: state.cursor}, {kind: "none"});
+    }
+    default:
+      return {...state, ...clearComposer, notice: `Unknown Software Agent command '${terminalText(root, 40)}'. Use /help.`};
   }
+}
+
+function supportedUiProvider(value: string | undefined): "openai" | "anthropic" | null {
+  const normalized = value?.toLowerCase();
+  return normalized === "openai" || normalized === "anthropic" ? normalized : null;
+}
+
+function defaultProviderModel(providerId: "openai" | "anthropic"): string {
+  return providerId === "openai" ? "gpt-5" : "claude-sonnet-4-5";
+}
+
+function parseUiTokenMode(value: string): "economy" | "balanced" | "quality" | null {
+  if (["25", "25%", "economy"].includes(value)) return "economy";
+  if (["50", "50%", "balanced"].includes(value)) return "balanced";
+  if (["100", "100%", "quality"].includes(value)) return "quality";
+  return null;
+}
+
+function runStatusNotice(run: ProjectRoomRun | null): string {
+  if (run === null) return "No run is active. Type a prompt to create one.";
+  const passed = run.tasks.filter((task) => task.state === "PASSED").length;
+  const working = run.agents.filter((agent) => /RUNNING|PLANNING/u.test(agent.state)).length;
+  return `Run ${run.state}: ${passed}/${run.tasks.length} tasks passed; ${working} agent${working === 1 ? "" : "s"} working now.`;
 }
 
 function executePalette(state: ProjectRoomState): ProjectRoomState {
@@ -577,6 +742,8 @@ function executePalette(state: ProjectRoomState): ProjectRoomState {
   const selected = actions[clampIndex(state.overlay.selected, actions.length)];
   switch (selected) {
     case "Compose instruction": return projectRoomReducer({...state, overlay: {kind: "none"}}, {type: "overlay.composer"});
+    case "Open settings": return {...state, overlay: {kind: "settings"}};
+    case "Show all agents": return {...state, overlay: {kind: "none"}, focus: "agents", notice: `${state.snapshot?.roster.length ?? 0} named roles are available.`};
     case "Review approvals": return {...state, overlay: {kind: "none"}, focus: "approvals"};
     case "Search committed events": return {...state, overlay: {kind: "search", query: ""}};
     case "Toggle event follow": return {...state, overlay: {kind: "none"}, followEvents: !state.followEvents};
@@ -652,6 +819,16 @@ function commandSuccessNotice(command: ProjectRoomCommand): string {
       return "Instruction committed. It will run when the selected target has an active schedulable turn.";
     case "approval.decide":
       return "Approval decision committed. Waiting work can now continue if policy permits it.";
+    case "provider.connect":
+      return `${command.providerId} connected securely and ${command.providerId}/${command.model} selected for this project.`;
+    case "provider.test":
+      return `${command.providerId} credential and model connection verified.`;
+    case "provider.remove":
+      return `${command.providerId} removed; its Software Agent credential entry was also deleted when supported.`;
+    case "model.select":
+      return `Project model changed to ${command.model}. New turns will use the updated route.`;
+    case "tokens.mode":
+      return `Token mode changed to ${command.mode}. New runs will use the updated allowance.`;
     case "session.leave":
       return `Session disposition committed: ${command.disposition}.`;
   }

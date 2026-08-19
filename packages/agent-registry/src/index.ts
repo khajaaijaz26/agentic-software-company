@@ -51,6 +51,15 @@ export const ORCHESTRATOR: AgentDefinition = {
   triggers: ["always"],
 };
 
+/**
+ * Stable public roster used by operator surfaces. Keeping this ordered catalog
+ * separate from runtime activation lets the UI show every available specialist
+ * without spending tokens on roles that have no assigned work.
+ */
+export function softwareAgentRoster(): readonly AgentDefinition[] {
+  return Object.freeze([ORCHESTRATOR, ...DEFINITIONS]);
+}
+
 export class AgentRegistry {
   readonly #byId = new Map(DEFINITIONS.map((definition) => [definition.id, definition]));
 

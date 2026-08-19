@@ -712,7 +712,7 @@ export class SoftwareAgentRuntime {
 
   public getRun(runId: string): SoftwareAgentRunView {
     const run = this.#runs().find((candidate) => candidate.id === runId);
-    if (!run) throw new SoftwareAgentRuntimeError("RUN_NOT_FOUND", `unknown v0.3 run ${runId}`);
+    if (!run) throw new SoftwareAgentRuntimeError("RUN_NOT_FOUND", `unknown v0.4 run ${runId}`);
     return run;
   }
 

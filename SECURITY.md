@@ -4,7 +4,7 @@
 
 | Distribution | Version | Security fixes |
 | --- | --- | --- |
-| npm `software-agent` | 0.3.x preview | Yes |
+| npm `software-agent` | 0.4.x preview | Yes |
 | Python `software-agent` | 1.x compatibility | Yes |
 | Earlier/unreleased snapshots | other | No |
 
@@ -37,12 +37,16 @@ credentials and synthetic data.
   single-use.
 - Unknown connector operations are denied. A5 operations are denied by
   default, with hard denials for selected production/destructive cases.
-- Remote connector mutations are planning-only in v0.3; provider probes and
+- Remote connector mutations are planning-only in v0.4; provider probes and
   inventories are read-only.
 - Model credentials are supplied through explicit `env://` or supported
   secure-store references, resolved only by the controller, leased for the
   shortest scope, redacted, and never persisted in
   events, model prompts, artifacts, command lines, or generated reports.
+- Interactive API setup masks raw input and moves it to Windows Credential
+  Manager, macOS Keychain, or Linux Secret Service before controller IPC.
+  Windows secret bytes travel over stdin; validated target identifiers are
+  bound into an encoded PowerShell program, and native buffers are zeroed.
 - Attachment content is untrusted data. Local ingestion does not authorize
   upload, execution, or instruction following.
 - Artifacts are addressed by SHA-256 and verified on read. Runtime files are
@@ -61,7 +65,7 @@ credentials and synthetic data.
 
 - Authenticated IPC and detached controller discovery are active. Windows
   runtime/pipe ACLs and OS peer identity are not independently verified in
-  v0.3; protect the account and runtime directory.
+  v0.4; protect the account and runtime directory.
 - Attempt/lease fencing and child-process boundaries for approved verification
   commands are implemented, but lease extension, automatic retries, OS
   sandboxing/network isolation, and complete orphan recovery are not.
@@ -79,7 +83,7 @@ abuse cases, and residual risk.
 
 ## Secure deployment guidance
 
-1. Keep the CLI and state on a trusted single-user workstation during v0.3.
+1. Keep the CLI and state on a trusted single-user workstation during v0.4.
 2. Restrict project and platform data directories with OS permissions and disk
    encryption.
 3. Never commit `.software-agent/`, `.agent-company/`, `.agentic_company/`, `.env`, provider

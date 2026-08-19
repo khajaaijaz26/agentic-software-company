@@ -9,7 +9,7 @@ export interface CommandDefinition {
 }
 
 const implemented = new Set([
-  "init", "start", "run", "resume", "pause", "cancel",
+  "open", "init", "start", "run", "resume", "pause", "cancel",
   "projects list", "projects show", "runs list", "runs show",
   "tasks list", "tasks graph", "agents list",
   "approvals list", "approvals show", "approvals approve", "approvals deny",
@@ -27,7 +27,7 @@ const implemented = new Set([
 ]);
 
 const mutationPrefixes = [
-  "start", "run", "resume", "pause", "cancel", "projects create", "projects use", "projects archive",
+  "open", "start", "run", "resume", "pause", "cancel", "projects create", "projects use", "projects archive",
   "projects import", "tasks retry", "tasks cancel", "tasks take", "tasks release", "tasks message",
   "agents activate", "agents stop", "agents message", "approvals approve", "approvals deny",
   "approvals request-changes", "artifacts export", "changes patch", "tests run", "cost set-budget",
@@ -47,6 +47,7 @@ const connectedPrefixes = [
 ];
 
 const catalog: ReadonlyArray<readonly [string, string]> = [
+  ["open", "Open a local project or GitHub working checkout"],
   ["init", "Initialize or preview project configuration"],
   ["start", "Create a run and open the project room"],
   ["run", "Create a non-interactive run"],

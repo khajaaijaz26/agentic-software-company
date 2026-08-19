@@ -8,7 +8,7 @@ import {z} from "zod";
 import {runCli} from "../../apps/cli/src/index.js";
 import {LocalController} from "../../apps/control-plane/src/controller.js";
 import {dashboardLayout, renderPlainDashboard} from "../../apps/operator-console/src/dashboard.js";
-import {AgentRegistry} from "../../packages/agent-registry/src/index.js";
+import {AgentRegistry, softwareAgentRoster} from "../../packages/agent-registry/src/index.js";
 import {ArtifactStore} from "../../packages/artifact-store/src/index.js";
 import {AttachmentService} from "../../packages/attachments/src/index.js";
 import {BudgetExceededError, BudgetLedger} from "../../packages/budgets/src/index.js";
@@ -258,9 +258,10 @@ describe("catalog, terminal safety, controller replay, and CLI ABI", () => {
     expect(dashboardLayout(160, 19)).toBe("plain");
   });
 
-  it("exposes exactly 25 catalog roles and activates only relevant specialists", () => {
+  it("exposes 25 specialists plus the orchestrator and activates only relevant roles", () => {
     const registry = new AgentRegistry();
     expect(registry.list()).toHaveLength(25);
+    expect(softwareAgentRoster()).toHaveLength(26);
     const roles = registry.activateFor("Build a React UI and deploy a preview").map((role) => role.id);
     expect(roles).toContain("frontend-engineer");
     expect(roles).toContain("devops-platform");
@@ -322,7 +323,7 @@ describe("catalog, terminal safety, controller replay, and CLI ABI", () => {
     }
   });
 
-  it("uses versioned machine envelopes for a complete headless v0.3 run", async () => {
+  it("uses versioned machine envelopes for a complete headless v0.4 run", async () => {
     const workspace = temporaryDirectory();
     const output: string[] = [];
     const error: string[] = [];

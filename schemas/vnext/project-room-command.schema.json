@@ -7,6 +7,11 @@
     { "$ref": "#/$defs/objective" },
     { "$ref": "#/$defs/instruction" },
     { "$ref": "#/$defs/approval" },
+    { "$ref": "#/$defs/providerConnect" },
+    { "$ref": "#/$defs/providerTest" },
+    { "$ref": "#/$defs/providerRemove" },
+    { "$ref": "#/$defs/modelSelect" },
+    { "$ref": "#/$defs/tokenMode" },
     { "$ref": "#/$defs/leave" }
   ],
   "$defs": {
@@ -51,6 +56,59 @@
         "type": { "const": "approval.decide" },
         "approvalId": { "type": "string", "minLength": 1 },
         "decision": { "enum": ["APPROVED", "DENIED", "CHANGES_REQUESTED"] },
+        "expectedCursor": { "$ref": "#/$defs/cursor" }
+      }
+    },
+    "providerConnect": {
+      "type": "object",
+      "description": "Ephemeral in-process intent. The secret must be consumed by a secure credential backend and must never become an IPC or event payload.",
+      "additionalProperties": false,
+      "required": ["type", "providerId", "model", "secret", "expectedCursor"],
+      "properties": {
+        "type": { "const": "provider.connect" },
+        "providerId": { "enum": ["openai", "anthropic"] },
+        "model": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "secret": { "type": "string", "minLength": 8, "maxLength": 4096 },
+        "expectedCursor": { "$ref": "#/$defs/cursor" }
+      }
+    },
+    "providerTest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "providerId", "expectedCursor"],
+      "properties": {
+        "type": { "const": "provider.test" },
+        "providerId": { "enum": ["openai", "anthropic"] },
+        "expectedCursor": { "$ref": "#/$defs/cursor" }
+      }
+    },
+    "providerRemove": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "providerId", "expectedCursor"],
+      "properties": {
+        "type": { "const": "provider.remove" },
+        "providerId": { "enum": ["openai", "anthropic"] },
+        "expectedCursor": { "$ref": "#/$defs/cursor" }
+      }
+    },
+    "modelSelect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "model", "expectedCursor"],
+      "properties": {
+        "type": { "const": "model.select" },
+        "model": { "type": "string", "minLength": 3, "maxLength": 256 },
+        "expectedCursor": { "$ref": "#/$defs/cursor" }
+      }
+    },
+    "tokenMode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "mode", "expectedCursor"],
+      "properties": {
+        "type": { "const": "tokens.mode" },
+        "mode": { "enum": ["economy", "balanced", "quality"] },
         "expectedCursor": { "$ref": "#/$defs/cursor" }
       }
     },

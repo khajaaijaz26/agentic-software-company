@@ -1,6 +1,6 @@
 # Terminal Platform Blueprint v0.2 traceability
 
-This matrix records what the Software Agent v0.3 implementation actually provides against the broader source blueprint. “Partial” means a meaningful path exists but the complete stable-platform requirement does not.
+This matrix records what the Software Agent v0.4 implementation actually provides against the broader source blueprint. “Partial” means a meaningful path exists but the complete stable-platform requirement does not.
 
 ## Terminal and controller
 
@@ -8,25 +8,25 @@ This matrix records what the Software Agent v0.3 implementation actually provide
 | --- | --- | --- |
 | Globally installable TypeScript CLI | Implemented | `software-agent` package/bin, strict TypeScript, Node.js 22.14+ |
 | Human/plain/JSON/NDJSON output | Implemented | CLI output envelopes and stable exit-code map; NDJSON event follow is polling, not server push |
-| Responsive project-room TUI | Implemented | Three agent panels, events, approvals, tokens, details, search, targeted instructions, reconnect/resync, read-only mode, plain fallback |
+| Responsive project-room TUI | Implemented | Half-width chat/work stream, compact 26-role wall, direct prompting, slash settings/provider commands, approvals, tokens, targeted instructions, reconnect/resync, read-only mode, plain fallback |
 | Durable local controller | Implemented | Detached discovery plus embedded test mode; one authoritative SQLite-backed controller per workspace |
 | Authenticated local IPC | Implemented local | Four-byte framed JSON, Unix socket/Windows pipe only, private nonce and HMAC proof, frame limits, descriptors, heartbeat, cross-process start lock |
 | Single-writer enforcement | Implemented application-level | Controller lock and mutation lease/fence; the owning OS user can still alter files directly |
 | Durable event source and replay | Implemented | WAL, synchronous writes, expected stream versions, idempotent command receipts, global cursors, bounded history/poll pages |
-| Push subscriptions | Not implemented | Long polling plus resynchronization is used in v0.3 |
+| Push subscriptions | Not implemented | Long polling plus resynchronization is used in v0.4 |
 | Very-large-run compaction/pagination | Partial | Event pages are bounded; full run projections still need compaction |
 
 ## Multi-agent runtime
 
 | Blueprint capability | Status | Current evidence and boundary |
 | --- | --- | --- |
-| Visible specialist collaboration | Implemented | Durable Master Orchestrator, Software Engineer, and Reviewer & QA logical sessions |
+| Visible specialist collaboration | Implemented bounded | Full 26-role catalog is visible; the bounded runtime projects at most three durable active execution seats and labels every unallocated role `WAITING FOR WORK` |
 | Task DAG and bounded parallelism | Implemented slice | Fixed five-task dependency graph; one workspace mutation at a time; `maxParallel` 1–3 |
 | Assignments, turns, attempts, mailboxes, handoffs | Implemented | Persisted runtime-v2 events and projections |
 | Pause/cancel/restart recovery | Implemented bounded | Active attempts are aborted/fenced and tasks can be recovered; automatic retry/backoff and full orphan adoption are absent |
 | Targeted live instructions | Implemented | Run/task/agent targets with cursor, run revision, command ID, and mutation-lease binding |
 | Human questions/answers | Implemented runtime | Typed commands and persisted question/mailbox state; the primary TUI emphasizes instructions/approvals |
-| Arbitrary agent delegation trees | Not implemented | The v0.3 graph and three roles are controller-defined |
+| Arbitrary agent delegation trees | Not implemented | The v0.4 graph and three execution-seat roles are controller-defined |
 | OS sandbox for model/tool execution | Not implemented | Controller-owned model/tools; approved commands are separate bounded processes, not a hostile-code sandbox |
 
 ## Models, context, and tokens
@@ -36,7 +36,7 @@ This matrix records what the Software Agent v0.3 implementation actually provide
 | Deterministic offline provider | Implemented | Built-in adapter for setup, testing, and replayable demos |
 | Native OpenAI provider | Implemented | Responses API, streaming tool calls/results, usage, model discovery, continuation ID |
 | Native Anthropic provider | Implemented | Messages API, streaming tool blocks/results, usage, model discovery |
-| BYOK secret isolation | Implemented | `env://` and supported secure-store references; values controller-only and never persisted or passed to command children |
+| BYOK secret isolation | Implemented | Masked in-room setup, Windows Credential Manager/macOS Keychain/Linux Secret Service, `env://` automation references; values are never persisted or passed to controller/command children |
 | Project and role model switching | Implemented | `models use`, project TOML routes, user defaults, immutable routing revision |
 | One-use model grants | Implemented | Provider/model/run/task/agent/attempt/revision/token/expiry binding |
 | Repository retrieval | Implemented bounded | File listing, token-efficient literal `search_code`, exact-revision text reads; ignored/generated/secret/binary/large paths excluded |

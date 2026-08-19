@@ -2,7 +2,7 @@
 
 ## Status and authority boundaries
 
-This document describes the Software Agent v0.3 local developer platform.
+This document describes the Software Agent v0.4 local developer platform.
 
 Several surfaces coexist and must not be treated as one contract:
 
@@ -10,9 +10,9 @@ Several surfaces coexist and must not be treated as one contract:
 | --- | --- | --- |
 | Installed TypeScript CLI | `software-agent`, with a deprecated `agent-company` migration shim; primary lifecycle, provider, model, token, setup, inspection, and approval commands are active | Selected legacy inspection and connector-plan paths remain during migration |
 | Controller runtime v2 | event-sourced three-session runtime, bounded parallel DAG, durable assignments/turns/attempts/handoffs, mutation fencing, polling/history, questions and instructions | Automatic retries and complete external-side-effect reconciliation remain future work |
-| Project-room TUI | authenticated live IPC source, cursor resync, lease renewal, read-only fallback, targeted instructions, approvals, model/tool activity, evidence, tokens, and cost | Very large projections still need pagination/compaction beyond current bounded event pages |
+| Project-room TUI | split chat/work and 26-role wall, direct typing, slash settings/provider commands, authenticated live IPC source, cursor resync, lease renewal, targeted instructions, approvals, model/tool activity, evidence, tokens, and cost | Very large projections still need pagination/compaction beyond current bounded event pages |
 | Model gateway | deterministic, native OpenAI Responses, and native Anthropic Messages adapters with tool continuations, routing, and one-use grants | Provider availability, price, or usage that cannot be verified remains `UNKNOWN` |
-| Token budgets | durable 25%/50%/100% accounts, per-agent reservations/reconciliation, approved extensions, snapshot projection, and live room display | The full ceiling is fixed at 100,000 tokens per run in v0.3 |
+| Token budgets | durable 25%/50%/100% accounts, per-agent reservations/reconciliation, approved extensions, snapshot projection, and live room display | The full ceiling is fixed at 100,000 tokens per run in v0.4 |
 | Python/MCP | `software_agent` compatibility package and deprecated `agentic_company` aliases | Separate state and orchestration; never a second TypeScript controller |
 
 The schemas in [`schemas/vnext`](../../schemas/vnext) describe these contracts
@@ -103,12 +103,20 @@ table.
 
 ## Runtime-v2 execution model
 
-The v0.3 runtime builds a deterministic five-task DAG across exactly three
-session roles:
+The v0.4 runtime builds a deterministic five-task DAG across exactly three
+durable execution-seat roles:
 
 - `master-orchestrator`;
 - `software-engineer`; and
 - `reviewer-qa`.
+
+The operator surface separately projects the stable 26-role catalog. The
+orchestrator seat is shown as Master Orchestrator, the delivery seat is mapped
+to the objective-relevant named engineering specialist, and the review seat is
+mapped to QA Strategist or Code Reviewer. Every other catalog role remains
+visible as `WAITING FOR WORK` with no model allocation. The wall therefore
+communicates availability without pretending that 26 provider calls are
+running or spending tokens simultaneously.
 
 A new run begins `PAUSED`. Its `maxParallel` is one through three. The scheduler
 runs ready tasks concurrently up to that bound, never assigns two active tasks
@@ -193,7 +201,10 @@ authoritative snapshot when the server requests resynchronization.
 
 - plain fallback below 60 columns or 20 rows;
 - narrow, two-card, and three-card layouts at 60, 90, and 120 columns;
-- agent, event, approval, detail, and token panels;
+- a wide 50/50 chat/work and 26-role wall, plus compact agent, event,
+  approval, detail, and token views;
+- normal typing for prompts and `/` commands for provider, model, token,
+  settings, status, target, search, follow, and local-view operations;
 - explicit composer targets and confirmation state;
 - focus, search, follow, help, reconnect, resync, stale, error, empty, and read-only states; and
 - `NO_COLOR`, ASCII, non-interactive text, and terminal-restoration behavior.
@@ -228,7 +239,12 @@ tool calls, usage, completion, and failure behavior. Implemented adapters are:
 - native Anthropic Messages API transport.
 
 Provider credentials are resolved from explicit secret references by the
-controller-side secret broker. Capability catalogs use
+controller-side secret broker. The interactive source stores masked raw input
+directly in Windows Credential Manager, macOS Keychain, or Linux Secret
+Service before any controller RPC; configuration receives only the opaque
+reference. Credential rotation uses a new unique entry, atomically updates
+user/project configuration, and deletes the previous entry only after commit.
+Capability catalogs use
 `software-agent.model-catalog/v1`; unavailable capability, context, pricing, or
 usage data stays `UNKNOWN` rather than being guessed.
 

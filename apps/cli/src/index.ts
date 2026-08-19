@@ -1,4 +1,7 @@
-import {basename, join, resolve} from "node:path";
+import {existsSync} from "node:fs";
+import {mkdir} from "node:fs/promises";
+import {homedir} from "node:os";
+import {basename, dirname, join, resolve} from "node:path";
 import {fileURLToPath, pathToFileURL} from "node:url";
 import {Command, CommanderError, Option} from "commander";
 import {GitHubConnector} from "../../../adapters/github/src/index.js";
@@ -45,10 +48,10 @@ import {
   parseSecretReference,
 } from "../../../packages/secret-broker/src/index.js";
 import {EXIT_CODES, emit, emitError, processIo, type Io, type OutputMode} from "./output.js";
-import {IpcProjectRoomSource} from "./project-room-source.js";
+import {IpcProjectRoomSource, softwareAgentSnapshotToProjectRoom} from "./project-room-source.js";
 
-const VERSION = "0.3.2";
-const BUILD = "software-agent-v0.3.2";
+const VERSION = "0.4.0";
+const BUILD = "software-agent-v0.4.0";
 const CLI_NAME = "software-agent";
 
 interface Runtime {
@@ -108,9 +111,9 @@ function buildProgram(runtime: Runtime): Command {
     .version(`${VERSION} (${BUILD}; schema v1; plugin API v1)`, "-V, --version")
     .option("-p, --project <id-or-path>", "select a project path")
     .option("-r, --run <run-id>", "select a run")
-    .option("--workspace <name>", "reserved workspace selector (rejected in v0.3)")
-    .option("--profile <name>", "reserved profile selector (rejected in v0.3)")
-    .option("--config <path>", "reserved override path (rejected in v0.3)")
+    .option("--workspace <name>", "reserved workspace selector (rejected in v0.4)")
+    .option("--profile <name>", "reserved profile selector (rejected in v0.4)")
+    .option("--config <path>", "reserved override path (rejected in v0.4)")
     .option("--json", "emit one JSON result")
     .option("--ndjson", "emit newline-delimited events/results")
     .option("--plain", "stable output without cursor control")
@@ -118,9 +121,9 @@ function buildProgram(runtime: Runtime): Command {
     .addOption(new Option("--unicode <mode>", "symbol mode").choices(["auto", "on", "off"]).default("auto"))
     .option("--non-interactive", "never prompt")
     .option("--offline", "block provider/network use")
-    .option("--timeout <duration>", "reserved foreground timeout (rejected in v0.3)")
-    .option("--log-level <level>", "reserved diagnostic level (rejected in v0.3)")
-    .option("--trace-id <id>", "reserved correlation ID (rejected in v0.3)")
+    .option("--timeout <duration>", "reserved foreground timeout (rejected in v0.4)")
+    .option("--log-level <level>", "reserved diagnostic level (rejected in v0.4)")
+    .option("--trace-id <id>", "reserved correlation ID (rejected in v0.4)")
     .option("--redact <level>", "redaction level", "standard")
     .option("-y, --yes", "accept ordinary local confirmations only")
     .action(async (_options: unknown, command: Command) => {
@@ -139,6 +142,25 @@ function buildProgram(runtime: Runtime): Command {
       });
     });
 
+  program.command("open [target]")
+    .description("open a local project or securely check out a GitHub repository")
+    .option("--github", "treat OWNER/REPO as a GitHub repository")
+    .option("--destination <path>", "local destination for a GitHub checkout")
+    .action(async (target: string | undefined, options: {github?: boolean; destination?: string}, command: Command) => {
+      const globals = global(command);
+      const selectedWorkspace = await resolveOpenWorkspace(target ?? globals.project ?? process.cwd(), options);
+      await ensureInitialized(selectedWorkspace);
+      const selectedGlobals: GlobalOptions = {...globals, project: selectedWorkspace};
+      await withController(selectedGlobals, async (controller) => {
+        const source = await controller.projectRoomSource({branch: await currentBranch(selectedWorkspace)});
+        try {
+          await presentProjectRoom(runtime, selectedGlobals, source);
+        } finally {
+          await source.dispose();
+        }
+      });
+    });
+
   program.command("init [path]")
     .description("preview or create project configuration")
     .option("--name <name>", "project name")
@@ -149,7 +171,7 @@ function buildProgram(runtime: Runtime): Command {
     .action(async (path: string | undefined, options: {name?: string; write: boolean; mode?: string; repo?: string; gitStrategy?: string}, command: Command) => {
       const globals = global(command);
       if (options.mode !== undefined || options.repo !== undefined || options.gitStrategy !== undefined) {
-        throw new CliError("CAPABILITY_UNAVAILABLE", "init mode, repository mode, and git strategy overrides are reserved in v0.3", EXIT_CODES.CAPABILITY_UNAVAILABLE);
+        throw new CliError("CAPABILITY_UNAVAILABLE", "init mode, repository mode, and git strategy overrides are reserved in v0.4", EXIT_CODES.CAPABILITY_UNAVAILABLE);
       }
       const workspace = resolve(path ?? globals.project ?? process.cwd());
       const name = options.name ?? basename(workspace);
@@ -177,7 +199,7 @@ function buildProgram(runtime: Runtime): Command {
       .action(async (request: string[], options: {file?: string; stdin?: boolean; planOnly?: boolean; background?: boolean; budget?: string; maxParallel?: string}, command: Command) => {
         const globals = global(command);
         if (options.planOnly) {
-          throw new CliError("CAPABILITY_UNAVAILABLE", "--plan-only is not available in the live v0.3 scheduler yet", EXIT_CODES.CAPABILITY_UNAVAILABLE);
+          throw new CliError("CAPABILITY_UNAVAILABLE", "--plan-only is not available in the live v0.4 scheduler yet", EXIT_CODES.CAPABILITY_UNAVAILABLE);
         }
         if (options.budget !== undefined && !["economy", "balanced", "quality"].includes(options.budget)) {
           throw new CliError("BUDGET_MODE_INVALID", "--budget must be economy, balanced, or quality", EXIT_CODES.USAGE);
@@ -297,10 +319,18 @@ function addRunTaskAgentCommands(program: Command, runtime: Runtime): void {
       emit(runtime.io, mode(globals), "task.graph", run.tasks.map((task) => ({id: task.id, state: task.state, dependsOn: task.dependsOn})));
     });
   });
-  const agents = program.command("agents").description("inspect the 25-agent catalog and instances");
+  const agents = program.command("agents").description("inspect all 26 named roles and their live allocation state");
   agents.command("list").action(async (_options: unknown, command: Command) => {
     const globals = global(command);
-    await withController(globals, async (controller) => emit(runtime.io, mode(globals), "agents", (await controller.snapshot()).runs[0]?.agents ?? []));
+    await withController(globals, async (controller) => {
+      const [snapshot, approvals, branch] = await Promise.all([
+        controller.snapshotV2(),
+        controller.listApprovals(),
+        currentBranch(workspace(globals)),
+      ]);
+      const room = softwareAgentSnapshotToProjectRoom(snapshot, approvals, {branch, control: false});
+      emit(runtime.io, mode(globals), "agents", room.roster);
+    });
   });
 }
 
@@ -667,7 +697,9 @@ function addProviderModelCommands(program: Command, runtime: Runtime): void {
     emit(runtime.io, mode(globals), "setup", {
       providerConfig: userProviderConfigFile(resolvePlatformPaths()),
       steps: [
-        "Set OPENAI_API_KEY or ANTHROPIC_API_KEY in your terminal environment.",
+        `Interactive: run ${CLI_NAME}, press /, then use /api connect openai <model-id> or /api connect anthropic <model-id>.`,
+        "Paste the key only into the masked Software Agent field; it moves to the OS credential store.",
+        "Automation alternative: set OPENAI_API_KEY or ANTHROPIC_API_KEY in the terminal environment.",
         `${CLI_NAME} providers add openai --model <model-id> --credential env://OPENAI_API_KEY`,
         `${CLI_NAME} providers test openai`,
         `${CLI_NAME} models use openai/<model-id>`,
@@ -841,7 +873,10 @@ async function readStdin(): Promise<string> {
 }
 
 class ControllerClientFacade {
-  public constructor(private readonly client: ControllerIpcClient) {}
+  public constructor(
+    private readonly client: ControllerIpcClient,
+    private readonly selectedWorkspace: string,
+  ) {}
 
   public async projectRoomSource(options: {
     readonly branch: string;
@@ -849,7 +884,7 @@ class ControllerClientFacade {
     readonly runId?: string;
     readonly tokenMode?: "economy" | "balanced" | "quality";
   }): Promise<IpcProjectRoomSource> {
-    const source = new IpcProjectRoomSource(this.client, options);
+    const source = new IpcProjectRoomSource(this.client, {workspace: this.selectedWorkspace, ...options});
     await source.initialize();
     return source;
   }
@@ -917,7 +952,7 @@ async function withController<T>(globals: GlobalOptions, callback: (controller: 
     client = await connectWithRetry(selectedWorkspace, connectError);
   }
   try {
-    return await callback(new ControllerClientFacade(client));
+    return await callback(new ControllerClientFacade(client, selectedWorkspace));
   } finally {
     await client.close();
     await daemon?.close();
@@ -957,6 +992,73 @@ async function waitForTerminalSnapshot(
     snapshot = update.snapshot;
   }
   return snapshot;
+}
+
+async function resolveOpenWorkspace(
+  target: string,
+  options: {readonly github?: boolean; readonly destination?: string},
+): Promise<string> {
+  const requested = target.trim();
+  if (requested === "") throw new CliError("PROJECT_REQUIRED", "a local path or GitHub repository is required", EXIT_CODES.USAGE);
+  const repository = githubRepositorySlug(requested, options.github === true);
+  if (repository === null) {
+    const local = resolve(requested);
+    if (!existsSync(local)) {
+      throw new CliError(
+        "PROJECT_NOT_FOUND",
+        `local project does not exist: ${local}`,
+        EXIT_CODES.USAGE,
+        "Use a full https://github.com/OWNER/REPO URL or add --github for OWNER/REPO.",
+      );
+    }
+    return local;
+  }
+
+  const [repositoryOwner, repositoryName] = repository.split("/");
+  if (repositoryOwner === undefined || repositoryName === undefined) throw new CliError("GITHUB_REPOSITORY_INVALID", "GitHub repository must be OWNER/REPO", EXIT_CODES.USAGE);
+  const destination = resolve(options.destination ?? join(homedir(), "SoftwareAgentProjects", repositoryOwner, repositoryName));
+  if (existsSync(destination)) {
+    if (!existsSync(join(destination, ".git"))) {
+      throw new CliError("PROJECT_DESTINATION_OCCUPIED", `destination exists but is not a Git checkout: ${destination}`, EXIT_CODES.ACTION_FAILED);
+    }
+    return destination;
+  }
+  await mkdir(dirname(destination), {recursive: true});
+  const result = await runConnectorCli("gh", ["repo", "clone", repository, destination], {
+    timeoutMs: 5 * 60_000,
+    maxBytes: 4 * 1_048_576,
+  });
+  if (result.exitCode !== 0) {
+    throw new CliError(
+      "GITHUB_CLONE_FAILED",
+      result.stderr || result.stdout || `GitHub could not check out ${repository}`,
+      EXIT_CODES.TRANSIENT_FAILURE,
+      "Run software-agent doctor and confirm that gh auth status is connected.",
+    );
+  }
+  return destination;
+}
+
+function githubRepositorySlug(target: string, forced: boolean): string | null {
+  const shorthand = /^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?$/u.exec(target);
+  if (forced) {
+    if (shorthand === null) throw new CliError("GITHUB_REPOSITORY_INVALID", "--github requires OWNER/REPO", EXIT_CODES.USAGE);
+    return `${shorthand[1]}/${shorthand[2]}`;
+  }
+  const ssh = /^git@github\.com:([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?$/u.exec(target);
+  if (ssh !== null) return `${ssh[1]}/${ssh[2]}`;
+  try {
+    const url = new URL(target);
+    if (url.protocol !== "https:" || url.hostname.toLowerCase() !== "github.com") return null;
+    const parts = url.pathname.replace(/^\/+|\/+$/gu, "").replace(/\.git$/u, "").split("/");
+    if (parts.length !== 2 || !parts.every((part) => /^[A-Za-z0-9_.-]+$/u.test(part))) {
+      throw new CliError("GITHUB_REPOSITORY_INVALID", "GitHub URL must identify exactly one OWNER/REPO", EXIT_CODES.USAGE);
+    }
+    return `${parts[0]}/${parts[1]}`;
+  } catch (error) {
+    if (error instanceof CliError) throw error;
+    return null;
+  }
 }
 
 async function ensureInitialized(root: string): Promise<void> {
@@ -1028,13 +1130,13 @@ function global(command: Command): GlobalOptions {
     ["--trace-id", options.traceId],
   ].find(([, value]) => value !== undefined);
   if (reserved !== undefined) {
-    throw new CliError("CAPABILITY_UNAVAILABLE", `${reserved[0]} is reserved but not active in v0.3`, EXIT_CODES.CAPABILITY_UNAVAILABLE);
+    throw new CliError("CAPABILITY_UNAVAILABLE", `${reserved[0]} is reserved but not active in v0.4`, EXIT_CODES.CAPABILITY_UNAVAILABLE);
   }
   if (options.unicode !== undefined && options.unicode !== "auto") {
-    throw new CliError("CAPABILITY_UNAVAILABLE", "explicit Unicode mode is reserved in v0.3", EXIT_CODES.CAPABILITY_UNAVAILABLE);
+    throw new CliError("CAPABILITY_UNAVAILABLE", "explicit Unicode mode is reserved in v0.4", EXIT_CODES.CAPABILITY_UNAVAILABLE);
   }
   if (options.redact !== undefined && options.redact !== "standard") {
-    throw new CliError("CAPABILITY_UNAVAILABLE", "only the standard redaction policy is available in v0.3", EXIT_CODES.CAPABILITY_UNAVAILABLE);
+    throw new CliError("CAPABILITY_UNAVAILABLE", "only the standard redaction policy is available in v0.4", EXIT_CODES.CAPABILITY_UNAVAILABLE);
   }
   return options;
 }

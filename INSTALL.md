@@ -9,6 +9,7 @@ Software Agent's primary runtime is a TypeScript/Node.js terminal application. T
 - Node.js 22.14 or newer; Node.js 24 LTS is recommended.
 - npm, included with Node.js.
 - Git.
+- GitHub CLI (`gh`) only when opening a GitHub URL or `OWNER/REPO`; it is not needed for local folders.
 - Windows Terminal, iTerm2, or another modern terminal for the best live UI.
 
 Check the tools:
@@ -17,19 +18,22 @@ Check the tools:
 node --version
 npm --version
 git --version
+gh --version
 ```
+
+For remote GitHub projects, connect once with `gh auth login`. You may skip both `gh` commands when you only open local folders.
 
 ## Install the verified release
 
 The public GitHub release is available now:
 
 ```powershell
-npm install -g "https://github.com/khajaaijaz26/software-agent/releases/download/v0.3.2/software-agent-0.3.2.tgz"
+npm install -g "https://github.com/khajaaijaz26/software-agent/releases/download/v0.4.0/software-agent-0.4.0.tgz"
 software-agent --version
 software-agent setup
 ```
 
-GitHub publishes the SHA-256 digest for `software-agent-0.3.2.tgz` on the release page so it can be checked independently after download.
+GitHub publishes the SHA-256 digest for `software-agent-0.4.0.tgz` on the release page so it can be checked independently after download.
 
 ## Global npm registry installation
 
@@ -45,27 +49,29 @@ The package is intentionally one global command, similar to other terminal codin
 
 ## Install from this checkout
 
-Use these exact PowerShell steps for the repository already on this computer:
+Clone the source once, then install its dependencies and create the development command:
 
 ```powershell
-Set-Location C:\Users\khaja\agentic-software-company
+Set-Location $HOME
+git clone https://github.com/khajaaijaz26/software-agent.git software-agent
+Set-Location $HOME\software-agent
 npm ci
 npm run check
 npm link
 software-agent --version
 ```
 
-`Set-Location` changes the current terminal folder. If PowerShell says the path does not exist, verify it first:
+If you already cloned the repository, skip `git clone` and enter its actual folder. `Set-Location` changes the current terminal folder. If PowerShell says the default path does not exist, verify it first:
 
 ```powershell
-Test-Path C:\Users\khaja\agentic-software-company
-Get-ChildItem C:\Users\khaja
+Test-Path $HOME\software-agent
+Get-ChildItem $HOME
 ```
 
 For source development without a global link:
 
 ```powershell
-Set-Location C:\Users\khaja\agentic-software-company
+Set-Location $HOME\software-agent
 npm run dev -- --version
 npm run dev -- setup --json
 ```
@@ -91,6 +97,21 @@ Or provide the first objective immediately:
 software-agent start "Fix the issue, add tests, and update the documentation"
 ```
 
+Open a local project from any directory:
+
+```powershell
+software-agent open C:\path\to\your-project
+```
+
+Or create/reuse a local working checkout from GitHub:
+
+```powershell
+software-agent open https://github.com/OWNER/REPOSITORY
+software-agent open OWNER/REPOSITORY --github
+```
+
+The default checkout folder is `$HOME\SoftwareAgentProjects\OWNER\REPOSITORY`. Use `--destination C:\path\to\folder` to choose another location. Existing destinations must be Git checkouts; Software Agent will not overwrite an unrelated folder.
+
 If PowerShell already displays `PS C:\path\to\your-project>`, do not type another heading or prompt marker. Enter only the `software-agent start "..."` command.
 
 On first use, Software Agent creates:
@@ -106,6 +127,18 @@ software-agent init --name sample-project --no-write --json
 ```
 
 ## Connect an OpenAI API key
+
+The simplest interactive setup is inside the live Software Agent room. Launch `software-agent`, press `/`, type the following command, and paste the key into the masked box:
+
+```text
+/api connect openai <model-id>
+/api test openai
+/model openai/<model-id>
+```
+
+On Windows this uses Windows Credential Manager. The key is sent to the credential-store process only through stdin, and only a `manager://` reference is saved. The complete Windows write/read/delete path is covered by tests. macOS uses Keychain; Linux uses Secret Service when `secret-tool` is available.
+
+For CI and non-interactive shells, use an environment reference instead:
 
 Set the key in the current PowerShell session. Software Agent stores only the reference `env://OPENAI_API_KEY`, not the value.
 
@@ -124,6 +157,16 @@ software-agent start "Describe the software change"
 
 ## Connect an Anthropic API key
 
+Interactive room commands:
+
+```text
+/api connect anthropic <model-id>
+/api test anthropic
+/model anthropic/<model-id>
+```
+
+Non-interactive alternative:
+
 ```powershell
 $env:ANTHROPIC_API_KEY = "your-key"
 software-agent providers add anthropic --model <model-id> --credential env://ANTHROPIC_API_KEY
@@ -131,12 +174,12 @@ software-agent providers test anthropic
 software-agent models use anthropic/<model-id>
 ```
 
-Do not pass a raw key to `--credential`; it is rejected. On Windows, the built-in release supports `env://` references. It deliberately does not use `cmdkey` because that would expose secret material through command arguments. Secure-store references are supported where a safe backend is available.
+Do not pass a raw key to `--credential`; it is rejected. Raw keys are accepted only by the masked in-room setup and are immediately moved to the OS credential store. Software Agent does not use `cmdkey`, because that would expose secret material through command arguments.
 
 ## macOS and Linux
 
 ```bash
-npm install -g "https://github.com/khajaaijaz26/software-agent/releases/download/v0.3.2/software-agent-0.3.2.tgz"
+npm install -g "https://github.com/khajaaijaz26/software-agent/releases/download/v0.4.0/software-agent-0.4.0.tgz"
 cd /path/to/your-project
 export OPENAI_API_KEY="your-key"
 software-agent providers add openai --model <model-id> --credential env://OPENAI_API_KEY
@@ -162,7 +205,7 @@ software-agent models use anthropic/<review-model-id> --role reviewer-qa
 software-agent models list
 ```
 
-Supported runtime roles are `master-orchestrator`, `software-engineer`, and `reviewer-qa`.
+The room displays the full 26-role specialist catalog. The current bounded runtime activates at most three durable execution seats—an orchestrator, a relevant delivery specialist, and an independent reviewer—and labels every inactive role `WAITING FOR WORK` without spending model tokens.
 
 ## Reduce token use
 
@@ -189,6 +232,9 @@ software-agent run --budget economy "Make one focused fix"
 
 The live room supports three responsive layouts and a plain fallback. Common keys are displayed in its footer. Important interactions include:
 
+- type normally to begin a chat prompt; no compose shortcut is required;
+- press `/` to open slash commands such as `/agents`, `/status`, `/settings`, `/api`, `/model`, and `/tokens`;
+- view chat and committed file/tool activity on one half of a wide terminal and all 26 named roles on the other half;
 - select an agent, event, approval, or token panel;
 - compose an instruction and target a run, task, or agent;
 - inspect an approval packet, then explicitly approve, deny, or request changes;
@@ -199,11 +245,26 @@ Agent and event labels are deliberately literal:
 | Label | Meaning |
 | --- | --- |
 | `WORKING NOW` | This agent currently has an executing turn. |
+| `WAITING FOR WORK` | This named role has no assigned turn and consumes no model tokens. |
 | `WAITING FOR INPUT` / `WAITING FOR HANDOFF` | A named dependency must arrive before the agent can continue. |
 | `IDLE - NOT WORKING` | The session is present but is not executing; `Last:` describes historical activity. |
 | `DONE` / `FAILED` | The agent is terminal. |
 | `LIVE SCROLL` | The event panel automatically follows new committed events. |
-| `SCROLL PAUSED` | Only the event view stopped following; agent execution is not paused. Press `f` to resume live scrolling. |
+| `SCROLL PAUSED` | Only the event view stopped following; agent execution is not paused. Press `Ctrl+F` or use `/follow` to resume live scrolling. |
+
+Useful in-room slash commands:
+
+| Command | Result |
+| --- | --- |
+| `/agents` | Focus the wall and report the 26 named roles. |
+| `/status` | Summarize the run, working agents, approvals, and token mode. |
+| `/api connect openai <model>` | Open the masked secure-key flow. |
+| `/api test openai` | Verify the saved credential and provider model catalog. |
+| `/model openai/<model>` | Change the project default for new turns. |
+| `/tokens economy` | Use the 25% run allowance (`balanced` is 50%). |
+| `/settings` | Show project, model, token, and provider settings. |
+| `/target` | Select an active run, task, or execution seat for the next instruction. |
+| `/clear` | Clear only the local chat/work view; durable history remains intact. |
 
 For CI or scripts:
 
@@ -229,7 +290,7 @@ software-agent integrations test vercel --json
 software-agent integrations test supabase --json
 ```
 
-These adapters currently discover status and produce governed mutation plans. Software Agent v0.3 does not silently execute remote pushes, deployments, or database migrations.
+These adapters currently discover status and produce governed mutation plans. Software Agent v0.4 does not silently execute remote pushes, deployments, or database migrations.
 
 ## Controller lifecycle
 
@@ -245,7 +306,7 @@ software-agent --project C:\path\to\project run --json "Test the embedded flow"
 Or launch the packaged controller manually:
 
 ```powershell
-node C:\Users\khaja\agentic-software-company\dist\controller.js --workspace C:\path\to\project
+node $HOME\software-agent\dist\controller.js --workspace C:\path\to\project
 ```
 
 The protocol uses a Unix socket or Windows named pipe, a private nonce file, HMAC authentication, a one-megabyte frame limit, and workspace/user/controller identity binding. It never falls back to TCP.
@@ -267,7 +328,7 @@ Set `SOFTWARE_AGENT_HOME` to place platform directories below one custom root. T
 This is separate from the TypeScript controller and does not share runs or state:
 
 ```powershell
-Set-Location C:\Users\khaja\agentic-software-company
+Set-Location $HOME\software-agent
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -e ".[mcp]"
@@ -279,7 +340,7 @@ The historical `agentic_company` import and executable remain deprecated aliases
 ## Verify a source build
 
 ```powershell
-Set-Location C:\Users\khaja\agentic-software-company
+Set-Location $HOME\software-agent
 npm run typecheck
 npm run lint
 npm test
