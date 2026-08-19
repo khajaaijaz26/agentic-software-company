@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.software-agent.dev/vnext/token-budget-extension.schema.json",
+  "title": "Software Agent approved token budget extension input",
+  "description": "The runtime additionally enforces one-use approval identity, an exact 25-percent increment, a maximum 15-minute approval window, and the configured full ceiling.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["approvalId", "amountTokens", "expiresAt"],
+  "properties": {
+    "approvalId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$" },
+    "amountTokens": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+    "expiresAt": { "type": "string", "format": "date-time" },
+    "now": { "type": "string", "format": "date-time" }
+  }
+}

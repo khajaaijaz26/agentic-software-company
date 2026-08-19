@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.agent-company.dev/vnext/output.schema.json",
-  "title": "Agent Company CLI output envelope v1",
+  "$id": "https://schemas.software-agent.dev/vnext/output.schema.json",
+  "title": "Software Agent CLI output envelope v1",
   "oneOf": [
     { "$ref": "#/$defs/success" },
     { "$ref": "#/$defs/error" }
@@ -12,7 +12,7 @@
       "additionalProperties": false,
       "required": ["schema", "type", "data"],
       "properties": {
-        "schema": { "const": "agent-company.output/v1" },
+        "schema": { "const": "software-agent.output/v1" },
         "type": { "type": "string", "minLength": 1 },
         "data": true
       }
@@ -22,7 +22,7 @@
       "additionalProperties": false,
       "required": ["schema", "type", "data"],
       "properties": {
-        "schema": { "const": "agent-company.error/v1" },
+        "schema": { "const": "software-agent.error/v1" },
         "type": { "const": "error" },
         "data": {
           "type": "object",

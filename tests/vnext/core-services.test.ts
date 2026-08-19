@@ -58,7 +58,7 @@ const openResources: Array<{ close(): void }> = [];
 const temporaryDirectories: string[] = [];
 
 function databaseFile(name: string): string {
-  const directory = mkdtempSync(join(tmpdir(), "agent-company-core-"));
+  const directory = mkdtempSync(join(tmpdir(), "software-agent-core-"));
   temporaryDirectories.push(directory);
   return join(directory, name);
 }
@@ -287,7 +287,7 @@ describe("SQLite event store", () => {
     store.append(command("cmd_outbox", "run_outbox", 0, "one"));
     const [pending] = store.pendingOutbox();
     expect(pending).toMatchObject({streamId: "run_outbox", eventType: "run.transitioned", deliveredAt: null});
-    expect(pending?.payload).toMatchObject({schema: "agent-company.event/v1", streamVersion: 1});
+    expect(pending?.payload).toMatchObject({schema: "software-agent.event/v2", streamVersion: 1});
     store.commitConsumerOffset("projection:runs", pending!.sequence, LATER);
     expect(store.consumerOffset("projection:runs")).toBe(pending!.sequence);
     expect(() => store.commitConsumerOffset("projection:runs", 0, LATER)).toThrow();

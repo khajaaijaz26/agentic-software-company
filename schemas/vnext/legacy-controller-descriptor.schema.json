@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.software-agent.dev/vnext/legacy-controller-descriptor.schema.json",
+  "title": "Legacy Agent Company controller descriptor reader",
+  "description": "Read-only compatibility shape accepted solely to discover an existing agent-company.controller/v1 service during migration. Software Agent never emits this schema.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "pid",
+    "startedAt",
+    "heartbeatAt",
+    "endpoint",
+    "transport",
+    "instanceId",
+    "protocol",
+    "buildVersion",
+    "userBinding",
+    "nonceRef",
+    "workspaceHash"
+  ],
+  "properties": {
+    "schema": { "const": "agent-company.controller/v1" },
+    "pid": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+    "startedAt": { "type": "string", "format": "date-time" },
+    "heartbeatAt": { "type": "string", "format": "date-time" },
+    "endpoint": { "type": "string", "minLength": 1, "maxLength": 512 },
+    "transport": { "enum": ["unix", "named-pipe"] },
+    "instanceId": { "type": "string", "pattern": "^ctl_[a-f0-9]{32}$" },
+    "protocol": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["min", "max"],
+      "properties": {
+        "min": { "type": "integer", "minimum": 1, "maximum": 2 },
+        "max": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 }
+      },
+      "oneOf": [
+        { "properties": { "min": { "const": 1 }, "max": { "minimum": 1 } } },
+        { "properties": { "min": { "const": 2 }, "max": { "minimum": 2 } } }
+      ]
+    },
+    "buildVersion": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "userBinding": { "type": "string", "pattern": "^[a-f0-9]{48}$" },
+    "nonceRef": { "type": "string", "pattern": "^nonce-ctl_[a-f0-9]{32}\\.key$" },
+    "workspaceHash": { "type": "string", "pattern": "^[a-f0-9]{24}$" }
+  }
+}

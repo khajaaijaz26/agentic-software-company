@@ -1,8 +1,9 @@
 import {randomUUID} from "node:crypto";
 import {mkdir} from "node:fs/promises";
-import {join, resolve} from "node:path";
+import {join, relative, resolve} from "node:path";
 import {
   CONTRACT_SCHEMA_VERSION,
+  approvalBindingHash,
   sha256Canonical,
   type ActorRef,
   type ApprovalBinding,
@@ -13,10 +14,69 @@ import {SqliteEventStore, type EventToAppend} from "../../../packages/event-stor
 import {ApprovalService, type ApprovalRecord} from "../../../packages/approval-service/src/index.js";
 import {AGENT_STATUSES, canTransitionRun, canTransitionTask, topologicalOrder, type AgentStatus, type DagNode} from "../../../packages/domain/src/index.js";
 import {AgentRegistry} from "../../../packages/agent-registry/src/index.js";
-import {BudgetLedger} from "../../../packages/budgets/src/index.js";
+import {BudgetLedger, type TokenBudgetMode} from "../../../packages/budgets/src/index.js";
 import {loadProjectConfig, projectFiles} from "../../../packages/config/src/index.js";
 import {ChildWorkerSupervisor, WorkerSupervisorError, createWorkerManifest} from "../../../packages/worker-supervisor/src/index.js";
 import {sanitizeTerminal} from "../../../packages/observability/src/index.js";
+import {
+  createConfiguredSoftwareAgentStepExecutor,
+  type AgentCommandApprovalRequest,
+} from "../../../packages/agent-execution/src/index.js";
+import {
+  SoftwareAgentRuntime,
+  type AnswerQuestionCommand,
+  type AskQuestionCommand,
+  type CreateSoftwareAgentRunCommand,
+  type MutationLeaseCommand,
+  type ReleaseMutationLeaseCommand,
+  type RunSoftwareAgentCommand,
+  type SoftwareAgentCommandReceipt,
+  type SoftwareAgentEventsPage,
+  type SoftwareAgentRunState,
+  type SoftwareAgentRunView,
+  type SoftwareAgentSnapshot,
+  type SoftwareAgentTokenBudgetView,
+  type MutationLeaseView,
+  type QuestionCommandResult,
+  type SoftwareAgentStepExecutor,
+  type SubmitInstructionCommand,
+  type InstructionCommandResult,
+} from "./runtime-v3.js";
+
+export type {
+  AgentSessionViewV2,
+  AnswerQuestionCommand,
+  AskQuestionCommand,
+  AssignmentView,
+  AttemptView,
+  CreateSoftwareAgentRunCommand,
+  HandoffView,
+  MailboxMessageView,
+  MutationLeaseCommand,
+  MutationLeaseView,
+  QuestionCommandResult,
+  QuestionView,
+  ReleaseMutationLeaseCommand,
+  RunSoftwareAgentCommand,
+  SoftwareAgentCommandContext,
+  SoftwareAgentCommandReceipt,
+  SoftwareAgentEventsPage,
+  SoftwareAgentRunState,
+  SoftwareAgentRunView,
+  SoftwareAgentSnapshot,
+  SoftwareAgentTokenBudgetView,
+  SoftwareAgentTaskView,
+  SoftwareAgentStepExecutionRequest,
+  SoftwareAgentStepExecutor,
+  CompletedSoftwareAgentStepFrame,
+  InstructionCommandResult,
+  InstructionTarget,
+  SubmitInstructionCommand,
+} from "./runtime-v3.js";
+
+export interface LocalControllerOpenOptions {
+  readonly stepExecutor?: SoftwareAgentStepExecutor;
+}
 
 export const RUN_STATES = [
   "DRAFT", "PLANNING", "WAITING_INPUT", "WAITING_APPROVAL", "RUNNING", "PAUSING", "PAUSED",
@@ -82,8 +142,11 @@ export class LocalController {
   readonly #registry = new AgentRegistry();
   readonly #workers = new ChildWorkerSupervisor();
   readonly #activeRuns = new Map<string, AbortController>();
+  #runtimeV3: SoftwareAgentRuntime | undefined;
+  #closed = false;
   #projectId = "";
   #projectName = "";
+  #defaultTokenMode: TokenBudgetMode = "balanced";
 
   private constructor(workspace: string, database: string) {
     this.#workspace = workspace;
@@ -92,21 +155,135 @@ export class LocalController {
     this.#budgets = new BudgetLedger(database);
   }
 
-  public static async open(workspace = process.cwd()): Promise<LocalController> {
+  public static async open(workspace = process.cwd(), options: LocalControllerOpenOptions = {}): Promise<LocalController> {
     const root = resolve(workspace);
     const files = projectFiles(root);
     await mkdir(files.directory, {recursive: true, mode: 0o700});
     const controller = new LocalController(root, join(files.directory, "state.sqlite"));
     await controller.#loadProject();
+    const stepExecutor = options.stepExecutor ?? createConfiguredSoftwareAgentStepExecutor({
+      workspace: root,
+      budgets: controller.#budgets,
+      authorizeCommand: async (request, signal) => await controller.#authorizeAgentCommand(request, signal),
+    });
+    controller.#runtimeV3 = new SoftwareAgentRuntime({
+      workspace: root,
+      projectId: controller.#projectId,
+      projectName: controller.#projectName,
+      events: controller.#events,
+      workers: controller.#workers,
+      stepExecutor,
+    });
+    await controller.#runtimeV3.recover();
     return controller;
   }
 
   public close(): void {
+    if (this.#closed) return;
+    this.#closed = true;
     for (const controller of this.#activeRuns.values()) controller.abort(new Error("controller is shutting down"));
     this.#activeRuns.clear();
+    void this.#runtimeV3?.shutdown(0);
     this.#budgets.close();
     this.#approvals.close();
     this.#events.close();
+  }
+
+  public async shutdown(graceMs = 2_000): Promise<void> {
+    if (this.#closed) return;
+    this.#closed = true;
+    for (const controller of this.#activeRuns.values()) controller.abort(new Error("controller is shutting down"));
+    this.#activeRuns.clear();
+    await this.#runtime().shutdown(graceMs);
+    this.#budgets.close();
+    this.#approvals.close();
+    this.#events.close();
+  }
+
+  public acquireMutationLease(input: MutationLeaseCommand): MutationLeaseView {
+    return this.#runtime().acquireMutationLease(input);
+  }
+
+  public renewMutationLease(input: ReleaseMutationLeaseCommand): MutationLeaseView {
+    return this.#runtime().renewMutationLease(input);
+  }
+
+  public releaseMutationLease(input: ReleaseMutationLeaseCommand): MutationLeaseView {
+    return this.#runtime().releaseMutationLease(input);
+  }
+
+  public createRunV2(input: CreateSoftwareAgentRunCommand): SoftwareAgentRunView {
+    const tokenMode = input.tokenMode ?? this.#defaultTokenMode;
+    const run = this.#runtime().createRun({...input, tokenMode});
+    this.#ensureTokenBudget(run.id, tokenMode);
+    return run;
+  }
+
+  public resumeRunV2(input: RunSoftwareAgentCommand): SoftwareAgentCommandReceipt {
+    return this.#runtime().resumeRun(input);
+  }
+
+  public pauseRunV2(input: RunSoftwareAgentCommand): SoftwareAgentCommandReceipt {
+    return this.#runtime().pauseRun(input);
+  }
+
+  public cancelRunV2(input: RunSoftwareAgentCommand): SoftwareAgentCommandReceipt {
+    return this.#runtime().cancelRun(input);
+  }
+
+  public askQuestionV2(input: AskQuestionCommand): QuestionCommandResult {
+    return this.#runtime().askQuestion(input);
+  }
+
+  public answerQuestionV2(input: AnswerQuestionCommand): QuestionCommandResult {
+    return this.#runtime().answerQuestion(input);
+  }
+
+  public submitInstructionV2(input: SubmitInstructionCommand): InstructionCommandResult {
+    return this.#runtime().submitInstruction(input);
+  }
+
+  public snapshotV2(options: {readonly recentEventLimit?: number} = {}): SoftwareAgentSnapshot {
+    const snapshot = this.#runtime().snapshot(options);
+    return {
+      ...snapshot,
+      tokenBudgets: snapshot.runs.flatMap((run) => {
+        try {
+          const account = this.#budgets.tokenAccount(`run:${run.id}`);
+          const view: SoftwareAgentTokenBudgetView = {
+            runId: run.id,
+            mode: account.mode,
+            fullLimitTokens: account.fullLimitTokens,
+            effectiveLimitTokens: account.effectiveLimitTokens,
+            spentTokens: account.spentTokens,
+            reservedTokens: account.reservedTokens,
+            uncertainTokens: account.uncertainTokens,
+            remainingTokens: account.remainingTokens,
+            warning: account.warning,
+            blocked: account.blocked,
+            agents: this.#budgets.agentTokenAllocations(`run:${run.id}`),
+          };
+          return [view];
+        } catch {
+          return [];
+        }
+      }),
+    };
+  }
+
+  public historyV2(input: {readonly runId?: string; readonly afterCursor: number; readonly limit?: number}): SoftwareAgentEventsPage {
+    return this.#runtime().history(input);
+  }
+
+  public pollEventsV2(
+    input: {readonly afterCursor: number; readonly limit?: number; readonly waitMs?: number},
+    signal?: AbortSignal,
+  ): Promise<SoftwareAgentEventsPage> {
+    return this.#runtime().poll(input, signal);
+  }
+
+  public waitForRunV2(runId: string, states: readonly SoftwareAgentRunState[], timeoutMs: number): Promise<SoftwareAgentRunView> {
+    return this.#runtime().waitForRun(runId, states, timeoutMs);
   }
 
   public createRun(objective: string, actor: ActorRef = {type: "human", id: "local-user"}): Promise<RunView> {
@@ -178,16 +355,10 @@ export class LocalController {
   }
 
   public listApprovals(runId?: string): readonly ApprovalRecord[] {
-    const ids = this.snapshot().runs
-      .filter((run) => runId === undefined || run.id === runId)
-      .flatMap((run) => run.approvalIds);
-    return ids.flatMap((id) => {
-      const approval = this.#approvals.get(id);
-      return approval ? [approval] : [];
-    });
+    return this.#approvals.list(runId);
   }
 
-  public approve(approvalId: string, actor: ActorRef = {type: "human", id: "local-user"}, reason = "approved in Agent Company CLI"): ApprovalRecord {
+  public approve(approvalId: string, actor: ActorRef = {type: "human", id: "local-user"}, reason = "approved in Software Agent"): ApprovalRecord {
     const now = new Date().toISOString();
     const safeReason = sanitizeTerminal(reason, 4_096);
     const approval = this.#approvals.decide({approvalId, approver: actor, decision: "APPROVED", decidedAt: now, reason: safeReason});
@@ -198,7 +369,7 @@ export class LocalController {
     return approval;
   }
 
-  public deny(approvalId: string, actor: ActorRef = {type: "human", id: "local-user"}, reason = "denied in Agent Company CLI"): ApprovalRecord {
+  public deny(approvalId: string, actor: ActorRef = {type: "human", id: "local-user"}, reason = "denied in Software Agent"): ApprovalRecord {
     const now = new Date().toISOString();
     const safeReason = sanitizeTerminal(reason, 4_096);
     const approval = this.#approvals.decide({approvalId, approver: actor, decision: "DENIED", decidedAt: now, reason: safeReason});
@@ -346,6 +517,7 @@ export class LocalController {
     const config = await loadProjectConfig(this.#workspace);
     this.#projectId = config.mapping_id;
     this.#projectName = sanitizeTerminal(config.project.name, 256);
+    this.#defaultTokenMode = config.project.default_profile;
     const stream = `project:${this.#projectId}`;
     if (this.#events.latestStreamVersion(stream) === 0) {
       const now = new Date().toISOString();
@@ -366,6 +538,141 @@ export class LocalController {
       createdAt: new Date().toISOString(),
     });
   }
+
+  #runtime(): SoftwareAgentRuntime {
+    if (!this.#runtimeV3) throw new ControllerError("RUNTIME_NOT_READY", "Software Agent runtime is not ready");
+    return this.#runtimeV3;
+  }
+
+  async #authorizeAgentCommand(request: AgentCommandApprovalRequest, signal: AbortSignal): Promise<void> {
+    const {manifest, authority, plan} = request;
+    const commandPreview = sanitizeTerminal([plan.executable, ...plan.args].join(" "), 2_048);
+    const cwd = relative(this.#workspace, plan.cwd).replaceAll("\\", "/") || ".";
+    const operationHash = sha256Canonical({
+      runId: manifest.runId,
+      taskId: manifest.taskId,
+      sessionId: manifest.sessionId,
+      attemptId: manifest.attemptId,
+      leaseId: authority.leaseId,
+      fencingEpoch: authority.fencingEpoch,
+      operationId: authority.operationId,
+      executable: plan.executable,
+      args: [...plan.args],
+      cwd,
+    });
+    const binding: ApprovalBinding = {
+      schemaVersion: CONTRACT_SCHEMA_VERSION,
+      actor: {type: "agent", id: manifest.sessionId},
+      connector: "local",
+      action: `command:execute:${commandPreview}`,
+      resource: manifest.runId,
+      environment: "local",
+      artifactSha256: null,
+      operationHash,
+    };
+    const approvalId = `apr_cmd_${operationHash.slice(0, 40)}`;
+    let approval = this.#approvals.get(approvalId);
+    if (approval === null) {
+      const requestedAt = new Date().toISOString();
+      approval = this.#approvals.request({
+        approvalId,
+        binding,
+        requestedAt,
+        expiresAt: new Date(Date.now() + 15 * 60 * 1_000).toISOString(),
+      });
+      this.#appendRuntimeApprovalEvent(manifest.runId, approvalId, "software-agent.approval.requested", {runId: manifest.runId,
+        taskId: manifest.taskId,
+        sessionId: manifest.sessionId,
+        approvalId,
+        risk: "A3_PROCESS_EXECUTION",
+        action: binding.action,
+        resource: binding.resource,
+        operationHash,
+        expiresAt: approval.expiresAt,
+        summary: `${manifest.role} requests approval to run ${commandPreview} in ${cwd}.`,
+      });
+    } else if (approval.bindingHash !== approvalBindingHash(binding)) {
+      throw new ControllerError("APPROVAL_BINDING_CONFLICT", `approval ${approvalId} is bound to a different command`);
+    }
+
+    for (;;) {
+      if (signal.aborted) {
+        const current = this.#approvals.get(approvalId);
+        if (current?.status === "PENDING" || current?.status === "APPROVED" || current?.status === "CHANGES_REQUESTED") {
+          try {
+            this.#approvals.cancel(approvalId, new Date().toISOString());
+            this.#appendRuntimeApprovalEvent(manifest.runId, approvalId, "software-agent.approval.canceled", {
+              runId: manifest.runId, taskId: manifest.taskId, sessionId: manifest.sessionId, approvalId,
+              summary: "Command approval was canceled because the attempt stopped.",
+            });
+          } catch {
+            // A concurrent human decision wins; the next attempt must reconcile it.
+          }
+        }
+        throw signal.reason instanceof Error ? signal.reason : new ControllerError("COMMAND_CANCELED", "command approval wait was canceled");
+      }
+      approval = this.#approvals.get(approvalId);
+      if (approval === null) throw new ControllerError("APPROVAL_NOT_FOUND", `approval ${approvalId} disappeared`);
+      if (approval.status === "APPROVED") {
+        const consumed = this.#approvals.consume({approvalId, binding, consumedAt: new Date().toISOString()});
+        this.#appendRuntimeApprovalEvent(manifest.runId, approvalId, "software-agent.approval.consumed", {
+          runId: manifest.runId,
+          taskId: manifest.taskId,
+          sessionId: manifest.sessionId,
+          approvalId,
+          consumedAt: consumed.consumedAt,
+          summary: `Exact approval consumed; running ${commandPreview}.`,
+        });
+        return;
+      }
+      if (approval.status === "PENDING") {
+        if (Date.parse(approval.expiresAt) <= Date.now()) {
+          this.#approvals.expire(approvalId, new Date().toISOString());
+          throw new ControllerError("APPROVAL_EXPIRED", `approval ${approvalId} expired`);
+        }
+        await waitForApprovalPoll(signal);
+        continue;
+      }
+      if (approval.status === "CONSUMED") {
+        throw new ControllerError("COMMAND_RECONCILIATION_REQUIRED", `approval ${approvalId} was already consumed; command replay is blocked`);
+      }
+      throw new ControllerError("APPROVAL_DENIED", `approval ${approvalId} is ${approval.status}`);
+    }
+  }
+
+  #appendRuntimeApprovalEvent(runId: string, approvalId: string, eventType: string, data: JsonObject): void {
+    const commandId = `${eventType}:${approvalId}`;
+    this.#events.append({
+      commandId,
+      operationHash: sha256Canonical({eventType, approvalId, data}),
+      streamId: runId,
+      expectedVersion: this.#events.latestStreamVersion(runId),
+      events: [{
+        eventType,
+        actor: SYSTEM_ACTOR,
+        occurredAt: new Date().toISOString(),
+        data,
+        metadata: {schema: "software-agent.event/v2", correlationId: approvalId, causationId: approvalId},
+      }],
+      response: {approvalId, eventType},
+      createdAt: new Date().toISOString(),
+    });
+  }
+
+  #ensureTokenBudget(runId: string, mode: TokenBudgetMode): void {
+    const scope = `run:${runId}`;
+    try {
+      this.#budgets.tokenAccount(scope);
+      return;
+    } catch {
+      this.#budgets.configureTokenBudget({
+        scope,
+        fullLimitTokens: 100_000,
+        mode,
+        agentShares: {"master-orchestrator": 25, "software-engineer": 50, "reviewer-qa": 25},
+      });
+    }
+  }
 }
 
 export class ControllerError extends Error {
@@ -373,6 +680,21 @@ export class ControllerError extends Error {
     super(message);
     this.name = "ControllerError";
   }
+}
+
+function waitForApprovalPoll(signal: AbortSignal): Promise<void> {
+  return new Promise((resolvePromise, reject) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolvePromise();
+    }, 200);
+    timer.unref();
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      reject(signal.reason instanceof Error ? signal.reason : new ControllerError("COMMAND_CANCELED", "command approval wait was canceled"));
+    };
+    signal.addEventListener("abort", onAbort, {once: true});
+  });
 }
 
 interface ProposedTask extends DagNode {

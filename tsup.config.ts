@@ -2,9 +2,10 @@ import {defineConfig} from "tsup";
 
 export default defineConfig({
   entry: {
-    cli: "apps/cli/src/index.ts",
-    controller: "apps/controller-daemon/src/index.ts",
-    worker: "apps/worker-runtime/src/index.ts",
+    cli: "apps/cli/src/bin.ts",
+    "compat-agent-company": "apps/cli/src/compat-agent-company.ts",
+    controller: "apps/controller-daemon/src/bin.ts",
+    worker: "apps/worker-runtime/src/bin.ts",
   },
   format: ["esm"],
   target: "node22",
@@ -14,7 +15,7 @@ export default defineConfig({
   dts: true,
   sourcemap: true,
   clean: true,
-  splitting: false,
+  splitting: true,
   banner: {
     js: "#!/usr/bin/env node",
   },

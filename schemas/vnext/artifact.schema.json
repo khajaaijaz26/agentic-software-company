@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.agent-company.dev/vnext/artifact.schema.json",
-  "title": "Agent Company artifact manifest v1",
+  "$id": "https://schemas.software-agent.dev/vnext/artifact.schema.json",
+  "title": "Software Agent artifact manifest v1",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -16,7 +16,7 @@
     "created_at"
   ],
   "properties": {
-    "schema": { "const": "agent-company.artifact-manifest/v1" },
+    "schema": { "const": "software-agent.artifact-manifest/v1" },
     "artifact_id": { "type": "string", "pattern": "^art_[A-Za-z0-9_-]+$" },
     "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
     "size_bytes": { "type": "integer", "minimum": 0 },

@@ -3,9 +3,9 @@ requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "agentic-company"
+name = "software-agent-compat"
 version = "1.0.0"
-description = "Governed multi-agent software delivery platform (reference implementation)"
+description = "Software Agent Python and MCP compatibility runtime"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"
@@ -27,6 +27,8 @@ classifiers = [
 mcp = ["mcp>=1.2.0,<2"]
 
 [project.scripts]
+software-agent-reference = "software_agent.__main__:main"
+software-agent-mcp = "software_agent.mcp_server:main"
 agentic-company = "agentic_company.__main__:main"
 agentic-company-mcp = "agentic_company.mcp_server:main"
 
@@ -37,10 +39,10 @@ package-dir = { "" = "src" }
 where = ["src"]
 
 [tool.setuptools.data-files]
-"share/agentic_company/prompts" = ["prompts/*.md"]
-"share/agentic_company/prompts/policies" = ["prompts/policies/*.md"]
-"share/agentic_company/prompts/roles" = ["prompts/roles/*.md"]
-"share/agentic_company/prompts/templates" = ["prompts/templates/*.json"]
-"share/agentic_company/schemas" = ["schemas/*.json"]
-"share/agentic_company/schemas/vnext" = ["schemas/vnext/*.json"]
-"share/agentic_company/workflows" = ["workflows/*.yaml"]
+"share/software_agent/prompts" = ["prompts/*.md"]
+"share/software_agent/prompts/policies" = ["prompts/policies/*.md"]
+"share/software_agent/prompts/roles" = ["prompts/roles/*.md"]
+"share/software_agent/prompts/templates" = ["prompts/templates/*.json"]
+"share/software_agent/schemas" = ["schemas/*.json"]
+"share/software_agent/schemas/vnext" = ["schemas/vnext/*.json"]
+"share/software_agent/workflows" = ["workflows/*.yaml"]

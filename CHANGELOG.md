@@ -2,7 +2,7 @@
 
 All notable changes are documented here. The project uses semantic versioning
 per distribution: the npm CLI and preserved Python compatibility package have
-independent version lines during the v0.2 transition.
+independent version lines.
 
 ## [Unreleased]
 
@@ -10,9 +10,52 @@ independent version lines during the v0.2 transition.
 
 - Persistent worker lease heartbeats/extensions, bounded retries, crash
   recovery, orphan reconciliation, and OS-level sandboxing.
-- Approval-backed execution adapters for normalized connector actions.
-- Live event subscriptions and a fully interactive operator console.
+- Approval-backed execution adapters and reconciliation for normalized remote connector actions.
+- Server-push event subscriptions and very-large-run snapshot compaction.
 - Signed export/import and an automated Python-state migration tool.
+
+## [npm 0.3.0] - 2026-08-19
+
+### Added
+
+- Renamed the product, npm package, primary binary, state directories, current
+  schemas, and Python compatibility entrypoint to **Software Agent**.
+- A durable three-specialist runtime with Master Orchestrator, Software
+  Engineer, and Reviewer & QA sessions; a parallel five-task DAG; assignments,
+  turns, mailboxes, handoffs, instructions, evidence, attempt fencing, pause,
+  cancel, restart recovery, and idempotent command receipts.
+- A responsive live Ink project room backed by authenticated event polling,
+  cursor resynchronization, renewable mutation control, targeted instructions,
+  detailed model/tool activity, approvals, token usage, cost, and plain output.
+- Native OpenAI Responses and Anthropic Messages adapters with streaming tool
+  calls/results, provider continuations, bounded HTTP handling, BYOK secret
+  references, role/project routing, and one-use model grants.
+- Controller-owned repository tools for bounded discovery, token-efficient
+  literal context search, exact-revision reads, atomic writes, and approved
+  shell-free verification commands.
+- Economy (25%), balanced (50%), and quality (100%) token modes with balanced
+  as the default, durable per-agent reservations, provider reconciliation,
+  extensions, warnings, and runtime/TUI projection.
+- User commands for secure provider setup, connection tests, model switching,
+  role routes, secret-reference inspection, token modes, token status, and a
+  guided `software-agent setup` flow.
+- Original Software Agent logo, developer hero, social preview, workflow
+  diagram, provenance record, rewritten installation guide, and release docs.
+
+### Security
+
+- Every allowlisted process execution crosses an exact, expiring, visible A3
+  approval boundary and consumes authorization atomically once.
+- Model credentials remain in the controller, never in worker manifests or
+  verification subprocess environments; raw keys are rejected from config.
+- Command arguments matching credential patterns are denied before spawn.
+- Local IPC adds a cross-process start lock, terminal failed handshakes, fatal
+  UTF-8 parsing, stronger Windows pipe identity binding, and exact cleanup.
+
+### Compatibility
+
+- The deprecated `agent-company` binary, historical schema readers, and
+  `agentic_company` Python imports remain only as explicit migration aliases.
 
 ## [npm 0.2.0] - 2026-08-18
 

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/khajaaijaz26/agentic-software-company/schemas/approval-request.schema.json",
+  "$id": "https://github.com/khajaaijaz26/software-agent/schemas/approval-request.schema.json",
   "title": "Approval Request",
   "description": "A scoped, bound, short-lived approval token request. Binds actor, action, resource, environment, artifact version, and time window. Silence is never approval.",
   "type": "object",

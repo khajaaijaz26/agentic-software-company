@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document defines project authority and change control for Agent Company
+This document defines project authority and change control for Software Agent
 CLI. It applies to both the npm terminal-platform preview and the preserved
 Python/MCP compatibility runtime. It does not grant an AI agent authority to
 make repository, release, production, legal, or financial decisions.

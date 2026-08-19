@@ -22,6 +22,8 @@ const implemented = new Set([
   "events list", "cost summary", "state check", "doctor", "version", "config path",
   "commands", "artifacts list", "artifacts show", "artifacts verify",
   "changes status", "changes diff", "changes files",
+  "providers list", "providers add", "providers show", "providers test", "providers enable", "providers disable", "providers remove",
+  "models list", "models use", "tokens mode", "tokens status", "secrets list", "secrets test", "setup",
 ]);
 
 const mutationPrefixes = [
@@ -30,6 +32,7 @@ const mutationPrefixes = [
   "agents activate", "agents stop", "agents message", "approvals approve", "approvals deny",
   "approvals request-changes", "artifacts export", "changes patch", "tests run", "cost set-budget",
   "providers add", "providers enable", "providers disable", "providers remove", "config set", "config unset",
+  "models use", "tokens mode",
   "secrets add", "secrets remove", "notifications add", "notifications mute", "notifications unmute",
   "notifications remove", "plugin add", "plugin disable", "state restore", "telemetry enable", "telemetry disable",
   "attachments add", "attachments add-dir", "repo push", "pr open", "pr update", "pr comment",
@@ -59,7 +62,8 @@ const catalog: ReadonlyArray<readonly [string, string]> = [
   ...family("tests", ["list", "show", "run", "watch"]),
   ...family("cost", ["summary", "budget", "set-budget", "export"]),
   ...family("providers", ["list", "add", "show", "test", "enable", "disable", "remove"]),
-  ...family("models", ["list", "test", "aliases", "policy"]),
+  ...family("models", ["list", "use", "test", "aliases", "policy"]),
+  ...family("tokens", ["mode", "status"]),
   ...family("config", ["path", "get", "set", "unset", "edit", "validate", "export"]),
   ...family("policy", ["show", "validate", "explain"]),
   ...family("secrets", ["list", "add", "test", "remove"]),
@@ -70,6 +74,7 @@ const catalog: ReadonlyArray<readonly [string, string]> = [
   ...family("plugin", ["add", "verify", "list", "doctor", "disable"]),
   ...family("state", ["check", "backup", "restore"]),
   ...family("telemetry", ["status", "preview", "enable", "disable"]),
+  ["setup", "Show the shortest secure BYOK setup"],
   ["support-bundle", "Create a redacted diagnostics bundle"], ["doctor", "Run local diagnostics"],
   ["commands", "Search the shared CLI and TUI command registry"],
   ["completion", "Generate shell completion"], ["update check", "Check compatibility updates"],

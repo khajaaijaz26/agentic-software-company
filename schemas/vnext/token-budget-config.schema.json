@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.software-agent.dev/vnext/token-budget-config.schema.json",
+  "title": "Software Agent token budget configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["scope", "fullLimitTokens", "mode"],
+  "properties": {
+    "scope": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "fullLimitTokens": { "type": "integer", "minimum": 1000, "maximum": 10000000 },
+    "mode": { "enum": ["economy", "balanced", "quality"] },
+    "agentShares": {
+      "description": "Finite positive percentages. Runtime validation additionally requires the values to total exactly 100 percent.",
+      "type": "object",
+      "propertyNames": { "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$" },
+      "additionalProperties": { "type": "number", "exclusiveMinimum": 0, "maximum": 100 }
+    }
+  }
+}

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/khajaaijaz26/agentic-software-company/schemas/task-envelope.schema.json",
+  "$id": "https://github.com/khajaaijaz26/software-agent/schemas/task-envelope.schema.json",
   "title": "Task Envelope (canonical)",
   "description": "Canonical task-envelope schema. The working copy used by the orchestrator lives at prompts/templates/task-envelope.json.",
   "type": "object",

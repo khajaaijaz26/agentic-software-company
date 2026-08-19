@@ -15,7 +15,10 @@ export const ConnectorRiskClassSchema = z.enum([
 export type ConnectorRiskClass = z.infer<typeof ConnectorRiskClassSchema>;
 
 export const NormalizedConnectorActionSchema = z.object({
-  schema: z.literal("agent-company.connector-action/v1"),
+  schema: z.union([
+    z.literal("software-agent.connector-action/v1"),
+    z.literal("agent-company.connector-action/v1"),
+  ]).transform(() => "software-agent.connector-action/v1" as const),
   actionId: z.string(),
   operationId: z.string(),
   connectorId: z.string(),
@@ -34,7 +37,7 @@ export const NormalizedConnectorActionSchema = z.object({
 export type NormalizedConnectorAction = z.infer<typeof NormalizedConnectorActionSchema>;
 
 export interface ConnectorManifest {
-  readonly schema: "agent-company.connector-manifest/v1";
+  readonly schema: "software-agent.connector-manifest/v1";
   readonly id: string;
   readonly displayName: string;
   readonly version: string;
@@ -91,7 +94,7 @@ export function createAction(input: {
     risk,
   };
   return NormalizedConnectorActionSchema.parse({
-    schema: "agent-company.connector-action/v1",
+    schema: "software-agent.connector-action/v1",
     actionId: `act_${randomUUID().replaceAll("-", "")}`,
     operationId,
     connectorId: input.connectorId,

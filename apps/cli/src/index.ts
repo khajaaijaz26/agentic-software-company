@@ -1,23 +1,55 @@
 import {basename, join, resolve} from "node:path";
-import {pathToFileURL} from "node:url";
+import {fileURLToPath, pathToFileURL} from "node:url";
 import {Command, CommanderError, Option} from "commander";
 import {GitHubConnector} from "../../../adapters/github/src/index.js";
 import {SupabaseConnector} from "../../../adapters/supabase/src/index.js";
 import {VercelConnector} from "../../../adapters/vercel/src/index.js";
 import type {ControllerSnapshot, RunView} from "../../control-plane/src/controller.js";
-import {startControllerDaemon, type StartedControllerDaemon} from "../../controller-daemon/src/index.js";
-import {openDashboard, renderPlainDashboard} from "../../operator-console/src/dashboard.js";
+import type {StartedControllerDaemon} from "../../controller-daemon/src/index.js";
+import {
+  createInitialProjectRoomState,
+  openProjectRoom,
+  projectRoomReducer,
+  renderProjectRoomText,
+} from "../../operator-console/src/dashboard.js";
 import {ArtifactStore} from "../../../packages/artifact-store/src/index.js";
 import {AttachmentError, AttachmentService} from "../../../packages/attachments/src/index.js";
 import {createAction, runConnectorCli, type Connector} from "../../../packages/connectors/src/index.js";
-import {initializeProject, projectFiles, resolvePlatformPaths} from "../../../packages/config/src/index.js";
+import {
+  initializeProject,
+  loadProjectConfig,
+  loadUserProviderConfig,
+  projectFiles,
+  resolvePlatformPaths,
+  saveUserProviderConfig,
+  setProjectModel,
+  setProjectTokenMode,
+  userProviderConfigFile,
+} from "../../../packages/config/src/index.js";
 import {commandPalette} from "../../../packages/command-registry/src/index.js";
+import {
+  AnthropicMessagesAdapter,
+  ModelGateway,
+  OpenAIResponsesAdapter,
+  ProviderGatewayError,
+  parseModelIdentifier,
+} from "../../../packages/model-gateway/src/index.js";
 import {sanitizeTerminal} from "../../../packages/observability/src/index.js";
 import {ControllerIpcClient, ControllerIpcError} from "../../../packages/ipc/src/index.js";
+import {
+  EnvironmentCredentialBackend,
+  SecretBackendBroker,
+  SecretUnavailableError,
+  UnsupportedCredentialBackendError,
+  createPlatformCredentialBackend,
+  parseSecretReference,
+} from "../../../packages/secret-broker/src/index.js";
 import {EXIT_CODES, emit, emitError, processIo, type Io, type OutputMode} from "./output.js";
+import {IpcProjectRoomSource} from "./project-room-source.js";
 
-const VERSION = "0.2.0";
-const BUILD = "blueprint-v0.2";
+const VERSION = "0.3.0";
+const BUILD = "software-agent-v0.3.0";
+const CLI_NAME = "software-agent";
 
 interface Runtime {
   exitCode: number;
@@ -58,7 +90,7 @@ export async function runCli(argv: readonly string[] = process.argv, io: Io = pr
   } catch (error) {
     if (error instanceof CommanderError) {
       if (error.code === "commander.helpDisplayed" || error.code === "commander.version") return runtime.exitCode;
-      emitError(io, mode(program.opts()), "USAGE_ERROR", error.message, "agent-company help");
+      emitError(io, mode(program.opts()), "USAGE_ERROR", error.message, `${CLI_NAME} help`);
       return EXIT_CODES.USAGE;
     }
     const normalized = normalizeError(error);
@@ -71,14 +103,14 @@ export async function runCli(argv: readonly string[] = process.argv, io: Io = pr
 function buildProgram(runtime: Runtime): Command {
   const program = new Command();
   program
-    .name("agent-company")
-    .description("A visible, governed software-delivery organization in your terminal")
+    .name(CLI_NAME)
+    .description("A visible, governed team of AI software agents in your terminal")
     .version(`${VERSION} (${BUILD}; schema v1; plugin API v1)`, "-V, --version")
     .option("-p, --project <id-or-path>", "select a project path")
     .option("-r, --run <run-id>", "select a run")
-    .option("--workspace <name>", "reserved workspace selector (rejected in v0.2)")
-    .option("--profile <name>", "reserved profile selector (rejected in v0.2)")
-    .option("--config <path>", "reserved override path (rejected in v0.2)")
+    .option("--workspace <name>", "reserved workspace selector (rejected in v0.3)")
+    .option("--profile <name>", "reserved profile selector (rejected in v0.3)")
+    .option("--config <path>", "reserved override path (rejected in v0.3)")
     .option("--json", "emit one JSON result")
     .option("--ndjson", "emit newline-delimited events/results")
     .option("--plain", "stable output without cursor control")
@@ -86,18 +118,24 @@ function buildProgram(runtime: Runtime): Command {
     .addOption(new Option("--unicode <mode>", "symbol mode").choices(["auto", "on", "off"]).default("auto"))
     .option("--non-interactive", "never prompt")
     .option("--offline", "block provider/network use")
-    .option("--timeout <duration>", "reserved foreground timeout (rejected in v0.2)")
-    .option("--log-level <level>", "reserved diagnostic level (rejected in v0.2)")
-    .option("--trace-id <id>", "reserved correlation ID (rejected in v0.2)")
+    .option("--timeout <duration>", "reserved foreground timeout (rejected in v0.3)")
+    .option("--log-level <level>", "reserved diagnostic level (rejected in v0.3)")
+    .option("--trace-id <id>", "reserved correlation ID (rejected in v0.3)")
     .option("--redact <level>", "redaction level", "standard")
     .option("-y, --yes", "accept ordinary local confirmations only")
     .action(async (_options: unknown, command: Command) => {
       const globals = global(command);
+      await ensureInitialized(workspace(globals));
       await withController(globals, async (controller) => {
-        const snapshot = await controller.snapshot();
-        if (machine(globals)) emit(runtime.io, mode(globals), "snapshot", snapshot);
-        else if (globals.plain || !process.stdout.isTTY) runtime.io.stdout(`${renderPlainDashboard(snapshot, process.stdout.columns || 80)}\n`);
-        else openDashboard(snapshot, {noColor: globals.color === false});
+        const source = await controller.projectRoomSource({
+          branch: await currentBranch(workspace(globals)),
+          ...(globals.run === undefined ? {} : {runId: globals.run}),
+        });
+        try {
+          await presentProjectRoom(runtime, globals, source);
+        } finally {
+          await source.dispose();
+        }
       });
     });
 
@@ -111,7 +149,7 @@ function buildProgram(runtime: Runtime): Command {
     .action(async (path: string | undefined, options: {name?: string; write: boolean; mode?: string; repo?: string; gitStrategy?: string}, command: Command) => {
       const globals = global(command);
       if (options.mode !== undefined || options.repo !== undefined || options.gitStrategy !== undefined) {
-        throw new CliError("CAPABILITY_UNAVAILABLE", "init mode, repository mode, and git strategy overrides are reserved in v0.2", EXIT_CODES.CAPABILITY_UNAVAILABLE);
+        throw new CliError("CAPABILITY_UNAVAILABLE", "init mode, repository mode, and git strategy overrides are reserved in v0.3", EXIT_CODES.CAPABILITY_UNAVAILABLE);
       }
       const workspace = resolve(path ?? globals.project ?? process.cwd());
       const name = options.name ?? basename(workspace);
@@ -123,7 +161,7 @@ function buildProgram(runtime: Runtime): Command {
         wroteFiles: result.created,
         alreadyInitialized: options.write && result.created.length === 0,
         secretsStored: false,
-        next: options.write ? `agent-company --project "${workspace}" start` : "rerun without --no-write",
+        next: options.write ? `${CLI_NAME} --project "${workspace}" start` : "rerun without --no-write",
       });
     });
 
@@ -136,21 +174,39 @@ function buildProgram(runtime: Runtime): Command {
       .option("--budget <amount>", "run budget")
       .option("--max-parallel <count>", "maximum parallel tasks")
       .option("--background", "print the run ID without opening the TUI")
-      .action(async (request: string[], options: {file?: string; stdin?: boolean; background?: boolean; budget?: string; maxParallel?: string}, command: Command) => {
+      .action(async (request: string[], options: {file?: string; stdin?: boolean; planOnly?: boolean; background?: boolean; budget?: string; maxParallel?: string}, command: Command) => {
         const globals = global(command);
-        if (options.budget !== undefined || options.maxParallel !== undefined) {
-          throw new CliError("CAPABILITY_UNAVAILABLE", "run-scoped budget and parallelism overrides are reserved in v0.2", EXIT_CODES.CAPABILITY_UNAVAILABLE);
+        if (options.planOnly) {
+          throw new CliError("CAPABILITY_UNAVAILABLE", "--plan-only is not available in the live v0.3 scheduler yet", EXIT_CODES.CAPABILITY_UNAVAILABLE);
         }
+        if (options.budget !== undefined && !["economy", "balanced", "quality"].includes(options.budget)) {
+          throw new CliError("BUDGET_MODE_INVALID", "--budget must be economy, balanced, or quality", EXIT_CODES.USAGE);
+        }
+        const maxParallel = parseIntegerOption(options.maxParallel, 1, 3, "--max-parallel") ?? 3;
         const objective = await resolveRequest(request, options, globals);
+        await ensureInitialized(workspace(globals));
         await withController(globals, async (controller) => {
-          const run = await controller.createRun(objective);
-          if (name === "start" && !machine(globals) && !options.background) {
-            openDashboard(await controller.snapshot(), {noColor: globals.color === false});
-          } else {
-            emit(runtime.io, mode(globals), "run.created", run);
+          const source = await controller.projectRoomSource({
+            branch: await currentBranch(workspace(globals)),
+            maxParallel,
+            ...(options.budget === undefined ? {} : {tokenMode: options.budget as "economy" | "balanced" | "quality"}),
+          });
+          try {
+            const before = await source.load(new AbortController().signal);
+            await source.execute({type: "objective.create", text: objective, expectedCursor: before.cursor}, new AbortController().signal);
+            let snapshot = await source.load(new AbortController().signal);
+            if (name === "start" && !options.background) {
+              await presentProjectRoom(runtime, globals, source);
+              return;
+            }
+            if (name === "run" && !options.background) snapshot = await waitForTerminalSnapshot(source, snapshot);
+            const waitingApproval = snapshot.approvals.some((approval) => approval.status === "PENDING");
+            emit(runtime.io, mode(globals), waitingApproval ? "run.waiting-approval" : name === "run" ? "run.completed" : "run.started", snapshot.run);
+            if (waitingApproval) runtime.exitCode = EXIT_CODES.APPROVAL_REQUIRED;
+            if (snapshot.run?.state === "FAILED" || snapshot.run?.state === "CANCELED") runtime.exitCode = EXIT_CODES.ACTION_FAILED;
+          } finally {
+            await source.dispose();
           }
-          runtime.exitCode = EXIT_CODES.APPROVAL_REQUIRED;
-          if (!machine(globals)) runtime.io.stderr(`Plan approval required: agent-company approvals show ${run.approvalIds[0] ?? "<id>"}\n`);
         });
       });
   }
@@ -160,11 +216,22 @@ function buildProgram(runtime: Runtime): Command {
       .description(`${name} a persisted run`)
       .action(async (runId: string | undefined, _options: unknown, command: Command) => {
         const globals = global(command);
+        await ensureInitialized(workspace(globals));
         await withController(globals, async (controller) => {
-          const selected = runId ?? globals.run ?? (await controller.snapshot()).runs[0]?.id;
-          if (!selected) throw new CliError("RUN_REQUIRED", "no run was selected", EXIT_CODES.USAGE);
-          const result = name === "resume" ? await controller.resume(selected) : name === "pause" ? await controller.pause(selected) : await controller.cancel(selected);
-          emit(runtime.io, mode(globals), `run.${name}d`, result);
+          const requestedRunId = runId ?? globals.run;
+          const source = await controller.projectRoomSource({
+            branch: await currentBranch(workspace(globals)),
+            ...(requestedRunId === undefined ? {} : {runId: requestedRunId}),
+          });
+          try {
+            const snapshot = await source.load(new AbortController().signal);
+            const selected = runId ?? globals.run ?? snapshot.run?.id;
+            if (!selected) throw new CliError("RUN_REQUIRED", "no run was selected", EXIT_CODES.USAGE);
+            await source.changeRunState(selected, name, snapshot.cursor, new AbortController().signal);
+            emit(runtime.io, mode(globals), `run.${name}d`, (await source.load(new AbortController().signal)).run);
+          } finally {
+            await source.dispose();
+          }
         });
       });
   }
@@ -178,12 +245,13 @@ function buildProgram(runtime: Runtime): Command {
   addIntegrationCommands(program, runtime);
   addConnectedOperationCommands(program, runtime);
   addInspectionCommands(program, runtime);
+  addProviderModelCommands(program, runtime);
   addUtilityCommands(program, runtime);
   return program;
 }
 
 function addProjectCommands(program: Command, runtime: Runtime): void {
-  const projects = program.command("projects").description("manage Agent Company projects");
+  const projects = program.command("projects").description("manage Software Agent projects");
   projects.command("show [project]").action(async (_project: string | undefined, _options: unknown, command: Command) => {
     const globals = global(command);
     await withController(globals, async (controller) => {
@@ -399,6 +467,219 @@ function addInspectionCommands(program: Command, runtime: Runtime): void {
   });
 }
 
+function addProviderModelCommands(program: Command, runtime: Runtime): void {
+  const providers = program.command("providers").description("configure API-native BYOK providers without storing raw keys");
+  providers.command("list").description("list configured provider references").action(async (_options: unknown, command: Command) => {
+    const globals = global(command);
+    const config = await loadUserProviderConfig(resolvePlatformPaths());
+    emit(runtime.io, mode(globals), "providers", Object.entries(config.providers).map(([providerId, provider]) => ({
+      providerId,
+      enabled: provider.enabled,
+      defaultModel: `${providerId}/${provider.defaultModel}`,
+      credential: provider.credential,
+      secretValueExposed: false,
+    })));
+  });
+  providers.command("add <provider>")
+    .description("add OpenAI or Anthropic using a secret reference")
+    .requiredOption("--model <model-id>", "provider model ID")
+    .requiredOption("--credential <reference>", "env://, keychain://, or manager:// reference")
+    .action(async (providerId: string, options: {model: string; credential: string}, command: Command) => {
+      const globals = global(command);
+      const normalizedProvider = supportedProvider(providerId);
+      const fullModel = normalizeProviderModel(normalizedProvider, options.model);
+      parseSecretReference(options.credential);
+      const paths = resolvePlatformPaths();
+      const current = await loadUserProviderConfig(paths);
+      const updated = await saveUserProviderConfig({
+        ...current,
+        revision: current.revision + 1,
+        providers: {
+          ...current.providers,
+          [normalizedProvider]: {
+            enabled: true,
+            credential: options.credential,
+            defaultModel: parseModelIdentifier(fullModel).modelId,
+          },
+        },
+        defaults: {
+          ...current.defaults,
+          model: current.defaults.model === "deterministic/local" ? fullModel : current.defaults.model,
+        },
+      }, paths);
+      emit(runtime.io, mode(globals), "provider.configured", {
+        providerId: normalizedProvider,
+        model: fullModel,
+        credential: updated.providers[normalizedProvider]?.credential,
+        enabled: true,
+        rawSecretStored: false,
+        next: `${CLI_NAME} providers test ${normalizedProvider}`,
+      });
+    });
+  providers.command("show <provider>").action(async (providerId: string, _options: unknown, command: Command) => {
+    const globals = global(command);
+    const normalizedProvider = supportedProvider(providerId);
+    const item = (await loadUserProviderConfig(resolvePlatformPaths())).providers[normalizedProvider];
+    if (!item) throw new CliError("PROVIDER_NOT_FOUND", `provider ${normalizedProvider} is not configured`, EXIT_CODES.USAGE);
+    emit(runtime.io, mode(globals), "provider", {
+      providerId: normalizedProvider,
+      enabled: item.enabled,
+      model: `${normalizedProvider}/${item.defaultModel}`,
+      credential: item.credential,
+      secretValueExposed: false,
+    });
+  });
+  providers.command("test <provider>").description("verify the credential and fetch the provider model catalog")
+    .action(async (providerId: string, _options: unknown, command: Command) => {
+      const globals = global(command);
+      if (globals.offline) throw new CliError("OFFLINE_MODE", "provider tests are unavailable in offline mode", EXIT_CODES.CAPABILITY_UNAVAILABLE);
+      emit(runtime.io, mode(globals), "provider.test", await discoverConfiguredProvider(supportedProvider(providerId)));
+    });
+  for (const action of ["enable", "disable"] as const) {
+    providers.command(`${action} <provider>`).action(async (providerId: string, _options: unknown, command: Command) => {
+      const globals = global(command);
+      const normalizedProvider = supportedProvider(providerId);
+      const paths = resolvePlatformPaths();
+      const current = await loadUserProviderConfig(paths);
+      const item = current.providers[normalizedProvider];
+      if (!item) throw new CliError("PROVIDER_NOT_FOUND", `provider ${normalizedProvider} is not configured`, EXIT_CODES.USAGE);
+      await saveUserProviderConfig({
+        ...current,
+        revision: current.revision + 1,
+        providers: {...current.providers, [normalizedProvider]: {...item, enabled: action === "enable"}},
+      }, paths);
+      emit(runtime.io, mode(globals), `provider.${action}d`, {providerId: normalizedProvider, enabled: action === "enable"});
+    });
+  }
+  providers.command("remove <provider>").action(async (providerId: string, _options: unknown, command: Command) => {
+    const globals = global(command);
+    const normalizedProvider = supportedProvider(providerId);
+    const paths = resolvePlatformPaths();
+    const current = await loadUserProviderConfig(paths);
+    if (!current.providers[normalizedProvider]) throw new CliError("PROVIDER_NOT_FOUND", `provider ${normalizedProvider} is not configured`, EXIT_CODES.USAGE);
+    const retainedProviders = Object.fromEntries(Object.entries(current.providers).filter(([id]) => id !== normalizedProvider));
+    const retainedRoles = Object.fromEntries(Object.entries(current.defaults.roles).filter(([, model]) => !model.startsWith(`${normalizedProvider}/`)));
+    await saveUserProviderConfig({
+      ...current,
+      revision: current.revision + 1,
+      providers: retainedProviders,
+      defaults: {
+        model: current.defaults.model.startsWith(`${normalizedProvider}/`) ? "deterministic/local" : current.defaults.model,
+        roles: retainedRoles,
+      },
+    }, paths);
+    emit(runtime.io, mode(globals), "provider.removed", {providerId: normalizedProvider, secretDeleted: false});
+  });
+
+  const models = program.command("models").description("inspect and switch model routes");
+  models.command("list").description("show project routes and configured provider models")
+    .option("--refresh <provider>", "fetch a live model catalog from one configured provider")
+    .action(async (options: {refresh?: string}, command: Command) => {
+      const globals = global(command);
+      await ensureInitialized(workspace(globals));
+      const [project, user] = await Promise.all([
+        loadProjectConfig(workspace(globals)),
+        loadUserProviderConfig(resolvePlatformPaths()),
+      ]);
+      const refreshed = options.refresh === undefined
+        ? undefined
+        : await discoverConfiguredProvider(supportedProvider(options.refresh));
+      emit(runtime.io, mode(globals), "models", {
+        projectDefault: project.models.default,
+        roleRoutes: project.models.routes,
+        userDefault: user.defaults.model,
+        providers: Object.entries(user.providers).map(([providerId, item]) => ({
+          providerId,
+          model: `${providerId}/${item.defaultModel}`,
+          enabled: item.enabled,
+        })),
+        ...(refreshed === undefined ? {} : {refreshed}),
+      });
+    });
+  models.command("use <provider-model>").description("select the default or role-specific model for this project")
+    .option("--role <role-id>", "route only one Software Agent role")
+    .action(async (model: string, options: {role?: string}, command: Command) => {
+      const globals = global(command);
+      await ensureInitialized(workspace(globals));
+      const parsed = parseModelIdentifier(model);
+      if (parsed.providerId !== "deterministic") {
+        const provider = (await loadUserProviderConfig(resolvePlatformPaths())).providers[parsed.providerId];
+        if (!provider) throw new CliError("PROVIDER_NOT_FOUND", `configure ${parsed.providerId} before selecting ${model}`, EXIT_CODES.USAGE, `${CLI_NAME} providers add ${parsed.providerId} --model ${parsed.modelId} --credential env://YOUR_API_KEY`);
+        if (!provider.enabled) throw new CliError("PROVIDER_DISABLED", `provider ${parsed.providerId} is disabled`, EXIT_CODES.CAPABILITY_UNAVAILABLE);
+      }
+      const role = options.role === undefined ? undefined : validateRoleId(options.role);
+      const config = await setProjectModel(workspace(globals), model, role);
+      emit(runtime.io, mode(globals), "model.selected", {
+        model,
+        scope: role === undefined ? "project" : "role",
+        ...(role === undefined ? {} : {role}),
+        mappingRevision: config.mapping_revision,
+      });
+    });
+
+  const tokens = program.command("tokens").description("control and inspect token-saving modes");
+  tokens.command("mode [mode]").description("show or set economy (25%), balanced (50%), or quality (100%)")
+    .action(async (selected: string | undefined, _options: unknown, command: Command) => {
+      const globals = global(command);
+      await ensureInitialized(workspace(globals));
+      if (selected === undefined) {
+        const config = await loadProjectConfig(workspace(globals));
+        emit(runtime.io, mode(globals), "token.mode", tokenModeDescription(config.project.default_profile));
+        return;
+      }
+      if (!isTokenMode(selected)) throw new CliError("TOKEN_MODE_INVALID", "mode must be economy, balanced, or quality", EXIT_CODES.USAGE);
+      const config = await setProjectTokenMode(workspace(globals), selected);
+      emit(runtime.io, mode(globals), "token.mode.selected", {...tokenModeDescription(selected), mappingRevision: config.mapping_revision});
+    });
+  tokens.command("status [run-id]").action(async (runId: string | undefined, _options: unknown, command: Command) => {
+    const globals = global(command);
+    await ensureInitialized(workspace(globals));
+    await withController(globals, async (controller) => {
+      const snapshot = await controller.snapshotV2();
+      const selected = runId ?? globals.run ?? snapshot.runs[0]?.id;
+      const account = selected === undefined ? undefined : snapshot.tokenBudgets.find((candidate) => candidate.runId === selected);
+      emit(runtime.io, mode(globals), "token.status", account ?? {
+        runId: selected ?? null,
+        configuredMode: (await loadProjectConfig(workspace(globals))).project.default_profile,
+        state: selected === undefined ? "NO_RUN" : "UNMETERED",
+      });
+    });
+  });
+
+  const secrets = program.command("secrets").description("inspect secret references; values are never printed");
+  secrets.command("list").action(async (_options: unknown, command: Command) => {
+    const globals = global(command);
+    const config = await loadUserProviderConfig(resolvePlatformPaths());
+    emit(runtime.io, mode(globals), "secret.references", Object.entries(config.providers).map(([providerId, item]) => ({
+      providerId,
+      reference: item.credential,
+      value: "[NEVER DISPLAYED]",
+    })));
+  });
+  secrets.command("test <provider>").action(async (providerId: string, _options: unknown, command: Command) => {
+    const globals = global(command);
+    const result = await resolveConfiguredSecret(supportedProvider(providerId));
+    emit(runtime.io, mode(globals), "secret.test", result);
+  });
+
+  program.command("setup").description("show the shortest secure BYOK setup for this platform").action((_options: unknown, command: Command) => {
+    const globals = global(command);
+    emit(runtime.io, mode(globals), "setup", {
+      providerConfig: userProviderConfigFile(resolvePlatformPaths()),
+      steps: [
+        "Set OPENAI_API_KEY or ANTHROPIC_API_KEY in your terminal environment.",
+        `${CLI_NAME} providers add openai --model <model-id> --credential env://OPENAI_API_KEY`,
+        `${CLI_NAME} providers test openai`,
+        `${CLI_NAME} models use openai/<model-id>`,
+        `${CLI_NAME} tokens mode balanced`,
+        `${CLI_NAME} start "Describe the change you want"`,
+      ],
+      defaultTokenMode: "balanced (50% of the full run allowance)",
+      rawKeysStoredInConfig: false,
+    });
+  });
+}
+
 function addUtilityCommands(program: Command, runtime: Runtime): void {
   program.command("commands [query]").description("search the shared command registry").action((query: string | undefined, _options: unknown, command: Command) => {
     const globals = global(command);
@@ -433,8 +714,92 @@ function addUtilityCommands(program: Command, runtime: Runtime): void {
   });
   program.command("completion <shell>").description("print shell completion guidance").action((shell: string, _options: unknown, command: Command) => {
     const globals = global(command);
-    emit(runtime.io, mode(globals), "completion", `Completion generation for ${shell} is reserved by the command registry; use 'agent-company help' today.`);
+    emit(runtime.io, mode(globals), "completion", `Completion generation for ${shell} is reserved by the command registry; use '${CLI_NAME} help' today.`);
   });
+}
+
+type SupportedProvider = "openai" | "anthropic";
+
+function supportedProvider(value: string): SupportedProvider {
+  const normalized = value.trim().toLowerCase();
+  if (normalized !== "openai" && normalized !== "anthropic") {
+    throw new CliError("PROVIDER_UNSUPPORTED", "provider must be openai or anthropic", EXIT_CODES.CAPABILITY_UNAVAILABLE);
+  }
+  return normalized;
+}
+
+function normalizeProviderModel(providerId: SupportedProvider, value: string): string {
+  const candidate = value.startsWith(`${providerId}/`) ? value : `${providerId}/${value}`;
+  const parsed = parseModelIdentifier(candidate);
+  if (parsed.providerId !== providerId) throw new CliError("MODEL_PROVIDER_MISMATCH", `model ${value} does not belong to ${providerId}`, EXIT_CODES.USAGE);
+  return `${parsed.providerId}/${parsed.modelId}`;
+}
+
+async function configuredProvider(providerId: SupportedProvider) {
+  const item = (await loadUserProviderConfig(resolvePlatformPaths())).providers[providerId];
+  if (!item) throw new CliError("PROVIDER_NOT_FOUND", `provider ${providerId} is not configured`, EXIT_CODES.USAGE);
+  if (!item.enabled) throw new CliError("PROVIDER_DISABLED", `provider ${providerId} is disabled`, EXIT_CODES.CAPABILITY_UNAVAILABLE);
+  return item;
+}
+
+function providerSecretBroker(): SecretBackendBroker {
+  return new SecretBackendBroker([
+    new EnvironmentCredentialBackend(process.env, false),
+    createPlatformCredentialBackend(),
+  ]);
+}
+
+async function resolveConfiguredSecret(providerId: SupportedProvider): Promise<{
+  readonly providerId: SupportedProvider;
+  readonly credential: string;
+  readonly available: true;
+  readonly valueExposed: false;
+}> {
+  const item = await configuredProvider(providerId);
+  const reference = parseSecretReference(item.credential);
+  const lease = await providerSecretBroker().resolve(reference, `${providerId} credential test`, 30);
+  lease.value = "";
+  return {providerId, credential: item.credential, available: true, valueExposed: false};
+}
+
+async function discoverConfiguredProvider(providerId: SupportedProvider): Promise<{
+  readonly providerId: SupportedProvider;
+  readonly credential: string;
+  readonly connected: true;
+  readonly modelCount: number;
+  readonly models: readonly string[];
+  readonly truncated: boolean;
+}> {
+  const item = await configuredProvider(providerId);
+  const reference = parseSecretReference(item.credential);
+  const broker = providerSecretBroker();
+  const gateway = new ModelGateway();
+  gateway.register(providerId === "openai"
+    ? new OpenAIResponsesAdapter({secretBroker: broker, credential: reference})
+    : new AnthropicMessagesAdapter({secretBroker: broker, credential: reference}));
+  const models = await gateway.discover(new AbortController().signal);
+  return {
+    providerId,
+    credential: item.credential,
+    connected: true,
+    modelCount: models.length,
+    models: models.slice(0, 50).map((model) => `${model.providerId}/${model.modelId}`),
+    truncated: models.length > 50,
+  };
+}
+
+function validateRoleId(value: string): "master-orchestrator" | "software-engineer" | "reviewer-qa" {
+  if (value === "master-orchestrator" || value === "software-engineer" || value === "reviewer-qa") return value;
+  throw new CliError("ROLE_INVALID", "role must be master-orchestrator, software-engineer, or reviewer-qa", EXIT_CODES.USAGE);
+}
+
+function isTokenMode(value: string): value is "economy" | "balanced" | "quality" {
+  return value === "economy" || value === "balanced" || value === "quality";
+}
+
+function tokenModeDescription(value: "economy" | "balanced" | "quality") {
+  const percent = value === "economy" ? 25 : value === "balanced" ? 50 : 100;
+  return {mode: value, percentOfFullAllowance: percent, savesUpToPercent: 100 - percent};
 }
 
 function plannedOperation(
@@ -478,8 +843,23 @@ async function readStdin(): Promise<string> {
 class ControllerClientFacade {
   public constructor(private readonly client: ControllerIpcClient) {}
 
+  public async projectRoomSource(options: {
+    readonly branch: string;
+    readonly maxParallel?: number;
+    readonly runId?: string;
+    readonly tokenMode?: "economy" | "balanced" | "quality";
+  }): Promise<IpcProjectRoomSource> {
+    const source = new IpcProjectRoomSource(this.client, options);
+    await source.initialize();
+    return source;
+  }
+
   public snapshot(): Promise<ControllerSnapshot> {
     return this.client.request("snapshot", {});
+  }
+
+  public snapshotV2() {
+    return this.client.request("snapshot.get", {recentEventLimit: 250});
   }
 
   public async getRun(runId: string): Promise<RunView> {
@@ -525,7 +905,12 @@ async function withController<T>(globals: GlobalOptions, callback: (controller: 
     client = await ControllerIpcClient.connect({workspace: selectedWorkspace});
   } catch (connectError) {
     try {
-      daemon = await startControllerDaemon({workspace: selectedWorkspace, heartbeatIntervalMs: 1_000});
+      const {ensureControllerDaemon, startControllerDaemon} = await import("../../controller-daemon/src/index.js");
+      if (embeddedControllerMode()) {
+        daemon = await startControllerDaemon({workspace: selectedWorkspace, heartbeatIntervalMs: 1_000});
+      } else {
+        await ensureControllerDaemon({workspace: selectedWorkspace, heartbeatIntervalMs: 1_000});
+      }
     } catch (startError) {
       if (!(startError instanceof ControllerIpcError) || startError.code !== "CONTROLLER_ALREADY_RUNNING") throw startError;
     }
@@ -537,6 +922,68 @@ async function withController<T>(globals: GlobalOptions, callback: (controller: 
     await client.close();
     await daemon?.close();
   }
+}
+
+async function presentProjectRoom(
+  runtime: Runtime,
+  globals: GlobalOptions,
+  source: IpcProjectRoomSource,
+): Promise<void> {
+  if (machine(globals)) {
+    emit(runtime.io, mode(globals), "project-room", await source.load(new AbortController().signal));
+    return;
+  }
+  if (globals.plain || !process.stdout.isTTY || runtime.io !== processIo) {
+    const snapshot = await source.load(new AbortController().signal);
+    const width = process.stdout.columns || 100;
+    const height = process.stdout.rows || 30;
+    const state = projectRoomReducer(createInitialProjectRoomState({width, height}), {type: "snapshot.received", snapshot});
+    runtime.io.stdout(`${renderProjectRoomText(state, {width, height, noColor: true, ascii: true, interactive: false})}\n`);
+    return;
+  }
+  await openProjectRoom(source, {noColor: globals.color === false, ascii: globals.unicode === "off"});
+}
+
+async function waitForTerminalSnapshot(
+  source: IpcProjectRoomSource,
+  initial: Awaited<ReturnType<IpcProjectRoomSource["load"]>>,
+): Promise<Awaited<ReturnType<IpcProjectRoomSource["load"]>>> {
+  let snapshot = initial;
+  const deadline = Date.now() + 60 * 60 * 1_000;
+  while (snapshot.run !== null && !["SUCCEEDED", "FAILED", "CANCELED"].includes(snapshot.run.state)) {
+    if (snapshot.approvals.some((approval) => approval.status === "PENDING")) return snapshot;
+    if (Date.now() >= deadline) throw new CliError("RUN_TIMEOUT", "the run did not finish within one hour", EXIT_CODES.TRANSIENT_FAILURE);
+    const update = await source.nextCommitted(snapshot.cursor, new AbortController().signal);
+    snapshot = update.snapshot;
+  }
+  return snapshot;
+}
+
+async function ensureInitialized(root: string): Promise<void> {
+  await initializeProject(root, basename(root), true);
+}
+
+async function currentBranch(root: string): Promise<string> {
+  try {
+    const result = await runConnectorCli("git", ["branch", "--show-current"], {cwd: root});
+    return result.exitCode === 0 && result.stdout.trim() !== "" ? result.stdout.trim() : "detached HEAD";
+  } catch {
+    return "not a Git repository";
+  }
+}
+
+function embeddedControllerMode(): boolean {
+  return process.env.SOFTWARE_AGENT_CONTROLLER_MODE === "embedded" || process.env.VITEST === "true" || process.env.NODE_ENV === "test";
+}
+
+function parseIntegerOption(value: string | undefined, minimum: number, maximum: number, name: string): number | undefined {
+  if (value === undefined) return undefined;
+  if (!/^\d+$/u.test(value)) throw new CliError("USAGE_ERROR", `${name} must be an integer`, EXIT_CODES.USAGE);
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isSafeInteger(parsed) || parsed < minimum || parsed > maximum) {
+    throw new CliError("USAGE_ERROR", `${name} must be from ${minimum} through ${maximum}`, EXIT_CODES.USAGE);
+  }
+  return parsed;
 }
 
 async function connectWithRetry(selectedWorkspace: string, originalError: unknown): Promise<ControllerIpcClient> {
@@ -581,13 +1028,13 @@ function global(command: Command): GlobalOptions {
     ["--trace-id", options.traceId],
   ].find(([, value]) => value !== undefined);
   if (reserved !== undefined) {
-    throw new CliError("CAPABILITY_UNAVAILABLE", `${reserved[0]} is reserved but not active in v0.2`, EXIT_CODES.CAPABILITY_UNAVAILABLE);
+    throw new CliError("CAPABILITY_UNAVAILABLE", `${reserved[0]} is reserved but not active in v0.3`, EXIT_CODES.CAPABILITY_UNAVAILABLE);
   }
   if (options.unicode !== undefined && options.unicode !== "auto") {
-    throw new CliError("CAPABILITY_UNAVAILABLE", "explicit Unicode mode is reserved in v0.2", EXIT_CODES.CAPABILITY_UNAVAILABLE);
+    throw new CliError("CAPABILITY_UNAVAILABLE", "explicit Unicode mode is reserved in v0.3", EXIT_CODES.CAPABILITY_UNAVAILABLE);
   }
   if (options.redact !== undefined && options.redact !== "standard") {
-    throw new CliError("CAPABILITY_UNAVAILABLE", "only the standard redaction policy is available in v0.2", EXIT_CODES.CAPABILITY_UNAVAILABLE);
+    throw new CliError("CAPABILITY_UNAVAILABLE", "only the standard redaction policy is available in v0.3", EXIT_CODES.CAPABILITY_UNAVAILABLE);
   }
   return options;
 }
@@ -611,11 +1058,41 @@ function normalizeError(error: unknown): {code: string; message: string; exitCod
   if (error instanceof CliError) return {code: error.code, message: error.message, exitCode: error.exitCode, ...(error.next ? {next: error.next} : {})};
   if (error instanceof ControllerIpcError) {
     const exitCode = error.code === "APPROVAL_REQUIRED" ? EXIT_CODES.APPROVAL_REQUIRED : error.code.includes("NOT_FOUND") ? EXIT_CODES.USAGE : error.retryable ? EXIT_CODES.TRANSIENT_FAILURE : EXIT_CODES.ACTION_FAILED;
-    return {code: error.code, message: error.message, exitCode, next: error.code === "APPROVAL_REQUIRED" ? "agent-company approvals list" : "agent-company doctor"};
+    return {code: error.code, message: error.message, exitCode, next: error.code === "APPROVAL_REQUIRED" ? `${CLI_NAME} approvals list` : `${CLI_NAME} doctor`};
   }
-  if (error instanceof AttachmentError) return {code: error.code, message: error.message, exitCode: EXIT_CODES.POLICY_DENIED, next: "agent-company attachments scan <path>"};
-  if ((error as NodeJS.ErrnoException).code === "ENOENT") return {code: "PROJECT_NOT_INITIALIZED", message: "project configuration was not found", exitCode: EXIT_CODES.USAGE, next: "agent-company init"};
-  return {code: "UNEXPECTED_FAILURE", message: sanitizeTerminal(String(error)), exitCode: EXIT_CODES.ACTION_FAILED, next: "agent-company doctor"};
+  if (error instanceof SecretUnavailableError) {
+    return {
+      code: error.code,
+      message: error.message,
+      exitCode: EXIT_CODES.AUTH_REQUIRED,
+      next: "set the referenced credential, then run software-agent providers test <provider>",
+    };
+  }
+  if (error instanceof UnsupportedCredentialBackendError) {
+    return {code: error.code, message: error.message, exitCode: EXIT_CODES.CAPABILITY_UNAVAILABLE, next: `${CLI_NAME} setup`};
+  }
+  if (error instanceof ProviderGatewayError) {
+    const authFailure = error.code === "PROVIDER_HTTP_ERROR" && (error.status === 401 || error.status === 403);
+    const transient = error.code === "PROVIDER_TIMEOUT"
+      || error.code === "PROVIDER_TRANSPORT_ERROR"
+      || error.code === "PROVIDER_HTTP_ERROR" && (error.status === 408 || error.status === 429 || (error.status ?? 0) >= 500);
+    const exitCode = authFailure
+      ? EXIT_CODES.AUTH_REQUIRED
+      : error.code === "PROVIDER_CANCELED"
+        ? EXIT_CODES.CANCELED
+        : transient
+          ? EXIT_CODES.TRANSIENT_FAILURE
+          : EXIT_CODES.ACTION_FAILED;
+    return {
+      code: authFailure ? "PROVIDER_AUTH_REQUIRED" : error.code,
+      message: error.message,
+      exitCode,
+      next: authFailure ? `${CLI_NAME} providers test ${error.providerId}` : `${CLI_NAME} doctor`,
+    };
+  }
+  if (error instanceof AttachmentError) return {code: error.code, message: error.message, exitCode: EXIT_CODES.POLICY_DENIED, next: `${CLI_NAME} attachments scan <path>`};
+  if ((error as NodeJS.ErrnoException).code === "ENOENT") return {code: "PROJECT_NOT_INITIALIZED", message: "project configuration was not found", exitCode: EXIT_CODES.USAGE, next: `${CLI_NAME} init`};
+  return {code: "UNEXPECTED_FAILURE", message: sanitizeTerminal(String(error)), exitCode: EXIT_CODES.ACTION_FAILED, next: `${CLI_NAME} doctor`};
 }
 
 async function main(): Promise<void> {
@@ -623,4 +1100,5 @@ async function main(): Promise<void> {
 }
 
 const invoked = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : "";
-if (import.meta.url === invoked) void main();
+const moduleFilename = basename(fileURLToPath(import.meta.url));
+if (["index.ts", "cli.js"].includes(moduleFilename) && import.meta.url === invoked) void main();

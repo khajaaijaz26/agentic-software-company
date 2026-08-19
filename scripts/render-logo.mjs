@@ -3,9 +3,9 @@ import {dirname, resolve} from "node:path";
 import sharp from "sharp";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-await sharp(resolve(root, "assets/logo.svg"))
+await sharp(resolve(root, "assets/software-agent-logo.svg"))
   .resize(1024, 1024)
   .png({compressionLevel: 9, palette: true})
-  .toFile(resolve(root, "assets/logo.png"));
+  .toFile(resolve(root, "assets/software-agent-logo.png"));
 
-process.stdout.write("Rendered assets/logo.png from assets/logo.svg\n");
+process.stdout.write("Rendered assets/software-agent-logo.png from assets/software-agent-logo.svg\n");

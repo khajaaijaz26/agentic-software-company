@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.software-agent.dev/vnext/mutation-lease.schema.json",
+  "title": "Software Agent controller mutation lease view",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["leaseId", "attachmentId", "fence", "acquiredAt", "expiresAt", "state"],
+  "properties": {
+    "leaseId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "attachmentId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "fence": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+    "acquiredAt": { "type": "string", "format": "date-time" },
+    "expiresAt": { "type": "string", "format": "date-time" },
+    "state": { "enum": ["ACTIVE", "RELEASED", "EXPIRED"] }
+  }
+}

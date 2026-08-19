@@ -1,29 +1,30 @@
 {
-  "name": "@agent-company/cli",
-  "version": "0.2.0",
-  "description": "Governed multi-agent software delivery from your terminal",
+  "name": "software-agent",
+  "version": "0.3.0",
+  "description": "A visible, governed team of AI software agents in your terminal",
   "type": "module",
   "license": "Apache-2.0",
   "author": "khajaaijaz26",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/khajaaijaz26/agentic-software-company.git"
+    "url": "git+https://github.com/khajaaijaz26/software-agent.git"
   },
-  "homepage": "https://github.com/khajaaijaz26/agentic-software-company#readme",
+  "homepage": "https://github.com/khajaaijaz26/software-agent#readme",
   "bugs": {
-    "url": "https://github.com/khajaaijaz26/agentic-software-company/issues"
+    "url": "https://github.com/khajaaijaz26/software-agent/issues"
   },
-  "keywords": ["agents", "cli", "governance", "terminal", "github", "vercel", "supabase"],
+  "keywords": ["ai", "agents", "multi-agent", "cli", "terminal", "coding-agent", "software-development"],
   "publishConfig": {
     "access": "public",
     "provenance": true
   },
   "sideEffects": false,
   "engines": {
-    "node": ">=22.13.0"
+    "node": ">=22.14.0"
   },
   "bin": {
-    "agent-company": "dist/cli.js"
+    "software-agent": "dist/cli.js",
+    "agent-company": "dist/compat-agent-company.js"
   },
   "files": [
     "dist/",

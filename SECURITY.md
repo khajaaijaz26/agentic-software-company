@@ -4,8 +4,8 @@
 
 | Distribution | Version | Security fixes |
 | --- | --- | --- |
-| npm `@agent-company/cli` | 0.2.x preview | Yes |
-| Python `agentic-company` | 1.x compatibility | Yes |
+| npm `software-agent` | 0.3.x preview | Yes |
+| Python `software-agent` | 1.x compatibility | Yes |
 | Earlier/unreleased snapshots | other | No |
 
 The npm CLI is a preview, not an unattended production deployment engine.
@@ -37,10 +37,11 @@ credentials and synthetic data.
   single-use.
 - Unknown connector operations are denied. A5 operations are denied by
   default, with hard denials for selected production/destructive cases.
-- Remote connector mutations are planning-only in v0.2; provider probes and
+- Remote connector mutations are planning-only in v0.3; provider probes and
   inventories are read-only.
-- Provider credentials remain in provider-owned CLI stores. Secrets should be
-  referenced, leased for the shortest scope, redacted, and never persisted in
+- Model credentials are supplied through explicit `env://` or supported
+  secure-store references, resolved only by the controller, leased for the
+  shortest scope, redacted, and never persisted in
   events, model prompts, artifacts, command lines, or generated reports.
 - Attachment content is untrusted data. Local ingestion does not authorize
   upload, execution, or instruction following.
@@ -52,23 +53,22 @@ credentials and synthetic data.
 - Controller-backed CLI commands cross a bounded local socket/pipe protocol.
   Clients prove possession of a separate workspace/user-bound nonce with
   HMAC-SHA-256 before RPC; TCP fallback is forbidden.
-- Worker results must match the controller-issued attempt, lease, and task and
-  are produced in a separate child process with reduced environment and
-  wall-time/output bounds.
+- Step results must match the controller-issued attempt, lease, turn, task
+  revision, and fencing epoch. Verification commands run without a shell in a
+  reduced environment and bounded child process tree.
 
 ## Current limitations
 
-- Authenticated IPC is active, but the ordinary CLI fallback hosts a one-shot
-  service in the CLI process rather than a detached background daemon. Windows
+- Authenticated IPC and detached controller discovery are active. Windows
   runtime/pipe ACLs and OS peer identity are not independently verified in
-  v0.2; protect the account and runtime directory.
-- Worker attempt/lease manifests and process separation are implemented, but
-  lease heartbeats/extensions, automatic retries, OS sandboxing/network
-  isolation, and complete orphan recovery are not.
+  v0.3; protect the account and runtime directory.
+- Attempt/lease fencing and child-process boundaries for approved verification
+  commands are implemented, but lease extension, automatic retries, OS
+  sandboxing/network isolation, and complete orphan recovery are not.
 - Cryptographic event signing and signed exports are not implemented.
-- The OpenAI-compatible model adapter is an integration surface; safe
-  production configuration, egress restrictions, and data-governance review
-  remain the operator's responsibility.
+- Native OpenAI Responses and Anthropic Messages adapters send selected prompt,
+  tool, and repository context to the configured provider. Egress restrictions
+  and data-governance review remain the operator's responsibility.
 - Python MCP HTTP transports need external TLS, authentication, authorization,
   rate limiting, and network policy before non-local exposure.
 - Pattern scanners reduce accidental exposure but are not complete malware,
@@ -79,10 +79,10 @@ abuse cases, and residual risk.
 
 ## Secure deployment guidance
 
-1. Keep the CLI and state on a trusted single-user workstation during v0.2.
+1. Keep the CLI and state on a trusted single-user workstation during v0.3.
 2. Restrict project and platform data directories with OS permissions and disk
    encryption.
-3. Never commit `.agent-company/`, `.agentic_company/`, `.env`, provider
+3. Never commit `.software-agent/`, `.agent-company/`, `.agentic_company/`, `.env`, provider
    credential stores, or raw diagnostic bundles.
 4. Use least-privilege provider accounts and environment-scoped resources.
 5. Review the exact operation hash, target, environment, and artifact before

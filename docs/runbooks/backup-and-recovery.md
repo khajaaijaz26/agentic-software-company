@@ -2,48 +2,48 @@
 
 ## Scope
 
-This runbook protects local v0.2 project state. It does not replace provider
+This runbook protects local v0.3 project state. It does not replace provider
 backups or reconcile a remote mutation. Project state consists of:
 
-- `.agent-company/state.sqlite` and possible `-wal`/`-shm` sidecars;
-- `.agent-company/project.toml` and `policy.toml`;
-- `.agent-company/artifacts/`; and
+- `.software-agent/state.sqlite` and possible `-wal`/`-shm` sidecars;
+- `.software-agent/project.toml` and `policy.toml`;
+- `.software-agent/artifacts/`; and
 - a record of CLI version and source revision.
 
 All of these can contain confidential metadata. Store backups encrypted and
 restrict access to the project owner.
 
 Controller locks, descriptors, nonce files, and sockets/pipes live in the platform
-runtime directory, not `.agent-company/`. They are ephemeral authentication
+runtime directory, not `.software-agent/`. They are ephemeral authentication
 material and must not be restored from backup. A newly started controller
 creates a fresh instance and nonce.
 
 ## Preferred consistent backup
 
-1. Stop all Agent Company CLI/controller/worker processes for the project.
+1. Stop all Software Agent CLI/controller/worker processes for the project.
 2. Confirm no process has the database open.
-3. Copy the entire `.agent-company/` directory to a new versioned backup
+3. Copy the entire `.software-agent/` directory to a new versioned backup
    directory on the same trust boundary.
 4. Record SHA-256 hashes for the copied files and the output of
-   `agent-company version --json`.
-5. Reopen the original and run `agent-company state check --json`.
+   `software-agent version --json`.
+5. Reopen the original and run `software-agent state check --json`.
 
 Stopping writers makes copying the database plus WAL sidecars consistent.
 Never delete `state.sqlite-wal` or `state.sqlite-shm` to make a backup appear
 clean.
 
 For live systems, use SQLite's supported backup API or `VACUUM INTO` through a
-purpose-built, tested administrative command. The v0.2 CLI does not provide
+purpose-built, tested administrative command. The v0.3 CLI does not provide
 that command, so do not improvise SQL against a live project.
 
 ## Restore
 
 1. Stop all processes that could open the target project.
-2. Preserve the damaged/current `.agent-company/` directory as forensic input;
+2. Preserve the damaged/current `.software-agent/` directory as forensic input;
    do not overwrite the only copy.
 3. Restore the complete backup into a new test workspace first.
 4. Restrict permissions to the intended local user.
-5. Run `agent-company --project <test-workspace> state check --json` and inspect
+5. Run `software-agent --project <test-workspace> state check --json` and inspect
    runs, approvals, event counts, and artifact presence.
 6. Only after validation, select the restored workspace for continued work.
 7. Record the restore time, operator, backup identity, and any events known to

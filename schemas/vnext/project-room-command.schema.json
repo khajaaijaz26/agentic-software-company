@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.software-agent.dev/vnext/project-room-command.schema.json",
+  "title": "Software Agent project-room intent",
+  "description": "Typed UI intent passed to an injectable ProjectRoomSource. It is not an IPC request until an adapter binds it to controller revisions, leases, and methods.",
+  "oneOf": [
+    { "$ref": "#/$defs/objective" },
+    { "$ref": "#/$defs/instruction" },
+    { "$ref": "#/$defs/approval" },
+    { "$ref": "#/$defs/leave" }
+  ],
+  "$defs": {
+    "cursor": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+    "objective": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "text", "expectedCursor"],
+      "properties": {
+        "type": { "const": "objective.create" },
+        "text": { "type": "string", "minLength": 1, "pattern": "\\S" },
+        "expectedCursor": { "$ref": "#/$defs/cursor" }
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id", "label"],
+      "properties": {
+        "kind": { "enum": ["agent", "task", "run"] },
+        "id": { "type": "string", "minLength": 1 },
+        "label": { "type": "string", "minLength": 1 }
+      }
+    },
+    "instruction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "runId", "text", "target", "expectedCursor"],
+      "properties": {
+        "type": { "const": "instruction.submit" },
+        "runId": { "type": "string", "minLength": 1 },
+        "text": { "type": "string", "minLength": 1, "pattern": "\\S" },
+        "target": { "$ref": "#/$defs/target" },
+        "expectedCursor": { "$ref": "#/$defs/cursor" }
+      }
+    },
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "approvalId", "decision", "expectedCursor"],
+      "properties": {
+        "type": { "const": "approval.decide" },
+        "approvalId": { "type": "string", "minLength": 1 },
+        "decision": { "enum": ["APPROVED", "DENIED", "CHANGES_REQUESTED"] },
+        "expectedCursor": { "$ref": "#/$defs/cursor" }
+      }
+    },
+    "leave": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "disposition", "expectedCursor"],
+      "properties": {
+        "type": { "const": "session.leave" },
+        "disposition": { "enum": ["continue", "pause", "cancel"] },
+        "expectedCursor": { "$ref": "#/$defs/cursor" }
+      }
+    }
+  }
+}

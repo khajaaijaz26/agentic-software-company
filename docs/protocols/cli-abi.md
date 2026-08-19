@@ -2,15 +2,15 @@
 
 ## Version
 
-This document defines the preview ABI for `@agent-company/cli` 0.2.x. The CLI
-reports code version `0.2.0`, schema version `1`, and plugin API version `1`.
+This document defines the preview ABI for `software-agent` 0.3.x. The CLI
+reports code version `0.3.0`, schema version `1`, and plugin API version `1`.
 Preview contracts can grow compatibly; incompatible changes require a new
 schema identifier and release note.
 
 ## Invocation
 
 ```text
-agent-company [global-options] <command> [command-options]
+software-agent [global-options] <command> [command-options]
 ```
 
 Selection options include `--project <path>`, `--run <id>`, `--workspace`, and
@@ -18,12 +18,12 @@ Selection options include `--project <path>`, `--run <id>`, `--workspace`, and
 `--no-color`. Automation should add `--non-interactive` and should never rely
 on a prompt being answered implicitly.
 
-In v0.2, `--project` and `--run` are active selectors. `--workspace`,
+In v0.3, `--project` and `--run` are active selectors. `--workspace`,
 `--profile`, `--config`, `--timeout`, custom `--log-level`/`--trace-id`,
-non-default `--unicode`, init strategy overrides, and run-scoped
-`--budget`/`--max-parallel` are reserved ABI names and fail with
+non-default `--unicode`, and init strategy overrides are reserved ABI names and fail with
 `CAPABILITY_UNAVAILABLE` instead of being silently ignored. Standard
-redaction is always active; another `--redact` value is rejected.
+redaction is always active; another `--redact` value is rejected. Run-scoped
+`--budget economy|balanced|quality` and `--max-parallel 1..3` are active.
 
 Global options may appear before or after a subcommand because Commander
 resolves inherited options. Scripts should still place them before the command
@@ -45,7 +45,7 @@ Success envelope:
 
 ```json
 {
-  "schema": "agent-company.output/v1",
+  "schema": "software-agent.output/v1",
   "type": "run.created",
   "data": {}
 }
@@ -55,12 +55,12 @@ Error envelope:
 
 ```json
 {
-  "schema": "agent-company.error/v1",
+  "schema": "software-agent.error/v1",
   "type": "error",
   "data": {
     "code": "APPROVAL_REQUIRED",
     "message": "approval is required",
-    "next": "agent-company approvals list"
+    "next": "software-agent approvals list"
   }
 }
 ```
@@ -122,7 +122,7 @@ decision may transition a pending approval to `APPROVED`, `DENIED`, or
 
 Release checks should snapshot:
 
-- `agent-company version --json`;
+- `software-agent version --json`;
 - representative success and error envelopes;
 - all exit-code branches;
 - `schemas/vnext/output.schema.json`; and

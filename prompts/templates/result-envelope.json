@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/khajaaijaz26/agentic-software-company/schemas/result-envelope.schema.json",
+  "$id": "https://github.com/khajaaijaz26/software-agent/schemas/result-envelope.schema.json",
   "title": "Result Envelope",
   "description": "The structured output a specialist agent returns to the orchestrator. Carries status, evidence, artifacts, budget usage, and the required terminal state.",
   "type": "object",

@@ -19,4 +19,4 @@ ENV PYTHONUNBUFFERED=1
 
 EXPOSE 8000
 
-CMD ["python", "-m", "agentic_company.mcp_server", "--transport", "streamable-http", "--mount-path", "/mcp"]
+CMD ["python", "-m", "software_agent.mcp_server", "--transport", "streamable-http", "--mount-path", "/mcp"]

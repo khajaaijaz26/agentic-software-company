@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.software-agent.dev/vnext/legacy-event.schema.json",
+  "title": "Legacy controller stored-event reader",
+  "description": "Explicit compatibility shape for pre-runtime-v2 events already present in a shared SQLite log. New Software Agent runtime events must use event.schema.json.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "eventId",
+    "streamId",
+    "eventType",
+    "occurredAt",
+    "actor",
+    "data",
+    "sequence",
+    "streamVersion"
+  ],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "eventId": { "type": "string", "minLength": 1 },
+    "streamId": { "type": "string", "minLength": 1 },
+    "eventType": {
+      "type": "string",
+      "pattern": "^(?!software-agent\\.)[a-z][a-z0-9]*(?:[._:-][a-z0-9]+)*$"
+    },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "id"],
+      "properties": {
+        "type": { "enum": ["human", "agent", "system"] },
+        "id": { "type": "string", "minLength": 1 }
+      }
+    },
+    "data": { "type": "object" },
+    "metadata": { "type": "object" },
+    "sequence": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+    "streamVersion": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 }
+  }
+}

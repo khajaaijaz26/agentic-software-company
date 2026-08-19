@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.agent-company.dev/vnext/ipc-response.schema.json",
-  "title": "Agent Company authenticated controller RPC response v1",
-  "description": "Correlated RPC response carried in a 4-byte big-endian length-prefixed JSON frame.",
+  "$id": "https://schemas.software-agent.dev/vnext/ipc-response.schema.json",
+  "title": "Software Agent authenticated controller RPC response",
+  "description": "Correlated method-specific RPC result or error carried in a four-byte big-endian length-prefixed UTF-8 JSON frame. The response does not repeat the negotiated protocol version or request method.",
   "type": "object",
   "additionalProperties": false,
   "required": ["kind", "requestId", "ok"],
@@ -31,7 +31,7 @@
       "additionalProperties": false,
       "required": ["code", "message", "retryable"],
       "properties": {
-        "code": { "type": "string" },
+        "code": { "type": "string", "minLength": 1 },
         "message": { "type": "string" },
         "retryable": { "type": "boolean" }
       }

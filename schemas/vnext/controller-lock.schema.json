@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.software-agent.dev/vnext/controller-lock.schema.json",
+  "title": "Software Agent controller lock v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "pid", "createdAt", "instanceId", "userBinding", "workspaceHash"],
+  "properties": {
+    "schema": { "const": "software-agent.controller-lock/v2" },
+    "pid": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+    "createdAt": { "type": "string", "format": "date-time" },
+    "instanceId": { "type": "string", "pattern": "^ctl_[a-f0-9]{32}$" },
+    "userBinding": { "type": "string", "pattern": "^[a-f0-9]{48}$" },
+    "workspaceHash": { "type": "string", "pattern": "^[a-f0-9]{24}$" }
+  }
+}

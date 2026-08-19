@@ -1,19 +1,9 @@
 # Codex (~/.codex/config.toml)
 # Add the block below to your existing config.toml under the [mcp_servers] table.
 
-[mcp_servers.agentic-software-company]
-command = "uv"
-args = [
-  "run",
-  "--with",
-  "mcp[cli]",
-  "--with",
-  "agentic-company[mcp]",
-  "mcp",
-  "run",
-  "src/agentic_company/mcp_server.py",
-]
+[mcp_servers.software-agent]
+command = "software-agent-mcp"
+args = []
 
-# Alternative (after `python -m pip install "agentic-company[mcp]"`):
-# command = "python"
-# args = ["-m", "agentic_company.mcp_server"]
+# Install first with: python -m pip install "software-agent-compat[mcp]"
+# From a source checkout, use: python -m pip install -e ".[mcp]"

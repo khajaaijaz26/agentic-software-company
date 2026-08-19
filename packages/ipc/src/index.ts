@@ -63,6 +63,28 @@ export interface ControllerBackend {
   resume(runId: string): Promise<ControllerRpcResults["resume"]>;
   pause(runId: string): ControllerRpcResults["pause"];
   cancel(runId: string): ControllerRpcResults["cancel"];
+  snapshotV2?(options?: ControllerRpcParams["snapshot.get"]): ControllerRpcResults["snapshot.get"];
+  pollEventsV2?(
+    input: ControllerRpcParams["events.poll"],
+    signal?: AbortSignal,
+  ): Promise<ControllerRpcResults["events.poll"]>;
+  historyV2?(input: ControllerRpcParams["events.history"]): ControllerRpcResults["events.history"];
+  acquireMutationLease?(
+    input: ControllerRpcParams["mutation.acquire"] & {readonly actor: ActorRef},
+  ): ControllerRpcResults["mutation.acquire"];
+  renewMutationLease?(
+    input: ControllerRpcParams["mutation.renew"] & {readonly actor: ActorRef},
+  ): ControllerRpcResults["mutation.renew"];
+  releaseMutationLease?(
+    input: ControllerRpcParams["mutation.release"] & {readonly actor: ActorRef},
+  ): ControllerRpcResults["mutation.release"];
+  createRunV2?(input: ControllerRpcParams["run.create"]): ControllerRpcResults["run.create"];
+  resumeRunV2?(input: ControllerRpcParams["run.resume"]): ControllerRpcResults["run.resume"];
+  pauseRunV2?(input: ControllerRpcParams["run.pause"]): ControllerRpcResults["run.pause"];
+  cancelRunV2?(input: ControllerRpcParams["run.cancel"]): ControllerRpcResults["run.cancel"];
+  askQuestionV2?(input: ControllerRpcParams["question.ask"]): ControllerRpcResults["question.ask"];
+  answerQuestionV2?(input: ControllerRpcParams["question.answer"]): ControllerRpcResults["question.answer"];
+  submitInstructionV2?(input: ControllerRpcParams["instruction.submit"]): ControllerRpcResults["instruction.submit"];
 }
 
 export interface ControllerIpcServerOptions extends RuntimePathOptions {
@@ -72,6 +94,7 @@ export interface ControllerIpcServerOptions extends RuntimePathOptions {
   readonly handshakeTimeoutMs?: number;
   readonly heartbeatIntervalMs?: number;
   readonly shutdownGraceMs?: number;
+  readonly onShutdownRequested?: () => void;
 }
 
 export interface ControllerIpcClientOptions extends RuntimePathOptions {
@@ -111,6 +134,8 @@ interface ConnectionState {
   closing: boolean;
   protocolVersion?: number;
   handshakeTimer: NodeJS.Timeout;
+  readonly abort: AbortController;
+  readonly requestIds: Set<string>;
 }
 
 export class ControllerIpcServer {
@@ -124,6 +149,7 @@ export class ControllerIpcServer {
   #lock: ControllerLock | undefined;
   #descriptorWrites: Promise<void> = Promise.resolve();
   #stopping: Promise<void> | undefined;
+  readonly #handshakeRequestIds = new Set<string>();
 
   public constructor(options: ControllerIpcServerOptions) {
     this.#options = options;
@@ -267,6 +293,8 @@ export class ControllerIpcServer {
       authenticated: false,
       closing: false,
       handshakeTimer: setTimeout(() => socket.destroy(), this.#options.handshakeTimeoutMs ?? 5000),
+      abort: new AbortController(),
+      requestIds: new Set<string>(),
     };
     state.handshakeTimer.unref();
     socket.on("data", (chunk) => {
@@ -279,6 +307,7 @@ export class ControllerIpcServer {
     socket.on("error", () => undefined);
     socket.on("close", () => {
       clearTimeout(state.handshakeTimer);
+      state.abort.abort(new ControllerIpcError("CONNECTION_CLOSED", "controller connection closed", true));
       this.#sockets.delete(socket);
     });
   }
@@ -296,6 +325,10 @@ export class ControllerIpcServer {
         this.#rejectHandshake(socket, state, handshakeFailure(hello.requestId, "PROTOCOL_MISMATCH", "client and controller protocol ranges do not overlap"));
         return;
       }
+      if (this.#handshakeRequestIds.has(hello.requestId)) {
+        this.#rejectHandshake(socket, state, handshakeFailure(hello.requestId, "HANDSHAKE_REPLAYED", "controller handshake proof was already used"));
+        return;
+      }
       if (
         hello.instanceId !== descriptor.instanceId
         || hello.userBinding !== descriptor.userBinding
@@ -304,6 +337,11 @@ export class ControllerIpcServer {
         this.#rejectHandshake(socket, state, handshakeFailure(hello.requestId, "HANDSHAKE_REJECTED", "controller handshake was rejected"));
         return;
       }
+      if (this.#handshakeRequestIds.size >= 4096) {
+        const oldest = this.#handshakeRequestIds.values().next().value;
+        if (oldest !== undefined) this.#handshakeRequestIds.delete(oldest);
+      }
+      this.#handshakeRequestIds.add(hello.requestId);
       state.authenticated = true;
       state.protocolVersion = protocolVersion;
       clearTimeout(state.handshakeTimer);
@@ -332,11 +370,14 @@ export class ControllerIpcServer {
     try {
       if (!isObject(message) || message.kind !== "request") throw new ControllerIpcError("INVALID_REQUEST", "expected a request envelope");
       if (!validRequestId(requestId)) throw new ControllerIpcError("INVALID_REQUEST", "requestId is invalid");
+      if (state.requestIds.has(requestId)) throw new ControllerIpcError("DUPLICATE_REQUEST_ID", "requestId was already used on this connection");
+      if (state.requestIds.size >= 4096) throw new ControllerIpcError("REQUEST_LIMIT_REACHED", "connection request limit was reached");
+      state.requestIds.add(requestId);
       if (message.protocolVersion !== state.protocolVersion) throw new ControllerIpcError("PROTOCOL_MISMATCH", "request protocol does not match the negotiated version");
       if (!isControllerMethod(message.method)) throw new ControllerIpcError("METHOD_NOT_FOUND", `unknown controller method: ${String(message.method)}`);
       const method = message.method;
       const params = parseControllerParams(method, message.params);
-      const result = await this.#dispatch(method, params);
+      const result = await this.#dispatch(method, params, state.abort.signal);
       const response = {kind: "response", requestId, ok: true, result} as RpcSuccessResponse;
       await writeFrame(socket, response, this.#options.maximumFrameBytes);
     } catch (error) {
@@ -349,7 +390,11 @@ export class ControllerIpcServer {
     }
   }
 
-  async #dispatch<M extends ControllerMethod>(method: M, params: ControllerRpcParams[M]): Promise<ControllerRpcResults[M]> {
+  async #dispatch<M extends ControllerMethod>(
+    method: M,
+    params: ControllerRpcParams[M],
+    signal: AbortSignal,
+  ): Promise<ControllerRpcResults[M]> {
     const controller = this.#options.controller;
     switch (method) {
       case "snapshot":
@@ -372,6 +417,57 @@ export class ControllerIpcServer {
         return controller.pause((params as ControllerRpcParams["pause"]).runId) as ControllerRpcResults[M];
       case "cancel":
         return controller.cancel((params as ControllerRpcParams["cancel"]).runId) as ControllerRpcResults[M];
+      case "snapshot.get":
+        if (controller.snapshotV2 === undefined) return capabilityUnavailable("snapshot.get");
+        return controller.snapshotV2(params as ControllerRpcParams["snapshot.get"]) as ControllerRpcResults[M];
+      case "events.poll":
+        if (controller.pollEventsV2 === undefined) return capabilityUnavailable("events.poll");
+        return await controller.pollEventsV2(params as ControllerRpcParams["events.poll"], signal) as ControllerRpcResults[M];
+      case "events.history":
+        if (controller.historyV2 === undefined) return capabilityUnavailable("events.history");
+        return controller.historyV2(params as ControllerRpcParams["events.history"]) as ControllerRpcResults[M];
+      case "mutation.acquire":
+        if (controller.acquireMutationLease === undefined) return capabilityUnavailable("mutation.acquire");
+        return controller.acquireMutationLease({
+          ...(params as ControllerRpcParams["mutation.acquire"]),
+          actor: {type: "human", id: "local-user"},
+        }) as ControllerRpcResults[M];
+      case "mutation.renew":
+        if (controller.renewMutationLease === undefined) return capabilityUnavailable("mutation.renew");
+        return controller.renewMutationLease({
+          ...(params as ControllerRpcParams["mutation.renew"]),
+          actor: {type: "human", id: "local-user"},
+        }) as ControllerRpcResults[M];
+      case "mutation.release":
+        if (controller.releaseMutationLease === undefined) return capabilityUnavailable("mutation.release");
+        return controller.releaseMutationLease({
+          ...(params as ControllerRpcParams["mutation.release"]),
+          actor: {type: "human", id: "local-user"},
+        }) as ControllerRpcResults[M];
+      case "run.create":
+        if (controller.createRunV2 === undefined) return capabilityUnavailable("run.create");
+        return controller.createRunV2(params as ControllerRpcParams["run.create"]) as ControllerRpcResults[M];
+      case "run.resume":
+        if (controller.resumeRunV2 === undefined) return capabilityUnavailable("run.resume");
+        return controller.resumeRunV2(params as ControllerRpcParams["run.resume"]) as ControllerRpcResults[M];
+      case "run.pause":
+        if (controller.pauseRunV2 === undefined) return capabilityUnavailable("run.pause");
+        return controller.pauseRunV2(params as ControllerRpcParams["run.pause"]) as ControllerRpcResults[M];
+      case "run.cancel":
+        if (controller.cancelRunV2 === undefined) return capabilityUnavailable("run.cancel");
+        return controller.cancelRunV2(params as ControllerRpcParams["run.cancel"]) as ControllerRpcResults[M];
+      case "question.ask":
+        if (controller.askQuestionV2 === undefined) return capabilityUnavailable("question.ask");
+        return controller.askQuestionV2(params as ControllerRpcParams["question.ask"]) as ControllerRpcResults[M];
+      case "question.answer":
+        if (controller.answerQuestionV2 === undefined) return capabilityUnavailable("question.answer");
+        return controller.answerQuestionV2(params as ControllerRpcParams["question.answer"]) as ControllerRpcResults[M];
+      case "instruction.submit":
+        if (controller.submitInstructionV2 === undefined) return capabilityUnavailable("instruction.submit");
+        return controller.submitInstructionV2(params as ControllerRpcParams["instruction.submit"]) as ControllerRpcResults[M];
+      case "daemon.stop":
+        setImmediate(() => this.#options.onShutdownRequested?.());
+        return {schema: "software-agent.daemon-stop/v1", accepted: true} as ControllerRpcResults[M];
     }
   }
 
@@ -636,6 +732,10 @@ function errorShape(error: unknown): RpcErrorShape {
     return {code: error.code, message: error.message, retryable: false};
   }
   return {code: "INTERNAL_ERROR", message: "controller request failed", retryable: false};
+}
+
+function capabilityUnavailable(method: string): never {
+  throw new ControllerIpcError("CAPABILITY_UNAVAILABLE", `controller does not support ${method}`);
 }
 
 function parseRpcError(value: unknown): RpcErrorShape {

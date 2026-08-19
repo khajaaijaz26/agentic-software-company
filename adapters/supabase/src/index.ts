@@ -2,7 +2,7 @@ import {runConnectorCli, type Connector, type ConnectorInventory, type Connector
 
 export class SupabaseConnector implements Connector {
   public readonly manifest = {
-    schema: "agent-company.connector-manifest/v1" as const,
+    schema: "software-agent.connector-manifest/v1" as const,
     id: "supabase",
     displayName: "Supabase",
     version: "1.0.0",

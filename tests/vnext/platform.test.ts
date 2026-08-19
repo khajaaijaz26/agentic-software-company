@@ -23,7 +23,7 @@ import {ChildWorkerSupervisor} from "../../packages/worker-supervisor/src/index.
 const temporaryDirectories: string[] = [];
 
 function temporaryDirectory(): string {
-  const directory = mkdtempSync(join(tmpdir(), "agent-company-platform-"));
+  const directory = mkdtempSync(join(tmpdir(), "software-agent-platform-"));
   temporaryDirectories.push(directory);
   return directory;
 }
@@ -47,7 +47,7 @@ describe("project initialization and platform paths", () => {
 
     await initializeProject(workspace, "Blueprint Demo", true);
     const config = await loadProjectConfig(workspace);
-    expect(config).toMatchObject({schema: "agent-company.project/v1", project: {name: "Blueprint Demo"}});
+    expect(config).toMatchObject({schema: "software-agent.project/v2", project: {name: "Blueprint Demo"}});
     expect(readFileSync(preview.files.gitignoreFile, "utf8")).toContain("*.sqlite-wal");
 
     const repeated = await initializeProject(workspace, "Replacement Name", true);
@@ -104,7 +104,7 @@ describe("artifacts and attachment trust boundaries", () => {
   it("never transfers during ingestion and blocks secrets, malware, and root escapes", async () => {
     const root = temporaryDirectory();
     const outside = temporaryDirectory();
-    const store = new ArtifactStore(join(root, ".agent-company", "artifacts"));
+    const store = new ArtifactStore(join(root, ".software-agent", "artifacts"));
     const service = new AttachmentService(store, {allowedRoots: [root]});
     writeFileSync(join(root, "safe.txt"), "ordinary project context");
     writeFileSync(join(root, "secret.txt"), "api_key=abcdefghijklmnop");
@@ -134,7 +134,7 @@ describe("budgets, models, tools, and connected policy", () => {
     });
     expect(execution.pid).not.toBe(process.pid);
     expect(execution.result).toMatchObject({
-      schema: "agent-company.result/v1",
+      schema: "software-agent.result/v1",
       runId: "run_worker",
       taskId: "task_worker",
       leaseId: execution.manifest.leaseId,
@@ -322,29 +322,24 @@ describe("catalog, terminal safety, controller replay, and CLI ABI", () => {
     }
   });
 
-  it("uses versioned machine envelopes and stable approval-required exits", async () => {
+  it("uses versioned machine envelopes for a complete headless v0.3 run", async () => {
     const workspace = temporaryDirectory();
     const output: string[] = [];
     const error: string[] = [];
     const io = {stdout: (value: string) => output.push(value), stderr: (value: string) => error.push(value)};
-    expect(await runCli(["node", "agent-company", "--json", "init", workspace, "--name", "CLI Demo"], io)).toBe(0);
+    expect(await runCli(["node", "software-agent", "--json", "init", workspace, "--name", "CLI Demo"], io)).toBe(0);
     writeFileSync(join(workspace, "context.txt"), "safe local context");
     output.length = 0;
-    expect(await runCli(["node", "agent-company", "--project", workspace, "--json", "attachments", "add", join(workspace, "context.txt")], io)).toBe(0);
+    expect(await runCli(["node", "software-agent", "--project", workspace, "--json", "attachments", "add", join(workspace, "context.txt")], io)).toBe(0);
     const attachment = JSON.parse(output.join("")) as {data: {artifact: {artifact_id: string}; transfer_count: number}};
     expect(attachment.data.transfer_count).toBe(0);
     output.length = 0;
-    expect(await runCli(["node", "agent-company", "--project", workspace, "--json", "artifacts", "verify", attachment.data.artifact.artifact_id], io)).toBe(0);
+    expect(await runCli(["node", "software-agent", "--project", workspace, "--json", "artifacts", "verify", attachment.data.artifact.artifact_id], io)).toBe(0);
     expect(JSON.parse(output.join("")).data.valid).toBe(true);
     output.length = 0;
-    expect(await runCli(["node", "agent-company", "--project", workspace, "--json", "run", "Implement", "a", "safe", "change"], io)).toBe(4);
-    const envelope = JSON.parse(output.join("")) as {schema: string; type: string; data: {id: string; state: string; approvalIds: string[]}};
-    expect(envelope).toMatchObject({schema: "agent-company.output/v1", type: "run.created", data: {state: "WAITING_APPROVAL"}});
-    output.length = 0;
-    expect(await runCli(["node", "agent-company", "--project", workspace, "--json", "approvals", "approve", envelope.data.approvalIds[0]!], io)).toBe(0);
-    output.length = 0;
-    expect(await runCli(["node", "agent-company", "--project", workspace, "--json", "resume", envelope.data.id], io)).toBe(0);
-    expect(JSON.parse(output.join("")).data).toMatchObject({id: envelope.data.id, state: "SUCCEEDED"});
+    expect(await runCli(["node", "software-agent", "--project", workspace, "--json", "run", "Implement", "a", "safe", "change"], io)).toBe(0);
+    const envelope = JSON.parse(output.join("")) as {schema: string; type: string; data: {id: string; state: string}};
+    expect(envelope).toMatchObject({schema: "software-agent.output/v1", type: "run.completed", data: {state: "SUCCEEDED"}});
     expect(error).toEqual([]);
   });
 
@@ -354,14 +349,14 @@ describe("catalog, terminal safety, controller replay, and CLI ABI", () => {
     const output: string[] = [];
     const io = {stdout: (value: string) => output.push(value), stderr: () => undefined};
 
-    expect(await runCli(["node", "agent-company", "--project", workspace, "--profile", "future", "--json", "version"], io)).toBe(6);
+    expect(await runCli(["node", "software-agent", "--project", workspace, "--profile", "future", "--json", "version"], io)).toBe(6);
     expect(JSON.parse(output.join(""))).toMatchObject({
-      schema: "agent-company.error/v1",
+      schema: "software-agent.error/v1",
       data: {code: "CAPABILITY_UNAVAILABLE"},
     });
 
     output.length = 0;
-    expect(await runCli(["node", "agent-company", "--project", workspace, "--offline", "--json", "doctor"], io)).toBe(0);
+    expect(await runCli(["node", "software-agent", "--project", workspace, "--offline", "--json", "doctor"], io)).toBe(0);
     const doctor = JSON.parse(output.join("")) as {data: {connectors: Array<{details: string[]}>}};
     expect(doctor.data.connectors).toHaveLength(3);
     expect(doctor.data.connectors.every((item) => item.details[0]?.includes("probe not attempted"))).toBe(true);

@@ -10,8 +10,8 @@ import unittest
 from pathlib import Path
 
 _STATE_TEMP = tempfile.TemporaryDirectory(prefix="agentic-company-mcp-tests-")
-_PREVIOUS_STATE_DIR = os.environ.get("AGENTIC_COMPANY_STATE_DIR")
-os.environ["AGENTIC_COMPANY_STATE_DIR"] = str(Path(_STATE_TEMP.name) / "state")
+_PREVIOUS_STATE_DIR = os.environ.get("SOFTWARE_AGENT_STATE_DIR")
+os.environ["SOFTWARE_AGENT_STATE_DIR"] = str(Path(_STATE_TEMP.name) / "state")
 MCP_IMPORT_ERROR = None
 
 try:
@@ -22,7 +22,7 @@ except ImportError as exc:  # pragma: no cover
     MCP_AVAILABLE = False
     MCP_IMPORT_ERROR = exc
 
-if not MCP_AVAILABLE and os.environ.get("AGENTIC_REQUIRE_MCP") == "1":  # pragma: no cover
+if not MCP_AVAILABLE and os.environ.get("SOFTWARE_AGENT_REQUIRE_MCP") == "1":  # pragma: no cover
     raise RuntimeError("MCP tests are required but the supported MCP SDK could not be imported") from MCP_IMPORT_ERROR
 
 if MCP_AVAILABLE and sys.version_info >= (3, 10):
@@ -166,9 +166,9 @@ class McpServerTest(unittest.TestCase):
 
 def tearDownModule():
     if _PREVIOUS_STATE_DIR is None:
-        os.environ.pop("AGENTIC_COMPANY_STATE_DIR", None)
+        os.environ.pop("SOFTWARE_AGENT_STATE_DIR", None)
     else:
-        os.environ["AGENTIC_COMPANY_STATE_DIR"] = _PREVIOUS_STATE_DIR
+        os.environ["SOFTWARE_AGENT_STATE_DIR"] = _PREVIOUS_STATE_DIR
     _STATE_TEMP.cleanup()
 
 

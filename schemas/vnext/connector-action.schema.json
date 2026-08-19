@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.agent-company.dev/vnext/connector-action.schema.json",
-  "title": "Agent Company normalized connector action v1",
+  "$id": "https://schemas.software-agent.dev/vnext/connector-action.schema.json",
+  "title": "Software Agent normalized connector action v1",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -21,7 +21,7 @@
     "createdAt"
   ],
   "properties": {
-    "schema": { "const": "agent-company.connector-action/v1" },
+    "schema": { "const": "software-agent.connector-action/v1" },
     "actionId": { "type": "string", "pattern": "^act_[A-Za-z0-9_-]+$" },
     "operationId": { "type": "string", "pattern": "^op_[A-Za-z0-9_-]+$" },
     "connectorId": { "type": "string", "minLength": 1 },

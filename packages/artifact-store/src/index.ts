@@ -4,7 +4,10 @@ import {dirname, join, resolve} from "node:path";
 import {z} from "zod";
 
 export const ArtifactManifestSchema = z.object({
-  schema: z.literal("agent-company.artifact-manifest/v1"),
+  schema: z.union([
+    z.literal("software-agent.artifact-manifest/v1"),
+    z.literal("agent-company.artifact-manifest/v1"),
+  ]).transform(() => "software-agent.artifact-manifest/v1" as const),
   artifact_id: z.string(),
   sha256: z.string().regex(/^[a-f0-9]{64}$/u),
   size_bytes: z.number().int().nonnegative(),
@@ -59,7 +62,7 @@ export class ArtifactStore {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
     const manifest: ArtifactManifest = {
-      schema: "agent-company.artifact-manifest/v1",
+      schema: "software-agent.artifact-manifest/v1",
       artifact_id: artifactId,
       sha256: digest,
       size_bytes: bytes.byteLength,

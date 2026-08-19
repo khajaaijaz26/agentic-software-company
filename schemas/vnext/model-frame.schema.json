@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.software-agent.dev/vnext/model-frame.schema.json",
+  "title": "Software Agent normalized model stream frame",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "text"],
+      "properties": { "type": { "const": "text-delta" }, "text": { "type": "string" } }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "callId", "name", "arguments"],
+      "properties": {
+        "type": { "const": "tool-call" },
+        "callId": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "arguments": true
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "usage"],
+      "properties": { "type": { "const": "usage" }, "usage": { "$ref": "model-usage.schema.json" } }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "providerRequestId", "resolvedModel", "stopReason"],
+      "properties": {
+        "type": { "const": "completed" },
+        "providerRequestId": { "type": "string" },
+        "resolvedModel": { "type": "string", "minLength": 1 },
+        "stopReason": { "type": "string" }
+      }
+    }
+  ]
+}

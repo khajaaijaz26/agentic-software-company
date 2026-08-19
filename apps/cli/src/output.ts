@@ -32,7 +32,7 @@ export const processIo: Io = {
 
 export function emit(io: Io, mode: OutputMode, type: string, data: unknown): void {
   if (mode.json || mode.ndjson) {
-    io.stdout(`${JSON.stringify({schema: "agent-company.output/v1", type, data})}\n`);
+    io.stdout(`${JSON.stringify({schema: "software-agent.output/v1", type, data})}\n`);
     return;
   }
   if (typeof data === "string") {
@@ -45,7 +45,7 @@ export function emit(io: Io, mode: OutputMode, type: string, data: unknown): voi
 export function emitError(io: Io, mode: OutputMode, code: string, message: string, next?: string): void {
   const data = {code, message: sanitizeTerminal(message), ...(next ? {next} : {})};
   if (mode.json || mode.ndjson) {
-    io.stdout(`${JSON.stringify({schema: "agent-company.error/v1", type: "error", data})}\n`);
+    io.stdout(`${JSON.stringify({schema: "software-agent.error/v1", type: "error", data})}\n`);
   } else {
     io.stderr(`Error [${code}]: ${data.message}${next ? `\nNext: ${next}` : ""}\n`);
   }

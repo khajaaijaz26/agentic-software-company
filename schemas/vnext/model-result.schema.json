@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.software-agent.dev/vnext/model-result.schema.json",
+  "title": "Software Agent normalized model result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["requestId", "providerId", "modelId", "providerRequestId", "stopReason", "text", "toolCalls", "usage", "inputTokens", "outputTokens", "cost", "currency"],
+  "properties": {
+    "requestId": { "type": "string", "minLength": 1 },
+    "providerId": { "type": "string", "minLength": 1 },
+    "modelId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "providerRequestId": { "type": "string" },
+    "stopReason": { "type": "string" },
+    "text": { "type": "string" },
+    "toolCalls": { "type": "array", "items": { "$ref": "model-request.schema.json#/$defs/toolCall" } },
+    "usage": { "$ref": "model-usage.schema.json" },
+    "inputTokens": { "$ref": "model-usage.schema.json#/$defs/tokenCount" },
+    "outputTokens": { "$ref": "model-usage.schema.json#/$defs/tokenCount" },
+    "cost": {
+      "oneOf": [
+        { "type": "number", "minimum": 0 },
+        { "const": "UNKNOWN" }
+      ]
+    },
+    "currency": { "const": "USD" }
+  }
+}

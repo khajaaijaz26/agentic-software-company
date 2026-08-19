@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.agent-company.dev/vnext/approval.schema.json",
-  "title": "Agent Company approval record v1",
+  "$id": "https://schemas.software-agent.dev/vnext/approval.schema.json",
+  "title": "Software Agent approval record v1",
   "type": "object",
   "additionalProperties": false,
   "required": [

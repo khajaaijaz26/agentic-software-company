@@ -89,7 +89,7 @@ export interface ConsumeApprovalInput {
 }
 
 export interface ApprovalAuthorization {
-  readonly schema: "agent-company.approval-authorization/v1";
+  readonly schema: "software-agent.approval-authorization/v1" | "agent-company.approval-authorization/v1";
   readonly approvalId: string;
   readonly bindingHash: string;
   readonly issuedAt: string;
@@ -304,7 +304,7 @@ export class ApprovalService {
       throw new ApprovalExpiredError(approvalId);
     }
     const authorization: ApprovalAuthorization = Object.freeze({
-      schema: "agent-company.approval-authorization/v1",
+      schema: "software-agent.approval-authorization/v1",
       approvalId,
       bindingHash: record.bindingHash,
       issuedAt,
@@ -369,6 +369,18 @@ export class ApprovalService {
       approvalId,
     ) as SqliteRow | undefined;
     return row === undefined ? null : this.#record(row);
+  }
+
+  public list(resource?: string): readonly ApprovalRecord[] {
+    if (resource !== undefined) exact(resource, "resource");
+    const rows = (resource === undefined
+      ? this.#database.prepare("SELECT * FROM approvals ORDER BY requested_at DESC, approval_id DESC").all()
+      : this.#database.prepare(`
+          SELECT * FROM approvals
+          WHERE json_extract(binding_json, '$.resource') = ?
+          ORDER BY requested_at DESC, approval_id DESC
+        `).all(resource)) as SqliteRow[];
+    return Object.freeze(rows.map((row) => this.#record(row)));
   }
 
   public decide(input: DecideApprovalInput): ApprovalRecord {
@@ -594,7 +606,7 @@ export class ApprovalService {
     if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) throw new ApprovalTokenError();
     const value = parsed as Record<string, unknown>;
     if (
-      value.schema !== "agent-company.approval-authorization/v1" ||
+      !["software-agent.approval-authorization/v1", "agent-company.approval-authorization/v1"].includes(String(value.schema)) ||
       typeof value.approvalId !== "string" ||
       typeof value.bindingHash !== "string" ||
       typeof value.issuedAt !== "string" ||

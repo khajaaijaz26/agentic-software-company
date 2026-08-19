@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.software-agent.dev/vnext/token-usage.schema.json",
+  "title": "Software Agent normalized provider token usage",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["inputTokens", "outputTokens", "cachedInputTokens", "reasoningTokens", "totalTokens", "billedTokens", "status"],
+  "properties": {
+    "inputTokens": { "$ref": "#/$defs/tokenCount" },
+    "outputTokens": { "$ref": "#/$defs/tokenCount" },
+    "cachedInputTokens": { "$ref": "#/$defs/tokenCount" },
+    "reasoningTokens": { "$ref": "#/$defs/tokenCount" },
+    "totalTokens": { "$ref": "#/$defs/tokenCount" },
+    "billedTokens": { "$ref": "#/$defs/tokenCount" },
+    "status": { "enum": ["KNOWN", "UNKNOWN"] }
+  },
+  "$defs": {
+    "tokenCount": {
+      "oneOf": [
+        { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        { "const": "UNKNOWN" }
+      ]
+    }
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.software-agent.dev/vnext/runtime-command-result.schema.json",
+  "title": "Software Agent runtime-v2 command result",
+  "oneOf": [
+    { "$ref": "command-receipt.schema.json" },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["question", "runRevision"],
+      "properties": {
+        "question": { "$ref": "run.schema.json#/$defs/question" },
+        "runRevision": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["message", "runRevision"],
+      "properties": {
+        "message": { "$ref": "run.schema.json#/$defs/mailboxMessage" },
+        "runRevision": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 }
+      }
+    }
+  ]
+}

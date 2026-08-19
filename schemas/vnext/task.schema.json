@@ -1,37 +1,34 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.agent-company.dev/vnext/task.schema.json",
-  "title": "Agent Company task view v1",
+  "$id": "https://schemas.software-agent.dev/vnext/task.schema.json",
+  "title": "Software Agent runtime task view v2",
   "type": "object",
   "additionalProperties": false,
-  "required": ["id", "title", "role", "dependsOn", "state", "summary"],
+  "required": [
+    "id",
+    "title",
+    "role",
+    "dependsOn",
+    "mutatesWorkspace",
+    "state",
+    "revision",
+    "sessionId",
+    "summary"
+  ],
   "properties": {
-    "id": { "type": "string", "minLength": 1 },
-    "title": { "type": "string", "minLength": 1 },
-    "role": { "type": "string", "minLength": 1 },
+    "id": { "type": "string", "minLength": 1, "maxLength": 512 },
+    "title": { "type": "string", "minLength": 1, "maxLength": 4096 },
+    "role": { "enum": ["master-orchestrator", "software-engineer", "reviewer-qa"] },
     "dependsOn": {
       "type": "array",
-      "items": { "type": "string", "minLength": 1 },
+      "items": { "type": "string", "minLength": 1, "maxLength": 512 },
       "uniqueItems": true
     },
-    "state": {
-      "enum": [
-        "PROPOSED",
-        "BLOCKED",
-        "READY",
-        "CLAIMED",
-        "RUNNING",
-        "WAITING_TOOL",
-        "WAITING_INPUT",
-        "WAITING_APPROVAL",
-        "REVIEW",
-        "REWORK",
-        "PASSED",
-        "FAILED",
-        "SKIPPED",
-        "CANCELED"
-      ]
-    },
+    "mutatesWorkspace": { "type": "boolean" },
+    "state": { "enum": ["BLOCKED", "READY", "RUNNING", "PASSED", "FAILED", "CANCELED"] },
+    "revision": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+    "sessionId": { "type": "string", "minLength": 1, "maxLength": 512 },
+    "activeTurnId": { "type": "string", "minLength": 1, "maxLength": 512 },
     "summary": { "type": "string" }
   }
 }

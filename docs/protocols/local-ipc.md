@@ -2,60 +2,69 @@
 
 ## Implementation status
 
-Authenticated local IPC is active in v0.2. Every controller-backed CLI command
-first attempts to connect to the selected workspace's controller. If no usable
-service is present, the CLI starts a one-shot `ControllerIpcServer` inside the
-CLI process, connects through IPC, executes the command, then closes the client and
-that one-shot service. A separately launched controller entry can remain alive
-and serve later CLI processes until it receives `SIGINT` or `SIGTERM`.
+Authenticated local IPC is active. The current controller advertises descriptor
+`software-agent.controller/v2` and protocol range 1 through 2. The v0.3
+runtime-v2 method set is implemented alongside camelCase compatibility methods.
+Primary run lifecycle and project-room flows use the dotted surface; several
+inspection and approval commands still use compatibility calls.
 
-The controller service is the only application component that opens the
-project's SQLite event/approval/budget database for controller commands.
-Attachments, artifacts, and read-only connector probes still have separate CLI
-paths and are not controller RPC methods.
+For controller-backed CLI operations, the client first tries the selected
+workspace's controller. If none is usable, the normal CLI path ensures a
+detached controller is running and reconnects. Tests or deployments using
+`SOFTWARE_AGENT_CONTROLLER_MODE=embedded` start a command-lifetime service.
+Both modes cross the same authenticated socket or pipe.
 
-## Transport and discovery
+The protocol provides local authenticated transport and concurrency controls.
+It does not itself grant a connector mutation, approve an action, or make an
+untrusted worker safe.
 
-- Unix/macOS: Unix domain socket below the workspace-bound runtime directory.
-- Windows: named pipe derived from the user binding, workspace hash, and
-  controller instance.
-- TCP is not implemented as a fallback.
+## Transport, discovery, and ownership
 
-`controllerRuntimePaths()` hashes the resolved workspace path to 24 lowercase
-hex characters and stores `controller.json` below
-`<runtime>/controllers/<workspaceHash>/`. The server writes the descriptor
-atomically and refreshes `heartbeatAt` (five seconds by default; the CLI's
-one-shot server requests one second).
+- Linux and macOS use a Unix domain socket below a workspace-bound runtime directory.
+- Windows uses a named pipe derived from user binding, workspace hash, and instance ID.
+- TCP is never a fallback.
 
-The descriptor conforms to
+`controllerRuntimePaths()` hashes the canonical workspace path to 24 lowercase
+hexadecimal characters and stores `controller.json` and `controller.lock`
+below `<runtime>/controllers/<workspaceHash>/`.
+
+The current descriptor conforms to
 [`controller-descriptor.schema.json`](../../schemas/vnext/controller-descriptor.schema.json)
 and contains:
 
-- `schema: "agent-company.controller/v1"`;
-- PID, `startedAt`, and `heartbeatAt`;
-- exact local endpoint and `unix`/`named-pipe` transport;
-- `ctl_...` instance ID and protocol `{min,max}`;
-- build version, user binding, workspace hash, and a safe `nonceRef` basename.
+- `schema: software-agent.controller/v2`;
+- process ID, start time, and refreshed heartbeat time;
+- the exact derived endpoint and `unix` or `named-pipe` transport;
+- a `ctl_` plus 32-hex instance ID;
+- protocol `{min: 1, max: 2}`;
+- build version, 48-hex local-user binding, and 24-hex workspace hash; and
+- the safe basename of a separate nonce file.
 
-It never contains the nonce value. The 32-byte random nonce is stored as 64
-lowercase hexadecimal characters in a separate
-`nonce-<instanceId>.key` file. On POSIX, the runtime directory is forced to
-`0700`, descriptor/nonce/socket files are `0600`, ownership is checked, and
-group/other access is rejected. On Windows, v0.2 uses the account's normal
-filesystem/pipe ACL behavior but does not independently verify an owner-only
-ACL; this is a documented residual risk.
+The server writes a 32-byte random nonce as 64 lowercase hexadecimal characters
+to `nonce-<instanceId>.key`; the descriptor never contains that value. The
+descriptor heartbeat defaults to five seconds and clients reject a descriptor
+more than 30 seconds stale by default.
 
-Clients reject a descriptor whose workspace hash, user binding, derived
-endpoint, heartbeat age, or protocol range does not match local expectations.
-Startup is serialized by an atomically created, user/workspace/instance-bound
-`controller.lock` held for the server lifetime. A server recovers a lock and
-descriptor whose process is dead, refuses to replace a live controller, and
-removes its own lock, descriptor, nonce, and Unix socket on clean shutdown.
+On POSIX, the runtime directory is forced to `0700`, descriptor, lock, nonce,
+and socket files are owner-checked, and group/other access is rejected. Windows
+uses normal account filesystem and named-pipe ACL behavior; there is no
+independent owner-only ACL or peer-credential verification.
+
+An atomically created `software-agent.controller-lock/v2` lock serializes
+startup. A server can recover a lock whose process no longer exists, refuses to
+replace a live controller, and removes only files bound to its own instance on
+clean shutdown.
+
+The reader also recognizes `agent-company.controller/v1` and
+`agent-company.controller-lock/v1` to connect to an already running legacy
+service. Those have legacy endpoint derivation and are documented by the
+explicit [legacy descriptor schema](../../schemas/vnext/legacy-controller-descriptor.schema.json).
+Software Agent does not emit them.
 
 ## Framing
 
-Each wire message is JSON encoded as UTF-8 and preceded by a four-byte unsigned
-big-endian payload length:
+Every message is UTF-8 JSON preceded by a four-byte unsigned big-endian payload
+length:
 
 ```text
 0                   31 32
@@ -64,105 +73,84 @@ big-endian payload length:
 +---------------------+--------------------+
 ```
 
-The default maximum JSON payload is 1 MiB. Zero-length and oversized frames
-are rejected. The decoder supports fragmented frames and multiple coalesced
-frames. It uses fatal UTF-8 decoding before JavaScript `JSON.parse`, so malformed
-byte sequences are rejected. v0.2 does not separately reject duplicate object
-keys, so peers must emit canonical JSON with unique keys.
+The default maximum JSON payload is 1 MiB. Zero-length and oversized frames are
+rejected. The incremental decoder accepts fragmented and coalesced frames and
+uses fatal UTF-8 decoding before JSON parsing. Duplicate JSON object keys are
+not independently rejected; peers must send unique keys.
 
 ## Authenticated handshake
 
-The first frame is a client hello. Request IDs match `rpc_` plus 32 lowercase
-hex characters. Protocol v1 currently negotiates the highest overlap of client
-and server ranges (both are `1` in this release).
+The first frame is a hello conforming to
+[`ipc-handshake.schema.json`](../../schemas/vnext/ipc-handshake.schema.json):
 
 ```json
 {
   "kind": "hello",
   "requestId": "rpc_0123456789abcdef0123456789abcdef",
   "protocolMin": 1,
-  "protocolMax": 1,
+  "protocolMax": 2,
   "instanceId": "ctl_0123456789abcdef0123456789abcdef",
   "userBinding": "0123456789abcdef0123456789abcdef0123456789abcdef",
   "nonceProof": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 }
 ```
 
-`nonceProof` is HMAC-SHA-256 using the nonce bytes as the key and the exact JSON
-serialization of `requestId`, protocol range, instance ID, and user binding as
-the message. Verification uses a timing-safe digest comparison. The raw nonce
-never crosses the socket.
+`nonceProof` is HMAC-SHA-256 using the nonce bytes as the key. The message is the
+exact JSON serialization of `requestId`, `protocolMin`, `protocolMax`,
+`instanceId`, and `userBinding` in that order. Verification uses a timing-safe
+digest comparison. A hello also has to match the discovered instance and local
+user binding. Handshake request IDs are replay-protected within the running
+server's bounded 4,096-ID set.
 
-On success the server replies:
+The server negotiates the highest common version. A current client normally
+receives:
 
 ```json
 {
   "kind": "welcome",
   "requestId": "rpc_0123456789abcdef0123456789abcdef",
-  "protocolVersion": 1,
+  "protocolVersion": 2,
   "instanceId": "ctl_0123456789abcdef0123456789abcdef",
-  "buildVersion": "0.2.0",
-  "serverTime": "2026-08-18T12:00:00.000Z"
+  "buildVersion": "0.3.0",
+  "serverTime": "2026-08-19T12:00:00.000Z"
 }
 ```
 
-A rejected handshake returns `kind: "handshake_error"`, the request ID, and an
-error object, then closes the socket. The server's handshake timer defaults to
-five seconds.
+A rejected hello receives `kind: handshake_error`, a correlated error, and then
+connection closure. The default server and client handshake timeouts are five
+seconds.
 
-Authentication proves possession of the workspace/user-bound nonce material;
-it is not a human approval and does not bypass domain policy. v0.2 does not use
-an OS peer-credential API to identify the connecting process.
+## Request and response envelopes
 
-## RPC requests
-
-After welcome, requests conform to
+After welcome, a request conforms to
 [`ipc-request.schema.json`](../../schemas/vnext/ipc-request.schema.json):
 
 ```json
 {
   "kind": "request",
   "requestId": "rpc_11111111111111111111111111111111",
-  "protocolVersion": 1,
-  "method": "createRun",
-  "params": {"objective": "Build a bounded local change"}
+  "protocolVersion": 2,
+  "method": "snapshot.get",
+  "params": {"recentEventLimit": 50}
 }
 ```
 
-The exact method/parameter set is:
-
-| Method | Parameters | Result |
-| --- | --- | --- |
-| `snapshot` | `{}` | controller snapshot |
-| `createRun` | `{objective}` | run view |
-| `listApprovals` | optional `{runId}` | approval records |
-| `approve` | `{approvalId}`, optional `reason` | approval record |
-| `deny` | `{approvalId}`, optional `reason` | approval record |
-| `resume` | `{runId}` | run view |
-| `pause` | `{runId}` | run view |
-| `cancel` | `{runId}` | run view |
-
-Unknown methods and unknown/missing parameters fail closed. IPC requests do
-not currently carry caller-supplied command IDs or expected revisions. Backend
-commands still use event-store idempotency receipts internally, but the RPC
-surface does not expose those keys.
-
-## RPC responses
+The request version must equal the value negotiated for that connection. A
+request ID can be used once per connection, and one connection accepts at most
+4,096 request IDs. Unknown methods, missing or extra parameters, blank required
+strings, oversized values, and out-of-range integers fail closed.
 
 Responses conform to
-[`ipc-response.schema.json`](../../schemas/vnext/ipc-response.schema.json).
-A successful response is:
+[`ipc-response.schema.json`](../../schemas/vnext/ipc-response.schema.json):
 
 ```json
 {
   "kind": "response",
   "requestId": "rpc_11111111111111111111111111111111",
   "ok": true,
-  "result": {"example": "method-specific value"}
+  "result": {"schema": "software-agent.snapshot/v2"}
 }
 ```
-
-A failed response is:
 
 ```json
 {
@@ -170,24 +158,142 @@ A failed response is:
   "requestId": "rpc_11111111111111111111111111111111",
   "ok": false,
   "error": {
-    "code": "INVALID_PARAMS",
-    "message": "unknown parameter: example",
+    "code": "RUN_REVISION_CONFLICT",
+    "message": "expected run revision 12, found 14",
     "retryable": false
   }
 }
 ```
 
-Responses echo the request ID but do not repeat the negotiated protocol
-version. They contain exactly one of `result` or `error`; errors have exactly
-`code`, `message`, and `retryable`.
+A response has exactly one of `result` and `error`. It echoes the request ID but
+does not repeat method or protocol version, so the client supplies the
+method-specific result type from its pending request. The default client request
+timeout is 30 seconds, supports `AbortSignal`, and does not close the whole
+connection merely because one request times out.
 
-The client correlates concurrent requests, has per-request timeouts, supports
-`AbortSignal`, and ignores responses for unknown/already-timed-out IDs. A slow
-request can time out without closing the entire client connection.
+## Runtime-v2 methods
 
-## Standalone controller
+The dotted method namespace is the current runtime contract:
 
-After `npm run build`, start the bundled entry directly:
+| Method | Parameters beyond the envelope | Result |
+| --- | --- | --- |
+| `snapshot.get` | optional `recentEventLimit` from 0 to 250 | [`software-agent.snapshot/v2`](../../schemas/vnext/snapshot.schema.json) |
+| `events.poll` | `afterCursor`; optional `limit` 1-250 and `waitMs` 0-30000 | [`software-agent.events/v2`](../../schemas/vnext/events-page.schema.json) |
+| `events.history` | `afterCursor`; optional `runId` and `limit` 1-250 | event page |
+| `mutation.acquire` | `commandId`, `attachmentId`, `correlationId` | [mutation lease](../../schemas/vnext/mutation-lease.schema.json) |
+| `mutation.renew` | acquire fields plus `leaseId` and positive `fence` | mutation lease |
+| `mutation.release` | acquire fields plus `leaseId` and positive `fence` | mutation lease |
+| `run.create` | command context plus `objective` and `maxParallel` 1-3 | [runtime-v2 run](../../schemas/vnext/run.schema.json) |
+| `run.resume` | command context plus `runId` | [command receipt](../../schemas/vnext/command-receipt.schema.json) |
+| `run.pause` | command context plus `runId` | command receipt |
+| `run.cancel` | command context plus `runId` | command receipt |
+| `question.ask` | command context plus `runId`, `sessionId`, and `prompt` | question plus resulting run revision |
+| `question.answer` | command context plus `runId`, `questionId`, and `answer` | question plus resulting run revision |
+| `instruction.submit` | command context plus `runId`, target `{kind,id}`, and `text` | mailbox message plus resulting run revision |
+| `daemon.stop` | `{}` | `software-agent.daemon-stop/v1` acceptance |
+
+Mutation-lease methods do not carry an actor. The IPC service binds them to
+`{type: human, id: local-user}`. Every run, question, and instruction method
+instead carries the complete command context:
+
+```json
+{
+  "schema": "software-agent.command/v2",
+  "commandId": "cmd_123",
+  "actor": {"type": "human", "id": "local-user"},
+  "expectedRunRevision": 12,
+  "correlationId": "corr_123",
+  "causationId": "cause_123",
+  "uiAttachmentId": "ui_123",
+  "mutationLease": {"leaseId": "mut_123", "fence": 4}
+}
+```
+
+`run.create` requires `expectedRunRevision: 0`. Every other run-bound command
+compares the supplied revision with the current stream version. Command IDs are
+durably idempotent: replaying the same ID and operation returns its receipt;
+reusing it for another operation is an idempotency conflict. The mutation lease
+must be active and match UI attachment, lease ID, and fence.
+
+The backend interface makes runtime-v2 capabilities optional so an older
+controller implementation can return `CAPABILITY_UNAVAILABLE`. The repository's
+`LocalController` implements all methods in the table.
+
+## Event cursors and resynchronization
+
+The snapshot cursor is the latest global SQLite event sequence. Recent events
+and unfiltered history can contain explicit compatibility events already in the
+shared log in addition to current `software-agent.event/v2` events.
+
+`events.poll` waits for events after a cursor. The server reads at most 513
+events to detect overflow and counts the serialized backlog before applying the
+requested page limit. More than 512 events or more than 512 KiB returns:
+
+```json
+{
+  "schema": "software-agent.events/v2",
+  "events": [],
+  "cursor": 100,
+  "hasMore": true,
+  "resyncRequired": true
+}
+```
+
+The client must then load a fresh snapshot rather than guessing over a gap.
+There is no server-push subscription.
+
+`events.history` scans the global sequence first and filters by `runId` second.
+Consequently a filtered page may contain fewer events than its requested limit,
+and its cursor can advance across unrelated streams. This behavior is part of
+the current implementation.
+
+## Compatibility methods
+
+These methods remain active for older clients and the residual CLI inspection
+and approval projection:
+
+| Method | Parameters | Result |
+| --- | --- | --- |
+| `snapshot` | `{}` | compatibility controller snapshot |
+| `createRun` | `objective` | compatibility run view |
+| `listApprovals` | optional `runId` | approval records |
+| `approve` | `approvalId`; optional `reason` | approval record |
+| `deny` | `approvalId`; optional `reason` | approval record |
+| `resume` | `runId` | compatibility run view |
+| `pause` | `runId` | compatibility run view |
+| `cancel` | `runId` | compatibility run view |
+
+These are not runtime-v2 aliases. They use broader legacy run/task state
+machines, approval-gated plan execution, and the legacy worker/result path.
+They should be treated as a temporary cutover surface.
+
+The server currently registers both compatibility and dotted methods after a
+protocol 1 or protocol 2 handshake. It does not enforce a method/version matrix.
+Clients should negotiate 2 before relying on dotted methods, but this is a
+convention until server-side gating or explicit capability negotiation is
+chosen.
+
+## TUI adapter boundary
+
+The live project room consumes a `ProjectRoomSource`, not raw IPC. Its UI
+commands use a committed-event `expectedCursor`, while runtime-v2 mutation
+commands require a run revision, UI attachment, and live mutation lease. The
+installed `IpcProjectRoomSource` acquires and renews that lease, becomes
+read-only when another room owns it, rejects a stale cursor, loads the current
+run revision, maps the intent to one or more RPC calls, and releases control on
+leave. It uses snapshot reload plus bounded poll/history catch-up to resync.
+
+`objective.create` maps to `run.create` followed by `run.resume`.
+`instruction.submit` maps to the dotted method. Pause/cancel leave choices map
+to the corresponding run methods; continue only releases the UI lease. There
+is still no dotted runtime-v2 approval method, so `approval.decide` bridges to
+compatibility `approve` or `deny` when a matching approval exists. The
+project-room command remains an adapter-level intent and is never itself sent
+as an IPC envelope.
+
+## Service lifecycle
+
+After `npm run build`, the standalone entry is:
 
 ```bash
 node dist/controller.js --workspace /absolute/project/path
@@ -199,19 +305,16 @@ For source development:
 npx tsx apps/controller-daemon/src/index.ts --workspace /absolute/project/path
 ```
 
-Optional flags are `--runtime`, `--build-version`, and `--heartbeat-ms` (at
-least 100 ms). Startup prints a small JSON descriptor summary, not the nonce.
-The npm package does not currently install a separate `agent-company-controller`
-binary alias.
+Optional flags are `--runtime`, `--build-version`, and `--heartbeat-ms` of at
+least 100 ms. Startup prints descriptor identity but never the nonce. The daemon
+module also implements status inspection, detached spawn/ensure, and a
+`daemon.stop` request; these are module APIs, not a separately installed
+controller binary.
 
-## Incomplete lifecycle features
+## Known protocol decisions still open
 
-- No event subscription or server-push stream; the CLI requests snapshots.
-- No caller-supplied RPC idempotency key or optimistic revision field.
-- No automatic background daemon spawn/detach or service manager integration.
-- No full recovery protocol for a controller or worker that dies mid-attempt.
-- No Windows ACL verification or OS peer-credential check.
-
-These limitations do not turn an IPC connection into authority. Approvals,
-budgets, state transitions, and connector hard denials still apply in the
-controller/tool layers.
+- Gate dotted methods to protocol 2, or formally define the current mixed namespace as valid under both versions.
+- Filter runtime-v2 event pages to current events, or continue returning the explicit legacy-event union from the shared store.
+- Define a native runtime-v2 approval command and remove the compatibility approval bridge.
+- Decide when residual inspection commands and external clients can stop using compatibility methods and the legacy worker path.
+- Add Windows ACL or peer-credential verification if local-account nonce possession is insufficient for the threat model.

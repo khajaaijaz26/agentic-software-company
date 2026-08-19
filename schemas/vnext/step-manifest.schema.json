@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.software-agent.dev/vnext/step-manifest.schema.json",
+  "title": "Software Agent bound step manifest v1",
+  "description": "Controller-to-worker manifest for a runtime-v2 attempt. It deliberately contains no provider or tool credentials.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "runId", "taskId", "taskRevision", "sessionId", "turnId", "turnRevision", "attemptId", "leaseId", "fencingEpoch", "leaseExpiresAt", "role", "taskTitle", "objective", "workspaceRevision", "simulatedWorkMs", "heartbeatIntervalMs", "limits"],
+  "properties": {
+    "schema": { "const": "software-agent.step/v1" },
+    "runId": { "$ref": "#/$defs/id" },
+    "taskId": { "$ref": "#/$defs/id" },
+    "taskRevision": { "$ref": "#/$defs/revision" },
+    "sessionId": { "$ref": "#/$defs/id" },
+    "turnId": { "$ref": "#/$defs/id" },
+    "turnRevision": { "$ref": "#/$defs/revision" },
+    "attemptId": { "$ref": "#/$defs/id" },
+    "leaseId": { "$ref": "#/$defs/id" },
+    "fencingEpoch": { "$ref": "#/$defs/revision" },
+    "leaseExpiresAt": { "type": "string", "format": "date-time" },
+    "role": { "enum": ["master-orchestrator", "software-engineer", "reviewer-qa"] },
+    "taskTitle": { "type": "string", "minLength": 1, "maxLength": 4096 },
+    "objective": { "type": "string", "minLength": 1, "maxLength": 256000 },
+    "workspaceRevision": { "type": "string", "minLength": 1, "maxLength": 512 },
+    "simulatedWorkMs": { "type": "integer", "minimum": 10, "maximum": 30000 },
+    "heartbeatIntervalMs": { "type": "integer", "minimum": 10, "maximum": 10000 },
+    "limits": { "$ref": "#/$defs/limits" }
+  },
+  "$defs": {
+    "id": { "type": "string", "minLength": 1 },
+    "revision": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["wallTimeMs", "maxOutputBytes"],
+      "properties": {
+        "wallTimeMs": { "type": "integer", "minimum": 1, "maximum": 3600000 },
+        "maxOutputBytes": { "type": "integer", "minimum": 1, "maximum": 16777216 }
+      }
+    }
+  }
+}

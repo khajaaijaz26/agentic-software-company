@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.software-agent.dev/vnext/project-room-update.schema.json",
+  "title": "Software Agent committed project-room update",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["cursor", "events", "snapshot"],
+  "properties": {
+    "cursor": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+    "events": { "type": "array", "items": { "$ref": "project-room.schema.json#/$defs/event" } },
+    "snapshot": { "$ref": "project-room.schema.json" }
+  }
+}

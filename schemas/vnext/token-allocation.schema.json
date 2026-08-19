@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.software-agent.dev/vnext/token-allocation.schema.json",
+  "title": "Software Agent per-agent token allocation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["scope", "agentId", "allocatedTokens", "spentTokens", "reservedTokens", "remainingTokens"],
+  "properties": {
+    "scope": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "agentId": { "type": "string", "pattern": "^(?:[a-z0-9][a-z0-9._:-]{0,127}|__extension_pool__)$" },
+    "allocatedTokens": { "$ref": "token-budget.schema.json#/$defs/tokens" },
+    "spentTokens": { "$ref": "token-budget.schema.json#/$defs/tokens" },
+    "reservedTokens": { "$ref": "token-budget.schema.json#/$defs/tokens" },
+    "remainingTokens": { "$ref": "token-budget.schema.json#/$defs/tokens" }
+  }
+}

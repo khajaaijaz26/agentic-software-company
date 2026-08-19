@@ -1,18 +1,8 @@
 {
   "mcp": {
-    "agentic-software-company": {
+    "software-agent": {
       "type": "local",
-      "command": [
-        "uv",
-        "run",
-        "--with",
-        "mcp[cli]",
-        "--with",
-        "agentic-company[mcp]",
-        "mcp",
-        "run",
-        "src/agentic_company/mcp_server.py"
-      ],
+      "command": ["software-agent-mcp"],
       "enabled": true,
       "environment": {}
     }

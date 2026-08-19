@@ -2,76 +2,97 @@
 
 ## Runtime matrix
 
-| Concern | TypeScript terminal preview | Python/MCP compatibility |
+| Concern | Current TypeScript application | Python/MCP compatibility |
 | --- | --- | --- |
-| Distribution | `@agent-company/cli` 0.2.x | `agentic-company` 1.x |
-| Runtime | Node.js 22.13+ | Python 3.10+ |
-| Local state directory | `.agent-company/` | `.agentic_company/` |
-| State format | SQLite + WAL, content-addressed files | JSON state + JSONL events + files |
-| Primary CLI | `agent-company` from npm build | `python -m agentic_company` / Python console script |
-| Agent execution | deterministic v0.2 vertical slice | host/deferred dispatcher compatibility flow |
-| Integration | provider CLI probes and normalized plans | MCP tools/resources/prompts |
-| Schema directory | `schemas/vnext/` | root `schemas/` and Python dataclasses |
+| Distribution | npm package `software-agent` 0.3.x | Python package `software-agent-compat` 1.0.0 |
+| Runtime | Node.js 22.14 or newer | Python 3.10 or newer |
+| Primary command | `software-agent` | `software-agent-reference`, `software-agent-mcp` |
+| Deprecated aliases | npm `agent-company` shim | `agentic-company`, `agentic-company-mcp`, and `agentic_company` import |
+| Project state | `.software-agent/state.sqlite` plus artifacts | `.agentic_company` JSON/JSONL compatibility state |
+| Current schemas | `software-agent.*` and `schemas/vnext/` | root schemas and Python dataclasses |
 | Shared durable runs | No | No |
 
-The two packages currently install an executable with the same human-facing
-name. In a development environment containing both, invoke the Python runtime
-as `python -m agentic_company` and the TypeScript runtime through `npm run dev`
-or a deliberately selected npm link to avoid PATH ambiguity.
+The TypeScript controller is the sole Software Agent controller. Python remains
+a reference and MCP compatibility boundary; it does not share a run stream,
+approval, mutation lease, or IPC protocol with TypeScript.
 
-## What is preserved
+## Explicit legacy readers
 
-- The 25 specialist role prompts, orchestrator, constitution, and policy files.
-- Python project/task/result/approval contracts and root schemas.
-- Python CLI workflows, append-only JSONL events, and artifact behavior.
-- MCP tools, resources, prompts, and stdio/SSE/streamable-HTTP entry points.
-- Existing project ownership, Apache-2.0 license, and attribution.
+Current code recognizes only bounded legacy inputs needed for cutover:
 
-Preservation does not mean vNext uses those files as its internal source of
-truth. vNext has uppercase run/task/approval states, canonical operation hashes,
-SQLite command receipts, A0-A5 classes, and separate schemas.
+- `.agent-company/project.toml`, policy, and gitignore configuration;
+- `agent-company.controller/v1` descriptor and `agent-company.controller-lock/v1` lock discovery;
+- pre-runtime-v2 stored events without `software-agent.*` event types;
+- selected `agent-company.*` artifact, attachment, and connector records, which normalize to current output; and
+- deprecated npm, Python entrypoint, and Python import aliases.
 
-## No automatic state migration in v0.2
+New current records use `software-agent.*`. The explicit
+[`legacy-controller-descriptor`](../schemas/vnext/legacy-controller-descriptor.schema.json)
+and [`legacy-event`](../schemas/vnext/legacy-event.schema.json) schemas are
+reader contracts, not current producer schemas.
 
-Do not rename `.agentic_company` to `.agent-company`, import JSONL directly into
-SQLite, or copy an approval token between runtimes. Identifiers can collide in
-meaning even when their strings differ, and approval bindings are not
-interchangeable.
+## Project configuration migration
 
-For an existing Python project:
+When `.software-agent/project.toml` is absent and a valid
+`.agent-company/project.toml` exists, initialization or configuration loading
+can perform a bounded migration:
 
-1. Stop Python CLI/MCP processes.
-2. Back up `.agentic_company/`, prompts/policies used, package version, and
-   source commit.
-3. Initialize a new vNext mapping with `agent-company init`.
-4. Re-enter the current objective and constraints as a new vNext run.
-5. Review and approve the newly generated vNext plan. Old approvals do not
-   transfer.
-6. Keep the Python backup read-only for audit continuity.
-7. Record a human-authored migration note linking old project/correlation IDs
-   to the new mapping/run IDs.
+1. Copy the old project, policy, and gitignore files into
+   `.software-agent/migration-backup/agent-company-v1/`.
+2. Write `.software-agent/project.toml` as `software-agent.project/v2` and
+   increment `mapping_revision`.
+3. Normalize the policy marker to `software-agent.policy/v2`.
+4. Preserve or create the current gitignore.
 
-This is a parallel cutover, not a lossless migration. Historical Python events
-remain authoritative for work performed by Python; new SQLite events are
-authoritative only for vNext work.
+This does not import `.agent-company/state.sqlite`, approvals, budget rows,
+events, worker attempts, or artifact provenance. The new
+`.software-agent/state.sqlite` is authoritative only for new work.
 
-## Contract compatibility policy
+Before migration, stop both controllers and back up the complete legacy
+directory. Do not copy approval tokens or mark new approvals as already
+approved or consumed.
 
-- Within schema v1, producers may add new output/event `type` values.
-- Schemas with `additionalProperties: false` require a new schema version to
-  add top-level fields unless the field was explicitly reserved.
-- Enum removals/renames, digest representation changes, altered canonicalization,
-  and exit-code reuse are breaking changes.
-- Root schemas may not be silently redirected to vNext `$id` values.
-- A future importer must validate source version, preserve raw bytes, produce a
-  deterministic report, and never create `APPROVED`/`CONSUMED` vNext approvals
-  from legacy records.
+## Residual compatibility controller path
 
-## Backup compatibility
+Primary `start`, `run`, `resume`, `pause`, and `cancel` flows now use dotted
+runtime-v2 RPC through the live IPC-backed project room. Several inspection and
+approval subcommands still consume the camelCase `ControllerSnapshot` and
+approval methods. The compatibility run/worker path also remains callable by
+older clients, so it is not merely a reader yet.
 
-SQLite backups must include a consistent database snapshot and the artifact
-tree. A database without artifacts can replay metadata but cannot prove artifact
-bytes. Artifacts without the database lose logical provenance. Python backups
-must keep `state.json`, `events.jsonl`, and its artifact content together.
+The project-room approval intent currently bridges to compatibility
+`approve`/`deny` because runtime v2 has no dotted approval command. Removing the
+compatibility producer path requires migrating that bridge, the remaining
+inspection commands, and any external protocol-1 clients; renaming schemas
+alone would break them.
 
-See [Backup and recovery](runbooks/backup-and-recovery.md).
+## Mixed event-store behavior
+
+Compatibility and runtime-v2 events can share the current SQLite event table.
+Runtime-v2 projection ignores event types that do not start with
+`software-agent.`, but unfiltered recent-event and history pages return stored
+envelopes from both generations. The vNext snapshot and event-page schemas make
+that union explicit rather than silently weakening the current event schema.
+
+Approvals and command receipts remain bound to their originating operation and
+stream. A compatibility approval must never be inferred to authorize a
+runtime-v2 mutation.
+
+## Contract policy
+
+- Current producers emit `software-agent.*` unless they are part of the still-active compatibility controller/worker path described above.
+- Legacy acceptance is isolated in named readers or migration functions and normalizes forward where implemented.
+- Schemas with `additionalProperties: false` require a version change before adding unreserved fields.
+- Enum removal, canonical-hash changes, mutation-fence changes, and exit-code reuse are breaking changes.
+- Root Python schemas must not be silently redirected to vNext `$id` values.
+- A future state importer must preserve raw input, validate its source version, generate a deterministic report, and never manufacture current approval authority.
+
+## Backup boundary
+
+A TypeScript backup needs a consistent `.software-agent/state.sqlite` snapshot
+and its artifact tree. A Python backup needs its state JSON, JSONL events, and
+artifact content together. Keep the configuration migration backup as audit
+evidence until the cutover is accepted.
+
+See [Backup and recovery](runbooks/backup-and-recovery.md) and
+[Local IPC](protocols/local-ipc.md).

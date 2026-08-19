@@ -13,10 +13,13 @@ def resource_root() -> Path:
     """Return a root containing every runtime resource directory.
 
     Editable/source checkouts keep resources at the repository root. Wheels
-    install the same files under ``sys.prefix/share/agentic_company``.
-    ``AGENTIC_COMPANY_RESOURCE_ROOT`` is an explicit deployment override.
+    install the same files under ``sys.prefix/share/software_agent``.
+    ``SOFTWARE_AGENT_RESOURCE_ROOT`` is the primary deployment override; the
+    previous variable and share path remain migration-only fallbacks.
     """
-    override = os.environ.get("AGENTIC_COMPANY_RESOURCE_ROOT")
+    override = os.environ.get("SOFTWARE_AGENT_RESOURCE_ROOT") or os.environ.get(
+        "AGENTIC_COMPANY_RESOURCE_ROOT"
+    )
     candidates = []
     if override:
         candidates.append(Path(override).expanduser())
@@ -24,6 +27,7 @@ def resource_root() -> Path:
         (
             Path(__file__).resolve().parent / "data",
             Path(__file__).resolve().parents[2],
+            Path(sys.prefix) / "share" / "software_agent",
             Path(sys.prefix) / "share" / "agentic_company",
         )
     )
@@ -32,7 +36,7 @@ def resource_root() -> Path:
         if all((resolved / name).is_dir() for name in RESOURCE_DIRECTORIES):
             return resolved
     searched = ", ".join(str(candidate) for candidate in candidates)
-    raise FileNotFoundError(f"agentic-company runtime resources not found; searched: {searched}")
+    raise FileNotFoundError(f"Software Agent runtime resources not found; searched: {searched}")
 
 
 RESOURCE_ROOT = resource_root()

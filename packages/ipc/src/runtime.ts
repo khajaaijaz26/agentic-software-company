@@ -7,13 +7,15 @@ import {basename, dirname, isAbsolute, join, relative, resolve, sep} from "node:
 import {resolvePlatformPaths} from "../../config/src/index.js";
 import {IPC_PROTOCOL_MAX, IPC_PROTOCOL_MIN} from "./protocol.js";
 
-export const CONTROLLER_DESCRIPTOR_SCHEMA = "agent-company.controller/v1";
+export const CONTROLLER_DESCRIPTOR_SCHEMA = "software-agent.controller/v2";
+export const LEGACY_CONTROLLER_DESCRIPTOR_SCHEMA = "agent-company.controller/v1";
 export const CONTROLLER_DESCRIPTOR_FILE = "controller.json";
-export const CONTROLLER_LOCK_SCHEMA = "agent-company.controller-lock/v1";
+export const CONTROLLER_LOCK_SCHEMA = "software-agent.controller-lock/v2";
+export const LEGACY_CONTROLLER_LOCK_SCHEMA = "agent-company.controller-lock/v1";
 export const CONTROLLER_LOCK_FILE = "controller.lock";
 
 export interface ControllerDescriptor {
-  readonly schema: typeof CONTROLLER_DESCRIPTOR_SCHEMA;
+  readonly schema: typeof CONTROLLER_DESCRIPTOR_SCHEMA | typeof LEGACY_CONTROLLER_DESCRIPTOR_SCHEMA;
   readonly pid: number;
   readonly startedAt: string;
   readonly heartbeatAt: string;
@@ -38,7 +40,7 @@ export interface ControllerRuntimePaths {
 }
 
 export interface ControllerLock {
-  readonly schema: typeof CONTROLLER_LOCK_SCHEMA;
+  readonly schema: typeof CONTROLLER_LOCK_SCHEMA | typeof LEGACY_CONTROLLER_LOCK_SCHEMA;
   readonly pid: number;
   readonly createdAt: string;
   readonly instanceId: string;
@@ -90,11 +92,11 @@ export function createControllerEndpoint(
   if (!/^ctl_[a-f0-9]{32}$/u.test(instanceId)) throw new TypeError("invalid controller instance id");
   if (platform() === "win32") {
     return {
-      endpoint: `\\\\.\\pipe\\agent-company-${userBinding.slice(0, 16)}-${paths.workspaceHash}-${instanceId}`,
+      endpoint: `\\\\.\\pipe\\software-agent-${userBinding.slice(0, 16)}-${paths.workspaceHash}-${instanceId}`,
       transport: "named-pipe",
     };
   }
-  const endpoint = join(paths.directory, `controller-${instanceId.slice(-16)}.sock`);
+  const endpoint = join(paths.directory, `software-agent-${instanceId.slice(-16)}.sock`);
   if (Buffer.byteLength(endpoint, "utf8") > 100) {
     throw new RuntimeSecurityError("SOCKET_PATH_TOO_LONG", "controller Unix socket path exceeds the portable 100-byte limit");
   }
@@ -185,7 +187,9 @@ export async function readControllerDescriptor(path: string): Promise<Controller
 
 export function validateDescriptor(value: unknown): ControllerDescriptor {
   if (!isObject(value)) throw new RuntimeSecurityError("DESCRIPTOR_INVALID", "controller descriptor must be an object");
-  if (value.schema !== CONTROLLER_DESCRIPTOR_SCHEMA) throw new RuntimeSecurityError("DESCRIPTOR_INVALID", "unsupported controller descriptor schema");
+  if (value.schema !== CONTROLLER_DESCRIPTOR_SCHEMA && value.schema !== LEGACY_CONTROLLER_DESCRIPTOR_SCHEMA) {
+    throw new RuntimeSecurityError("DESCRIPTOR_INVALID", "unsupported controller descriptor schema");
+  }
   if (!Number.isSafeInteger(value.pid) || Number(value.pid) <= 0) throw new RuntimeSecurityError("DESCRIPTOR_INVALID", "invalid controller pid");
   if (!validIsoDate(value.startedAt) || !validIsoDate(value.heartbeatAt)) throw new RuntimeSecurityError("DESCRIPTOR_INVALID", "invalid controller timestamps");
   if (typeof value.endpoint !== "string" || value.endpoint.length === 0 || value.endpoint.length > 512) throw new RuntimeSecurityError("DESCRIPTOR_INVALID", "invalid controller endpoint");
@@ -213,7 +217,9 @@ export function validateDescriptorBinding(
   const heartbeatAge = Date.now() - Date.parse(descriptor.heartbeatAt);
   if (!Number.isFinite(heartbeatAge) || heartbeatAge > maximumHeartbeatAgeMs || heartbeatAge < -maximumHeartbeatAgeMs) throw new RuntimeSecurityError("DESCRIPTOR_STALE", "controller heartbeat is stale or implausibly in the future");
   if (descriptor.protocol.max < IPC_PROTOCOL_MIN || descriptor.protocol.min > IPC_PROTOCOL_MAX) throw new RuntimeSecurityError("PROTOCOL_MISMATCH", "controller and client protocol ranges do not overlap");
-  const expected = createControllerEndpoint(paths, descriptor.instanceId, descriptor.userBinding);
+  const expected = descriptor.schema === LEGACY_CONTROLLER_DESCRIPTOR_SCHEMA
+    ? createLegacyControllerEndpoint(paths, descriptor.instanceId, descriptor.userBinding)
+    : createControllerEndpoint(paths, descriptor.instanceId, descriptor.userBinding);
   if (descriptor.transport !== expected.transport || descriptor.endpoint !== expected.endpoint) {
     throw new RuntimeSecurityError("ENDPOINT_UNSAFE", "descriptor endpoint is not the expected local socket for this instance");
   }
@@ -321,7 +327,7 @@ export async function readControllerLock(path: string): Promise<ControllerLock> 
   } catch {
     throw new RuntimeSecurityError("CONTROLLER_LOCK_INVALID", "controller lock JSON is invalid");
   }
-  if (!isObject(parsed) || parsed.schema !== CONTROLLER_LOCK_SCHEMA) {
+  if (!isObject(parsed) || (parsed.schema !== CONTROLLER_LOCK_SCHEMA && parsed.schema !== LEGACY_CONTROLLER_LOCK_SCHEMA)) {
     throw new RuntimeSecurityError("CONTROLLER_LOCK_INVALID", "controller lock schema is invalid");
   }
   if (!Number.isSafeInteger(parsed.pid) || Number(parsed.pid) <= 0 || !validIsoDate(parsed.createdAt)) {
@@ -337,6 +343,20 @@ export async function readControllerLock(path: string): Promise<ControllerLock> 
     throw new RuntimeSecurityError("CONTROLLER_LOCK_INVALID", "controller lock workspace binding is invalid");
   }
   return parsed as unknown as ControllerLock;
+}
+
+function createLegacyControllerEndpoint(
+  paths: ControllerRuntimePaths,
+  instanceId: string,
+  userBinding: string,
+): {readonly endpoint: string; readonly transport: ControllerDescriptor["transport"]} {
+  if (platform() === "win32") {
+    return {
+      endpoint: `\\\\.\\pipe\\agent-company-${userBinding.slice(0, 16)}-${paths.workspaceHash}-${instanceId}`,
+      transport: "named-pipe",
+    };
+  }
+  return {endpoint: join(paths.directory, `controller-${instanceId.slice(-16)}.sock`), transport: "unix"};
 }
 
 function pathInside(parent: string, child: string): boolean {

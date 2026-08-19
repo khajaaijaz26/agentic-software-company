@@ -17,8 +17,8 @@ compatibility runtime requires Python 3.10+; its MCP extra is needed to execute
 the complete compatibility test suite.
 
 ```bash
-git clone https://github.com/khajaaijaz26/agentic-software-company
-cd agentic-software-company
+git clone https://github.com/khajaaijaz26/software-agent
+cd software-agent
 npm ci
 npm run check
 

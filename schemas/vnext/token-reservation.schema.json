@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.software-agent.dev/vnext/token-reservation.schema.json",
+  "title": "Software Agent token budget reservation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "scope", "agentId", "estimatedInputTokens", "maxOutputTokens", "toolResultReserveTokens", "amountTokens", "billedTokens", "state", "createdAt"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^tbres_[a-f0-9]{32}$" },
+    "scope": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "agentId": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._:-]{0,127}$" },
+    "estimatedInputTokens": { "$ref": "token-budget.schema.json#/$defs/tokens" },
+    "maxOutputTokens": { "$ref": "token-budget.schema.json#/$defs/tokens" },
+    "toolResultReserveTokens": { "$ref": "token-budget.schema.json#/$defs/tokens" },
+    "amountTokens": { "$ref": "token-budget.schema.json#/$defs/tokens" },
+    "billedTokens": {
+      "oneOf": [
+        { "$ref": "token-budget.schema.json#/$defs/tokens" },
+        { "const": "UNKNOWN" }
+      ]
+    },
+    "state": { "enum": ["ACTIVE", "UNKNOWN", "RECONCILED", "RELEASED"] },
+    "createdAt": { "type": "string", "format": "date-time" }
+  }
+}

@@ -12,7 +12,10 @@ export const AttachmentFindingSchema = z.object({
 });
 
 export const AttachmentReceiptSchema = z.object({
-  schema: z.literal("agent-company.attachment/v1"),
+  schema: z.union([
+    z.literal("software-agent.attachment/v1"),
+    z.literal("agent-company.attachment/v1"),
+  ]).transform(() => "software-agent.attachment/v1" as const),
   attachment_id: z.string(),
   source: z.object({kind: z.enum(["file", "folder", "stdin", "clipboard", "url"]), display_name: z.string()}),
   state: z.enum(["READY", "QUARANTINED", "BLOCKED", "FAILED"]),
@@ -90,7 +93,7 @@ export class AttachmentService {
         : "internal",
     });
     return AttachmentReceiptSchema.parse({
-      schema: "agent-company.attachment/v1",
+      schema: "software-agent.attachment/v1",
       attachment_id: `att_${artifact.sha256.slice(0, 20)}`,
       source: {kind, display_name: displayName},
       state,
@@ -151,11 +154,11 @@ export class AttachmentService {
     })).sort((left, right) => left.path.localeCompare(right.path))));
     const artifact = await this.#store.put(manifestBytes, {
       logicalName: `${basename(root)}.attachment-manifest.json`,
-      mediaType: "application/vnd.agent-company.folder-manifest+json",
+      mediaType: "application/vnd.software-agent.folder-manifest+json",
       producer: "attachment-folder-ingest",
     });
     return AttachmentReceiptSchema.parse({
-      schema: "agent-company.attachment/v1",
+      schema: "software-agent.attachment/v1",
       attachment_id: `att_${artifact.sha256.slice(0, 20)}`,
       source: {kind: "folder", display_name: basename(root)},
       state: deriveState(findings),
@@ -255,7 +258,7 @@ async function walk(root: string, limit: number): Promise<string[]> {
     const directory = pending.pop();
     if (directory === undefined) break;
     for (const entry of await readdir(directory, {withFileTypes: true})) {
-      if ([".git", ".agent-company", "node_modules", "__pycache__"].includes(entry.name)) continue;
+      if ([".git", ".software-agent", ".agent-company", "node_modules", "__pycache__"].includes(entry.name)) continue;
       const path = resolve(directory, entry.name);
       if (entry.isSymbolicLink()) continue;
       if (entry.isDirectory()) pending.push(path);

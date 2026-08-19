@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.software-agent.dev/vnext/model-request.schema.json",
+  "title": "Software Agent normalized model request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["requestId", "modelId", "system", "input", "maxOutputTokens"],
+  "properties": {
+    "requestId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$" },
+    "modelId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "system": { "type": "string" },
+    "input": { "type": "string" },
+    "maxOutputTokens": { "type": "integer", "minimum": 1, "maximum": 10000000 },
+    "messages": { "type": "array", "items": { "$ref": "#/$defs/message" } },
+    "tools": { "type": "array", "items": { "$ref": "#/$defs/toolDefinition" } },
+    "toolResults": { "type": "array", "items": { "$ref": "#/$defs/toolResult" } },
+    "structuredOutput": { "$ref": "#/$defs/structuredOutput" },
+    "reasoningEffort": { "enum": ["minimal", "low", "medium", "high"] }
+  },
+  "$defs": {
+    "toolCall": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["callId", "name", "arguments"],
+      "properties": {
+        "callId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "name": { "type": "string", "minLength": 1 },
+        "arguments": true
+      }
+    },
+    "message": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "content"],
+      "properties": {
+        "role": { "enum": ["system", "user", "assistant", "tool"] },
+        "content": { "type": "string" },
+        "toolCallId": { "type": "string" },
+        "toolCalls": { "type": "array", "items": { "$ref": "#/$defs/toolCall" } }
+      }
+    },
+    "toolDefinition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "description", "inputSchema"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "inputSchema": { "type": "object" }
+      }
+    },
+    "toolResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["callId", "content"],
+      "properties": {
+        "callId": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "name": { "type": "string" },
+        "content": { "type": "string" },
+        "isError": { "type": "boolean" }
+      }
+    },
+    "structuredOutput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema"],
+      "properties": {
+        "name": { "type": "string" },
+        "schema": { "type": "object" },
+        "strict": { "type": "boolean" }
+      }
+    }
+  }
+}

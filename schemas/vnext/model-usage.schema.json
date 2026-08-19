@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.software-agent.dev/vnext/model-usage.schema.json",
+  "title": "Software Agent normalized model usage",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["inputTokens", "outputTokens", "cachedInputTokens", "reasoningTokens", "totalTokens", "source"],
+  "properties": {
+    "inputTokens": { "$ref": "#/$defs/tokenCount" },
+    "outputTokens": { "$ref": "#/$defs/tokenCount" },
+    "cachedInputTokens": { "$ref": "#/$defs/tokenCount" },
+    "reasoningTokens": { "$ref": "#/$defs/tokenCount" },
+    "totalTokens": { "$ref": "#/$defs/tokenCount" },
+    "source": { "enum": ["PROVIDER", "UNKNOWN"] }
+  },
+  "$defs": {
+    "tokenCount": {
+      "oneOf": [
+        { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+        { "const": "UNKNOWN" }
+      ]
+    }
+  }
+}

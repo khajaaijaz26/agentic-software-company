@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.software-agent.dev/vnext/model-grant.schema.json",
+  "title": "Software Agent one-use model broker grant v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "grantId", "runId", "taskId", "agentId", "attemptId", "providerId", "modelId", "routingRevision", "maxInputTokens", "maxOutputTokens", "expiresAt"],
+  "properties": {
+    "schema": { "const": "software-agent.model-grant/v1" },
+    "grantId": { "type": "string", "pattern": "^mgrant_[a-f0-9]{32}$" },
+    "runId": { "$ref": "#/$defs/id" },
+    "taskId": { "$ref": "#/$defs/id" },
+    "agentId": { "$ref": "#/$defs/id" },
+    "attemptId": { "$ref": "#/$defs/id" },
+    "providerId": { "$ref": "#/$defs/id" },
+    "modelId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "routingRevision": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+    "maxInputTokens": { "$ref": "#/$defs/tokenLimit" },
+    "maxOutputTokens": { "$ref": "#/$defs/tokenLimit" },
+    "expiresAt": { "type": "string", "format": "date-time" }
+  },
+  "$defs": {
+    "id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$" },
+    "tokenLimit": { "type": "integer", "minimum": 0, "maximum": 10000000 }
+  }
+}

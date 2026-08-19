@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { EventEmitter } from "node:events";
 import { DatabaseSync } from "node:sqlite";
 
 import {
@@ -125,6 +126,8 @@ function actorJson(actor: ActorRef): string {
 
 export class SqliteEventStore {
   readonly #database: DatabaseSync;
+  readonly #notifications = new EventEmitter();
+  #closed = false;
 
   public constructor(filename: string) {
     assertExact(filename, "filename");
@@ -201,6 +204,10 @@ export class SqliteEventStore {
   }
 
   public close(): void {
+    if (this.#closed) return;
+    this.#closed = true;
+    this.#notifications.emit("close");
+    this.#notifications.removeAllListeners();
     this.#database.close();
   }
 
@@ -215,6 +222,11 @@ export class SqliteEventStore {
       .prepare("SELECT COALESCE(MAX(stream_version), 0) AS version FROM events WHERE stream_id = ?")
       .get(streamId) as SqliteRow;
     return safeInteger(row.version, "version");
+  }
+
+  public latestSequence(): number {
+    const row = this.#database.prepare("SELECT COALESCE(MAX(sequence), 0) AS sequence FROM events").get() as SqliteRow;
+    return safeInteger(row.sequence, "sequence");
   }
 
   public getCommandReceipt<TResponse extends JsonValue = JsonValue>(
@@ -286,7 +298,7 @@ export class SqliteEventStore {
           command.streamId,
           event.eventType,
           canonicalize({
-            schema: "agent-company.event/v1",
+            schema: "software-agent.event/v2",
             eventId,
             streamId: command.streamId,
             streamVersion: command.expectedVersion + offset + 1,
@@ -331,6 +343,7 @@ export class SqliteEventStore {
         );
       const events = this.#eventsForCommand(command.commandId);
       this.#database.exec("COMMIT");
+      this.#notifications.emit("commit", lastSequence);
       return Object.freeze({ receipt, events, replayed: false });
     } catch (error) {
       this.#database.exec("ROLLBACK");
@@ -369,6 +382,57 @@ export class SqliteEventStore {
         .all(afterSequence, limit);
     }
     return Object.freeze(rows.map((row) => this.#eventFromRow(row)));
+  }
+
+  public recent(limit = 100, streamId?: string): readonly StoredEvent[] {
+    if (!Number.isSafeInteger(limit) || limit <= 0 || limit > 250) {
+      throw new TypeError("limit must be between 1 and 250");
+    }
+    const rows = streamId === undefined
+      ? this.#database.prepare("SELECT * FROM events ORDER BY sequence DESC LIMIT ?").all(limit) as SqliteRow[]
+      : this.#database.prepare("SELECT * FROM events WHERE stream_id = ? ORDER BY sequence DESC LIMIT ?").all(streamId, limit) as SqliteRow[];
+    return Object.freeze(rows.reverse().map((row) => this.#eventFromRow(row)));
+  }
+
+  public async waitForEvents(
+    afterSequence: number,
+    options: {readonly limit?: number; readonly timeoutMs?: number; readonly signal?: AbortSignal} = {},
+  ): Promise<readonly StoredEvent[]> {
+    if (!Number.isSafeInteger(afterSequence) || afterSequence < 0) throw new TypeError("afterSequence must be non-negative");
+    const limit = options.limit ?? 250;
+    const timeoutMs = options.timeoutMs ?? 30_000;
+    if (!Number.isSafeInteger(limit) || limit <= 0 || limit > 513) throw new TypeError("limit must be between 1 and 513");
+    if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 0 || timeoutMs > 30_000) throw new TypeError("timeoutMs must be between 0 and 30000");
+    if (options.signal?.aborted) throw abortError(options.signal);
+    const immediate = this.replay(afterSequence, limit);
+    if (immediate.length > 0 || timeoutMs === 0) return immediate;
+    if (this.#closed) throw new EventStoreError("event store is closed");
+
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const finish = (error?: Error): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        this.#notifications.off("commit", onCommit);
+        this.#notifications.off("close", onClose);
+        options.signal?.removeEventListener("abort", onAbort);
+        if (error) reject(error);
+        else resolve();
+      };
+      const onCommit = (sequence: number): void => {
+        if (sequence > afterSequence) finish();
+      };
+      const onClose = (): void => finish(new EventStoreError("event store is closed"));
+      const onAbort = (): void => finish(abortError(options.signal));
+      const timer = setTimeout(() => finish(), timeoutMs);
+      timer.unref();
+      this.#notifications.on("commit", onCommit);
+      this.#notifications.once("close", onClose);
+      options.signal?.addEventListener("abort", onAbort, {once: true});
+      if (this.latestSequence() > afterSequence) finish();
+    });
+    return this.replay(afterSequence, limit);
   }
 
   public pendingOutbox(afterSequence = 0, limit = 100): readonly OutboxRecord[] {
@@ -520,4 +584,8 @@ export class SqliteEventStore {
       metadata: parseObject(row.metadata_json, "metadata_json"),
     });
   }
+}
+
+function abortError(signal: AbortSignal | undefined): Error {
+  return signal?.reason instanceof Error ? signal.reason : new Error("event wait was aborted");
 }

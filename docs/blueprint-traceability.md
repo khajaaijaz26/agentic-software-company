@@ -1,104 +1,92 @@
 # Terminal Platform Blueprint v0.2 traceability
 
-## Reading this matrix
+This matrix records what the Software Agent v0.3 implementation actually provides against the broader source blueprint. “Partial” means a meaningful path exists but the complete stable-platform requirement does not.
 
-The source blueprint is intentionally broader than this release. Status values:
+## Terminal and controller
 
-- **Implemented**: exercised by current source/tests as a working v0.2 path.
-- **Partial**: meaningful controls exist, but mandatory stable-scope behavior is
-  missing.
-- **Specified**: public contract/docs/schema exist; runtime wiring is pending.
-- **Not implemented**: no working v0.2 capability should be inferred.
-- **Compatibility**: available only through the preserved Python/MCP runtime.
-
-This matrix is a release truth record, not a promise that a heading implies
-completion.
-
-## Core platform
-
-| Blueprint capability | Status | Evidence and limitation |
+| Blueprint capability | Status | Current evidence and boundary |
 | --- | --- | --- |
-| Strict TypeScript npm CLI | Implemented | `package.json`, `apps/cli`, TypeScript checks |
-| Human/plain/JSON/NDJSON output | Implemented | `apps/cli/src/output.ts`; NDJSON shares envelope path and is not yet live streaming |
-| Stable machine exit codes | Implemented | `EXIT_CODES`, [CLI ABI](protocols/cli-abi.md) |
-| Project initialization/config paths | Implemented | `packages/config`; project TOML and policy TOML |
-| TUI project room | Partial | Ink snapshot dashboard exists; no live subscriptions or full navigation |
-| Local controller | Implemented | `apps/control-plane`, reached through the CLI IPC facade |
-| Authenticated single-writer IPC service | Implemented local slice | Startup lock, framed Unix socket/Windows pipe, HMAC nonce proof, heartbeat descriptor, one-shot CLI service and standalone entry; no service-manager install or Windows ACL verification |
-| SQLite WAL event source | Implemented | `packages/event-store-sqlite`; command receipts and stream versions |
-| Complete event upcasting/schema registry | Not implemented | Envelope schema exists; event-type payload/upcaster registry pending |
-| Run/task state machines | Partial | Canonical transitions and replay checks exist; general recovery/revision workflow remains incomplete |
-| DAG planning and readiness | Implemented for slice | `packages/domain/dag.ts`; fixed five-task slice, not general planner |
-| Durable scheduler/worker leasing | Partial | Controller records attempt/lease manifests and supervises a bound child process; no persistent lease heartbeat, retry scheduler, restart adoption, or full orphan recovery |
-| Pause/cancel/recovery/reconciliation | Partial | state vocabulary and basic pause/cancel; full crash recovery absent |
+| Globally installable TypeScript CLI | Implemented | `software-agent` package/bin, strict TypeScript, Node.js 22.14+ |
+| Human/plain/JSON/NDJSON output | Implemented | CLI output envelopes and stable exit-code map; NDJSON event follow is polling, not server push |
+| Responsive project-room TUI | Implemented | Three agent panels, events, approvals, tokens, details, search, targeted instructions, reconnect/resync, read-only mode, plain fallback |
+| Durable local controller | Implemented | Detached discovery plus embedded test mode; one authoritative SQLite-backed controller per workspace |
+| Authenticated local IPC | Implemented local | Four-byte framed JSON, Unix socket/Windows pipe only, private nonce and HMAC proof, frame limits, descriptors, heartbeat, cross-process start lock |
+| Single-writer enforcement | Implemented application-level | Controller lock and mutation lease/fence; the owning OS user can still alter files directly |
+| Durable event source and replay | Implemented | WAL, synchronous writes, expected stream versions, idempotent command receipts, global cursors, bounded history/poll pages |
+| Push subscriptions | Not implemented | Long polling plus resynchronization is used in v0.3 |
+| Very-large-run compaction/pagination | Partial | Event pages are bounded; full run projections still need compaction |
 
-## Governance and safety
+## Multi-agent runtime
 
-| Blueprint capability | Status | Evidence and limitation |
+| Blueprint capability | Status | Current evidence and boundary |
 | --- | --- | --- |
-| A0-A5 classification | Implemented | policy engine and connector action classifier |
-| Exact expiring approvals | Implemented | SQLite approval service |
-| Atomic single-use consumption | Implemented | conditional SQLite transition in transaction |
-| Human-only decisions | Implemented | approval service rejects non-human approvers |
-| Unknown action deny-by-default | Implemented | policy engine |
-| Production/destructive hard denials | Implemented for named cases | protected force-push, production Supabase reset/seed/secret copy |
-| Tool schema validation/guards/audit | Implemented as gateway | current remote plan commands are not execution-wired through it |
-| Budgets and atomic reservations | Implemented | micro-dollar SQLite budget ledger |
-| Full pricing catalog/unpriced governance | Partial | deterministic usage/cost path; catalog and delayed provider reconciliation absent |
-| Secret references and leases | Partial | environment reference backend; OS keychain/rotation/non-exportable sessions pending |
-| Cryptographic audit signing/export | Not implemented | local append discipline only |
+| Visible specialist collaboration | Implemented | Durable Master Orchestrator, Software Engineer, and Reviewer & QA logical sessions |
+| Task DAG and bounded parallelism | Implemented slice | Fixed five-task dependency graph; one workspace mutation at a time; `maxParallel` 1–3 |
+| Assignments, turns, attempts, mailboxes, handoffs | Implemented | Persisted runtime-v2 events and projections |
+| Pause/cancel/restart recovery | Implemented bounded | Active attempts are aborted/fenced and tasks can be recovered; automatic retry/backoff and full orphan adoption are absent |
+| Targeted live instructions | Implemented | Run/task/agent targets with cursor, run revision, command ID, and mutation-lease binding |
+| Human questions/answers | Implemented runtime | Typed commands and persisted question/mailbox state; the primary TUI emphasizes instructions/approvals |
+| Arbitrary agent delegation trees | Not implemented | The v0.3 graph and three roles are controller-defined |
+| OS sandbox for model/tool execution | Not implemented | Controller-owned model/tools; approved commands are separate bounded processes, not a hostile-code sandbox |
 
-## Inputs, artifacts, models, and agents
+## Models, context, and tokens
 
-| Blueprint capability | Status | Evidence and limitation |
+| Blueprint capability | Status | Current evidence and boundary |
 | --- | --- | --- |
-| SHA-256 content-addressed artifacts | Implemented | `packages/artifact-store` verifies reads |
-| Attachment allowed-root/limit scans | Implemented | file/folder/stdin byte ingestion and receipts |
-| Malware/secret/PII/injection checks | Partial | deterministic patterns, not comprehensive AV/DLP/sandbox |
-| Attachment transfer consent | Implemented safe default | receipt fixes `transfer_count` to zero; no transfer executor |
-| 25 specialist roles | Implemented catalog | lazy activation based on objective keywords |
-| Multi-provider model gateway | Partial | deterministic and OpenAI-compatible interfaces; controller uses deterministic only |
-| Prompt pinning/context provenance | Partial | prompt pack retained; complete vNext context manifest not implemented |
-| Independent review/evidence | Implemented for slice | review and verification tasks, deterministic evidence text |
-| General autonomous delivery | Not implemented | fixed offline vertical slice only |
+| Deterministic offline provider | Implemented | Built-in adapter for setup, testing, and replayable demos |
+| Native OpenAI provider | Implemented | Responses API, streaming tool calls/results, usage, model discovery, continuation ID |
+| Native Anthropic provider | Implemented | Messages API, streaming tool blocks/results, usage, model discovery |
+| BYOK secret isolation | Implemented | `env://` and supported secure-store references; values controller-only and never persisted or passed to command children |
+| Project and role model switching | Implemented | `models use`, project TOML routes, user defaults, immutable routing revision |
+| One-use model grants | Implemented | Provider/model/run/task/agent/attempt/revision/token/expiry binding |
+| Repository retrieval | Implemented bounded | File listing, token-efficient literal `search_code`, exact-revision text reads; ignored/generated/secret/binary/large paths excluded |
+| Vector/embedding RAG | Not implemented | No semantic index or separate source-code upload is claimed |
+| Token-saving modes | Implemented | Economy 25%, balanced 50% default, quality 100% |
+| Per-agent token reservations and reconciliation | Implemented | SQLite ledger, exact allocations, provider usage normalization, conservative unknown usage, snapshot/TUI projection |
+| Complete live pricing catalog | Partial | Provider cost is shown when known; unknown pricing/cost remains `UNKNOWN` |
 
-## Connected platforms
+## Tools, governance, and evidence
 
-| Blueprint capability | Status | Evidence and limitation |
+| Blueprint capability | Status | Current evidence and boundary |
 | --- | --- | --- |
-| GitHub auth/account/inventory | Implemented read-only | official `gh` CLI adapter |
-| Vercel auth/project inventory | Implemented read-only | official `vercel` CLI adapter |
-| Supabase auth/project inventory | Implemented read-only | official `supabase` CLI adapter |
-| Normalized connector action | Implemented | `agent-company.connector-action/v1` |
-| Approval-backed remote mutation | Not implemented | CLI emits plans and approval-required exit only |
-| Deployment/database postcondition verification | Not implemented | no remote executor/reconciler |
-| Provider webhook/event ingestion | Not implemented | polling inventory only |
+| Workspace-contained file tools | Implemented | Path canonicalization, symlink/secret/generated exclusions, exact SHA-256 revisions, atomic writes, size/count limits |
+| Shell-free verification commands | Implemented | Exact executable/argv, small allowlist, reduced environment, time/output/process-tree bounds |
+| A0–A5 risk vocabulary | Implemented | Local tools and connector action classification |
+| Exact expiring approvals | Implemented | Actor/action/resource/environment/artifact/operation hash binding |
+| Human-only decisions and single-use consumption | Implemented | SQLite transactions; agent decisions are rejected |
+| Live command approvals | Implemented | A3 packet/event before process spawn; command waits for decision and fails closed on deny/expiry/cancel/replay |
+| Secret-in-command prevention | Implemented pattern guard | Likely credential arguments are denied; scanners are not complete DLP |
+| Fenced result acceptance | Implemented | Run/task/turn/attempt/lease/revision/epoch must remain current |
+| Independent review and evidence | Implemented slice | Reviewer/QA tasks and persisted evidence frames |
+| Signed audit export | Not implemented | Append discipline is local; no cryptographic export/signing yet |
 
-## Compatibility, operations, and distribution
+## Attachments, artifacts, and connected platforms
 
-| Blueprint capability | Status | Evidence and limitation |
+| Blueprint capability | Status | Current evidence and boundary |
 | --- | --- | --- |
-| Python prompt/MCP compatibility | Compatibility | existing Python package and MCP server retained |
-| Cross-runtime migration | Not implemented | documented parallel cutover only |
-| Backup/recovery guidance | Implemented documentation | no automated backup command |
-| Threat model/security policy | Implemented documentation | must evolve before remote execution |
-| Draft 2020-12 vNext schemas | Implemented | `schemas/vnext/`, including the active controller descriptor and RPC envelopes |
-| Plugin SDK/marketplace | Not implemented | plugin API version label is reserved, not a working ecosystem |
-| Auto-update/rollback/installers | Not implemented | npm source build/development install only |
-| Telemetry/analytics | Safe default | telemetry reported off; no telemetry subsystem |
+| SHA-256 content-addressed artifacts | Implemented | Immutable objects/refs and integrity checks |
+| Bounded attachment ingestion | Implemented | Allowed-root resolution, size/count/type, malware-test, secret, PII, and injection findings |
+| Transfer consent | Implemented safe default | Ingestion records `transfer_count: 0`; no implicit upload authority |
+| GitHub/Vercel/Supabase discovery | Implemented read-only | Provider-owned CLI probes and inventories |
+| Normalized remote action plans | Implemented | A0–A5 policy and operation hashes |
+| Remote mutation execution | Not implemented | Push, deployment, and database actions remain governed plans |
+| Postcondition reconciliation | Not implemented | Required before remote mutation executors are enabled |
 
-## Roadmap order
+## Distribution and compatibility
 
-1. Add durable worker lease heartbeats/extensions, bounded retries, restart
-   adoption, OS sandboxing, and crash/orphan reconciliation.
-2. Harden controller service lifecycle with background/service-manager support,
-   Windows ACL verification, OS peer credentials where available, and live
-   event subscriptions.
-3. Route every external execution through policy, budgets, exact approval consumption,
-   tool validation, and append-before/after audit.
-4. Implement one connector mutation end to end with provider idempotency and
-   read-only postcondition reconciliation, starting outside production.
-5. Add schema/upcaster registry, context manifests, OS credential backends,
-   signed export/import, and automated backup/migration.
-6. Expand TUI interaction, compatibility/evaluation suites, packaging, and
-   operational hardening before any stable claim.
+| Blueprint capability | Status | Current evidence and boundary |
+| --- | --- | --- |
+| npm package contents | Implemented | CLI/controller bundles, assets, prompts, schemas, workflows, docs |
+| Python/MCP compatibility | Compatibility | `software_agent` primary module plus deprecated historical aliases; separate state |
+| Legacy project migration | Implemented config-only | Backup-first migration into `.software-agent`; run state is not imported |
+| Automated backup/restore command | Not implemented | Safe manual/SQLite guidance exists |
+| Plugin marketplace/SDK | Not implemented | Plugin API version is reserved metadata only |
+| Telemetry | Safe default | Off; no telemetry subsystem |
+
+## Next engineering order
+
+1. Add provider-idempotent remote mutation plus receipt and postcondition reconciliation for one non-production connector.
+2. Add bounded automatic retries, lease extension, orphan reconciliation, and stronger OS isolation.
+3. Add run snapshot compaction/pagination and optional server-push subscriptions.
+4. Add signed export/import, automated backup/migration, and an event upcaster registry.
+5. Evaluate an optional local semantic index only if it materially improves retrieval over the lightweight bounded search path.

@@ -104,7 +104,7 @@ describe("local controller IPC", () => {
     expect(descriptor.endpoint).not.toMatch(/^tcp:/u);
     if (process.platform === "win32") {
       expect(descriptor.transport).toBe("named-pipe");
-      expect(descriptor.endpoint).toMatch(/^\\\\\.\\pipe\\agent-company-/u);
+      expect(descriptor.endpoint).toMatch(/^\\\\\.\\pipe\\software-agent-/u);
     } else {
       expect(descriptor.transport).toBe("unix");
       expect(descriptor.endpoint.startsWith(paths.directory)).toBe(true);

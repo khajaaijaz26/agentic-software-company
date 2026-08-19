@@ -1,4 +1,4 @@
-"""Core contracts for the agentic software company.
+"""Core contracts for the Software Agent compatibility runtime.
 
 These dataclasses mirror the JSON schemas in ``schemas/`` and the prompt
 templates in ``prompts/templates/``. The orchestrator composes task envelopes,

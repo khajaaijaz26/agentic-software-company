@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.software-agent.dev/vnext/ipc-handshake.schema.json",
+  "title": "Software Agent IPC handshake message",
+  "description": "Hello, welcome, or handshake failure carried in the same bounded framed transport as RPC messages.",
+  "oneOf": [
+    { "$ref": "#/$defs/hello" },
+    { "$ref": "#/$defs/welcome" },
+    { "$ref": "#/$defs/failure" }
+  ],
+  "$defs": {
+    "requestId": { "type": "string", "pattern": "^rpc_[a-f0-9]{32}$" },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "retryable"],
+      "properties": {
+        "code": { "type": "string" },
+        "message": { "type": "string" },
+        "retryable": { "type": "boolean" }
+      }
+    },
+    "hello": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "requestId", "protocolMin", "protocolMax", "instanceId", "userBinding", "nonceProof"],
+      "properties": {
+        "kind": { "const": "hello" },
+        "requestId": { "$ref": "#/$defs/requestId" },
+        "protocolMin": { "type": "integer", "minimum": 1, "maximum": 2 },
+        "protocolMax": { "type": "integer", "minimum": 1, "maximum": 2 },
+        "instanceId": { "type": "string", "pattern": "^ctl_[a-f0-9]{32}$" },
+        "userBinding": { "type": "string", "pattern": "^[a-f0-9]{48}$" },
+        "nonceProof": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    },
+    "welcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "requestId", "protocolVersion", "instanceId", "buildVersion", "serverTime"],
+      "properties": {
+        "kind": { "const": "welcome" },
+        "requestId": { "$ref": "#/$defs/requestId" },
+        "protocolVersion": { "enum": [1, 2] },
+        "instanceId": { "type": "string", "pattern": "^ctl_[a-f0-9]{32}$" },
+        "buildVersion": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "serverTime": { "type": "string", "format": "date-time" }
+      }
+    },
+    "failure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "requestId", "error"],
+      "properties": {
+        "kind": { "const": "handshake_error" },
+        "requestId": { "$ref": "#/$defs/requestId" },
+        "error": { "$ref": "#/$defs/error" }
+      }
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.software-agent.dev/vnext/events-page.schema.json",
+  "title": "Software Agent event history or poll page v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "events", "cursor", "hasMore", "resyncRequired"],
+  "properties": {
+    "schema": { "const": "software-agent.events/v2" },
+    "events": {
+      "type": "array",
+      "items": {
+        "oneOf": [
+          { "$ref": "event.schema.json" },
+          { "$ref": "legacy-event.schema.json" }
+        ]
+      }
+    },
+    "cursor": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+    "hasMore": { "type": "boolean" },
+    "resyncRequired": { "type": "boolean" }
+  }
+}

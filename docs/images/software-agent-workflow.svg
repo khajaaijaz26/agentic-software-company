@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="720" viewBox="0 0 1440 720" role="img" aria-labelledby="title desc">
+  <title id="title">Software Agent governed multi-agent workflow</title>
+  <desc id="desc">A developer prompt enters the local controller, which coordinates an orchestrator, software engineer, and reviewer through durable events, token budgets, tools, approvals, and verified results.</desc>
+  <defs>
+    <linearGradient id="bg" x1="40" y1="20" x2="1400" y2="700" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#071521"/>
+      <stop offset="1" stop-color="#10233A"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="170" y1="130" x2="1240" y2="590" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#20D9D2"/>
+      <stop offset=".55" stop-color="#5B8CFF"/>
+      <stop offset="1" stop-color="#B65CFF"/>
+    </linearGradient>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0 10 5 0 10Z" fill="#6F9CFF"/>
+    </marker>
+    <style>
+      .label{font:700 25px ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;fill:#F8FAFC}
+      .small{font:500 18px ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;fill:#B9C8DD}
+      .tiny{font:600 15px ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;fill:#86F4DF;letter-spacing:.08em}
+      .flow{fill:none;stroke:#6F9CFF;stroke-width:5;stroke-linecap:round;marker-end:url(#arrow)}
+      .event{fill:none;stroke:#20D9D2;stroke-opacity:.55;stroke-width:3;stroke-dasharray:9 10}
+    </style>
+  </defs>
+
+  <rect x="10" y="10" width="1420" height="700" rx="42" fill="url(#bg)" stroke="#24415D" stroke-width="2"/>
+  <text x="64" y="70" class="tiny">SOFTWARE AGENT · LOCAL-FIRST PROJECT ROOM</text>
+
+  <rect x="54" y="270" width="210" height="150" rx="28" fill="#102B3A" stroke="#20D9D2" stroke-width="4"/>
+  <text x="82" y="326" class="label">Your prompt</text>
+  <text x="82" y="360" class="small">Goal + repository</text>
+  <text x="82" y="390" class="small">+ chosen model</text>
+
+  <rect x="330" y="232" width="260" height="226" rx="30" fill="#142B47" stroke="url(#accent)" stroke-width="5"/>
+  <text x="366" y="294" class="label">Local controller</text>
+  <text x="366" y="334" class="small">Durable event log</text>
+  <text x="366" y="367" class="small">DAG + fenced leases</text>
+  <text x="366" y="400" class="small">Token reservations</text>
+  <circle cx="366" cy="424" r="7" fill="#52F2B8"/>
+  <text x="383" y="431" class="small">sole authority</text>
+
+  <path class="flow" d="M264 345h56"/>
+
+  <rect x="675" y="102" width="336" height="136" rx="26" fill="#12283D" stroke="#20D9D2" stroke-width="3"/>
+  <circle cx="718" cy="151" r="18" fill="#20D9D2"/>
+  <text x="750" y="159" class="label">Master Orchestrator</text>
+  <text x="718" y="198" class="small">Plans, delegates, and tracks handoffs</text>
+
+  <rect x="675" y="292" width="336" height="136" rx="26" fill="#12283D" stroke="#5B8CFF" stroke-width="3"/>
+  <circle cx="718" cy="341" r="18" fill="#5B8CFF"/>
+  <text x="750" y="349" class="label">Software Engineer</text>
+  <text x="718" y="388" class="small">Builds in isolated, fenced attempts</text>
+
+  <rect x="675" y="482" width="336" height="136" rx="26" fill="#12283D" stroke="#B65CFF" stroke-width="3"/>
+  <circle cx="718" cy="531" r="18" fill="#B65CFF"/>
+  <text x="750" y="539" class="label">Reviewer &amp; QA</text>
+  <text x="718" y="578" class="small">Checks evidence before completion</text>
+
+  <path class="flow" d="M590 294C630 294 620 170 665 170"/>
+  <path class="flow" d="M590 345h75"/>
+  <path class="flow" d="M590 396c40 0 30 154 75 154"/>
+  <path class="event" d="M675 218C620 218 632 260 590 260"/>
+  <path class="event" d="M675 410c-48 0-46-28-85-28"/>
+  <path class="event" d="M675 596c-58 0-38-166-85-166"/>
+
+  <rect x="1080" y="112" width="300" height="150" rx="28" fill="#102B3A" stroke="#52F2B8" stroke-width="3"/>
+  <text x="1115" y="166" class="label">Tools + evidence</text>
+  <text x="1115" y="202" class="small">Files · tests · shell</text>
+  <text x="1115" y="234" class="small">Expected hashes · receipts</text>
+
+  <rect x="1080" y="300" width="300" height="150" rx="28" fill="#2B213C" stroke="#F2B84B" stroke-width="3"/>
+  <text x="1115" y="354" class="label">Human approval</text>
+  <text x="1115" y="390" class="small">Exact risky operation</text>
+  <text x="1115" y="422" class="small">Approve · deny · revise</text>
+
+  <rect x="1080" y="488" width="300" height="150" rx="28" fill="#102B3A" stroke="#20D9D2" stroke-width="3"/>
+  <text x="1115" y="542" class="label">Verified result</text>
+  <text x="1115" y="578" class="small">Changes · tests · usage</text>
+  <text x="1115" y="610" class="small">Replayable audit trail</text>
+
+  <path class="flow" d="M1011 170h59"/>
+  <path class="flow" d="M1011 360h59"/>
+  <path class="flow" d="M1011 550h59"/>
+  <path class="event" d="M1080 235c-40 0-23 110-59 110"/>
+  <path class="event" d="M1080 425c-40 0-23 110-59 110"/>
+
+  <text x="332" y="676" class="small">Every status, handoff, tool request, approval, token, and result stays visible in the terminal.</text>
+</svg>

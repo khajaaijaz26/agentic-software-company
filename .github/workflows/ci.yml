@@ -42,12 +42,18 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Create package tarball
-        run: npm pack
+        run: |
+          npm pack --json > npm-pack.json
+          node -e "const fs=require('fs'); const [{filename}]=JSON.parse(fs.readFileSync('npm-pack.json','utf8')); fs.appendFileSync(process.env.GITHUB_ENV, `SOFTWARE_AGENT_TARBALL=${filename}\n`)"
       - name: Test global installation
         run: |
-          npm install --global ./agent-company-cli-0.2.0.tgz
-          agent-company --version
-          agent-company --json version
+          npm install --global "./${SOFTWARE_AGENT_TARBALL}"
+          software-agent --version
+          software-agent --json version
+          WORKSPACE="$(mktemp -d)/project"
+          software-agent --json init "$WORKSPACE" --name "Installed package smoke"
+          SOFTWARE_AGENT_CONTROLLER_MODE=embedded software-agent --project "$WORKSPACE" --json run "Inspect this empty project and report readiness" > installed-run.json
+          node -e "const fs=require('fs');const result=JSON.parse(fs.readFileSync('installed-run.json','utf8'));if(result.type!=='run.completed'||result.data?.state!=='SUCCEEDED'||result.data?.agents?.length!==3)process.exit(1)"
 
   test:
     name: Tests (Python ${{ matrix.python-version }})
@@ -58,7 +64,7 @@ jobs:
         python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
     env:
       PYTHONPATH: src
-      AGENTIC_REQUIRE_MCP: "1"
+      SOFTWARE_AGENT_REQUIRE_MCP: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -101,17 +107,17 @@ jobs:
           from pathlib import Path
 
           wheel = next(Path("dist").glob("*.whl")).resolve()
-          root = Path(tempfile.mkdtemp(prefix="agentic-wheel-smoke-"))
+          root = Path(tempfile.mkdtemp(prefix="software-agent-wheel-smoke-"))
           environment = root / "venv"
           venv.create(environment, with_pip=True)
           python = environment / "bin" / "python"
           pip = environment / "bin" / "pip"
-          subprocess.check_call([str(pip), "install", f"agentic-company[mcp] @ {wheel.as_uri()}"])
+          subprocess.check_call([str(pip), "install", f"software-agent-compat[mcp] @ {wheel.as_uri()}"])
           child_env = os.environ.copy()
           child_env.pop("PYTHONPATH", None)
           code = """
-          from agentic_company.resources import PROMPTS_ROOT, SCHEMAS_ROOT, WORKFLOWS_ROOT
-          from agentic_company.mcp_server import list_roles
+          from software_agent.mcp_server import list_roles
+          from software_agent.resources import PROMPTS_ROOT, SCHEMAS_ROOT, WORKFLOWS_ROOT
           assert (PROMPTS_ROOT / 'roles' / 'technical-lead.md').is_file()
           assert (SCHEMAS_ROOT / 'task-envelope.schema.json').is_file()
           assert (WORKFLOWS_ROOT / 'delivery.yaml').is_file()

@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.software-agent.dev/vnext/token-budget.schema.json",
+  "title": "Software Agent token budget account",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["scope", "mode", "fullLimitTokens", "baseLimitTokens", "extensionTokens", "effectiveLimitTokens", "spentTokens", "reservedTokens", "uncertainTokens", "remainingTokens", "warningAtTokens", "warning", "blocked"],
+  "properties": {
+    "scope": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "mode": { "enum": ["economy", "balanced", "quality"] },
+    "fullLimitTokens": { "$ref": "#/$defs/tokens" },
+    "baseLimitTokens": { "$ref": "#/$defs/tokens" },
+    "extensionTokens": { "$ref": "#/$defs/tokens" },
+    "effectiveLimitTokens": { "$ref": "#/$defs/tokens" },
+    "spentTokens": { "$ref": "#/$defs/tokens" },
+    "reservedTokens": { "$ref": "#/$defs/tokens" },
+    "uncertainTokens": { "$ref": "#/$defs/tokens" },
+    "remainingTokens": { "$ref": "#/$defs/tokens" },
+    "warningAtTokens": { "$ref": "#/$defs/tokens" },
+    "warning": { "type": "boolean" },
+    "blocked": { "type": "boolean" }
+  },
+  "$defs": {
+    "tokens": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 }
+  }
+}

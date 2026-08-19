@@ -1,11 +1,11 @@
-"""Command-line entry point for the agentic software company platform.
+"""Command-line entry point for the Software Agent compatibility runtime.
 
 Provides a small set of operations to exercise the reference implementation
 without any external dependencies:
 
-    python -m agentic_company init-project <name> <owner>
-    python -m agentic_company dispatch <role> <instructions>
-    python -m agentic_company audit <project_id>
+    python -m software_agent init-project <name> <owner>
+    python -m software_agent dispatch <role> <instructions>
+    python -m software_agent audit <project_id>
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ def _stub_dispatcher(envelope: TaskEnvelope) -> ResultEnvelope:
 
 
 def _build() -> tuple[Orchestrator, StateStore, EventStore]:
-    base = Path.cwd() / ".agentic_company"
+    base = Path.cwd() / ".software-agent" / "python-compat"
     state = StateStore(base / "state.json")
     events = EventStore(base / "events.jsonl")
     policy = PolicyEngine()
@@ -64,7 +64,7 @@ def _build() -> tuple[Orchestrator, StateStore, EventStore]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="agentic-company")
+    parser = argparse.ArgumentParser(prog="software-agent-reference")
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_init = sub.add_parser("init-project", help="begin a project")

@@ -1,4 +1,4 @@
-"""Model Context Protocol (MCP) server for the Agentic Software Company.
+"""Model Context Protocol (MCP) server for Software Agent.
 
 Exposes the governed multi-agent platform to any MCP-capable AI coding agent
 (terminal CLIs, IDEs, desktop apps) over a single, standard interface. The AI
@@ -8,11 +8,11 @@ performs the work, and reports the result through the governance layer.
 
 Run with:
 
-    uv run --with "mcp[cli]" mcp run src/agentic_company/mcp_server.py
+    uv run --with "mcp[cli]" mcp run src/software_agent/mcp_server.py
 
 or (after installing the optional dependency):
 
-    python -m agentic_company.mcp_server
+    python -m software_agent.mcp_server
 
 Core package remains dependency-free; the MCP adapter only needs the ``mcp``
 SDK, declared as the ``mcp`` extra.
@@ -31,8 +31,8 @@ try:
 except ImportError:  # pragma: no cover - exercised only when the extra is absent
     print(
         "The MCP server requires the optional dependency.\n"
-        "  uv run --with 'mcp[cli]' mcp run src/agentic_company/mcp_server.py\n"
-        "  python -m pip install 'agentic-company[mcp]'",
+        "  uv run --with 'mcp[cli]' mcp run src/software_agent/mcp_server.py\n"
+        "  python -m pip install 'software-agent-compat[mcp]'",
         file=sys.stderr,
     )
     raise SystemExit(2)
@@ -50,9 +50,13 @@ from .resources import PROMPTS_ROOT, SCHEMAS_ROOT, WORKFLOWS_ROOT
 from .state_store import StateStore
 from .tool_gateway import ToolGateway
 
-mcp = FastMCP("agentic-software-company")
+mcp = FastMCP("software-agent")
 
-_BASE = Path(os.environ.get("AGENTIC_COMPANY_STATE_DIR", Path.cwd() / ".agentic_company"))
+_BASE = Path(
+    os.environ.get("SOFTWARE_AGENT_STATE_DIR")
+    or os.environ.get("AGENTIC_COMPANY_STATE_DIR")
+    or Path.cwd() / ".software-agent" / "python-compat"
+)
 _STATE = StateStore(_BASE / "state.json")
 _EVENTS = EventStore(_BASE / "events.jsonl")
 _POLICY = PolicyEngine()
@@ -347,7 +351,7 @@ def act_as_role(role: str) -> str:
 def conduct_code_review() -> str:
     """Ask the host to run a governed code review with the reviewer role."""
     return (
-        "You are acting as the code-reviewer agent of the Agentic Software Company.\n"
+        "You are acting as the code-reviewer agent of Software Agent.\n"
         "Review the codebase under policy control. Produce a result envelope with:\n"
         "  - findings (severity, location, rationale)\n"
         "  - policy checks applied\n"
@@ -389,7 +393,7 @@ def main(argv: list[str] | None = None) -> None:
     """Run the MCP server. Supports stdio, sse, and streamable-http transports."""
     import argparse
 
-    parser = argparse.ArgumentParser(prog="agentic-company-mcp")
+    parser = argparse.ArgumentParser(prog="software-agent-mcp")
     parser.add_argument(
         "--transport",
         choices=("stdio", "sse", "streamable-http"),

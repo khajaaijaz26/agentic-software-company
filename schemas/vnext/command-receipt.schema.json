@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.software-agent.dev/vnext/command-receipt.schema.json",
+  "title": "Software Agent run command receipt v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "accepted", "runId", "revision"],
+  "properties": {
+    "schema": { "const": "software-agent.command-receipt/v2" },
+    "accepted": { "const": true },
+    "runId": { "type": "string", "minLength": 1, "maxLength": 512 },
+    "revision": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 }
+  }
+}

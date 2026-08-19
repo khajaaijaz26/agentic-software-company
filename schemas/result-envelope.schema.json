@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/khajaaijaz26/agentic-software-company/schemas/result-envelope.schema.json",
+  "$id": "https://github.com/khajaaijaz26/software-agent/schemas/result-envelope.schema.json",
   "title": "Result Envelope (canonical)",
   "description": "Canonical result-envelope schema. The working copy used by the orchestrator lives at prompts/templates/result-envelope.json.",
   "type": "object",

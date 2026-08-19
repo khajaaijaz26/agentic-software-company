@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Node.js 22.13+, npm, and Git.
+- Node.js 22.14+, npm, and Git.
 - Python 3.10+ only when changing the compatibility runtime.
 - A clean test workspace outside the repository for manual CLI exercises.
 
@@ -11,7 +11,7 @@
 From the repository root:
 
 ```bash
-npm install
+npm ci
 npm run typecheck
 npm run lint
 npm test
@@ -24,7 +24,7 @@ the distribution file list and invokes the prepack checks.
 For focused controller/worker verification:
 
 ```bash
-npx vitest run tests/vnext/ipc.test.ts tests/vnext/platform.test.ts
+npx vitest run tests/vnext/ipc.test.ts tests/vnext/ipc-v3.test.ts tests/vnext/platform.test.ts tests/vnext/agent-execution-v3.test.ts
 ```
 
 These tests cover fragmented/coalesced and oversized frames, nonce-proof
@@ -36,17 +36,19 @@ worker execution.
 ```bash
 npm run dev -- version --json
 npm run dev -- doctor --json
-npm run dev -- init ../agent-company-smoke --name smoke
-npm run dev -- --project ../agent-company-smoke run --json "verify the local slice"
+npm run dev -- init ../software-agent-smoke --name smoke
+npm run dev -- --project ../software-agent-smoke run --json "verify the local slice"
 ```
 
-The final command should exit `4` and identify a run and approval. Then:
+With the deterministic provider, the final command should complete. A real
+provider that requests process execution should exit `4` with a visible exact
+approval. Then:
 
 ```bash
-npm run dev -- --project ../agent-company-smoke approvals list --json
-npm run dev -- --project ../agent-company-smoke approvals approve <approval-id>
-npm run dev -- --project ../agent-company-smoke resume <run-id> --json
-npm run dev -- --project ../agent-company-smoke state check --json
+npm run dev -- --project ../software-agent-smoke approvals list --json
+npm run dev -- --project ../software-agent-smoke approvals approve <approval-id>
+npm run dev -- --project ../software-agent-smoke resume <run-id> --json
+npm run dev -- --project ../software-agent-smoke state check --json
 ```
 
 Expected final run state: `SUCCEEDED`. Remove only the test directory you
@@ -57,7 +59,7 @@ To exercise reuse of the standalone service, first build, then leave this
 running in another terminal:
 
 ```bash
-node dist/controller.js --workspace ../agent-company-smoke
+node dist/controller.js --workspace ../software-agent-smoke
 ```
 
 Repeat `runs list`, `approvals list`, or `state check` from the first terminal,

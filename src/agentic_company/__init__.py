@@ -1,10 +1,7 @@
-"""Open-Source Agentic Software Company — governed multi-agent delivery platform.
+"""Software Agent governed multi-agent delivery compatibility runtime.
 
-This package is a small, dependency-free reference implementation of the
-architecture described in the *Open-Source Agentic Software Company Master
-System Prompt*: an orchestrator that routes task envelopes to specialist
-agents under policy control, with an append-only audit trail, bound approval
-tokens, and deterministic tool authorization.
+The public Python import is :mod:`software_agent`. This module remains as a
+deprecated compatibility alias so existing integrations continue to work.
 """
 
 from .agent_registry import AgentRegistry, AgentSpec

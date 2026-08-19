@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.agent-company.dev/vnext/attachment.schema.json",
-  "title": "Agent Company attachment receipt v1",
+  "$id": "https://schemas.software-agent.dev/vnext/attachment.schema.json",
+  "title": "Software Agent attachment receipt v1",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -15,7 +15,7 @@
     "created_at"
   ],
   "properties": {
-    "schema": { "const": "agent-company.attachment/v1" },
+    "schema": { "const": "software-agent.attachment/v1" },
     "attachment_id": { "type": "string", "pattern": "^att_[A-Za-z0-9_-]+$" },
     "source": {
       "type": "object",

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.software-agent.dev/vnext/model-route.schema.json",
+  "title": "Software Agent model routing revision v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "revision", "providerId", "modelId", "source"],
+  "properties": {
+    "schema": { "const": "software-agent.model-route/v1" },
+    "revision": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+    "providerId": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$" },
+    "modelId": { "type": "string", "minLength": 1, "maxLength": 256 },
+    "source": { "enum": ["RUN", "NEXT_RUN", "ROLE", "PROJECT", "USER", "EXPLICIT_CHANGE"] },
+    "changedAt": { "type": "string", "format": "date-time" }
+  }
+}

@@ -1,10 +1,21 @@
 import {createHmac, randomUUID, timingSafeEqual} from "node:crypto";
 
 import type {ApprovalRecord} from "../../approval-service/src/index.js";
-import type {ControllerSnapshot, RunView} from "../../../apps/control-plane/src/controller.js";
+import type {
+  ControllerSnapshot,
+  MutationLeaseView,
+  InstructionCommandResult,
+  QuestionCommandResult,
+  RunView,
+  SoftwareAgentCommandReceipt,
+  SoftwareAgentEventsPage,
+  SoftwareAgentRunView,
+  SoftwareAgentSnapshot,
+} from "../../../apps/control-plane/src/controller.js";
 
 export const IPC_PROTOCOL_MIN = 1;
-export const IPC_PROTOCOL_MAX = 1;
+export const IPC_PROTOCOL_MAX = 2;
+export const SOFTWARE_AGENT_IPC_SCHEMA = "software-agent.ipc/v2" as const;
 export const DEFAULT_MAX_FRAME_BYTES = 1024 * 1024;
 
 export const CONTROLLER_METHODS = [
@@ -16,6 +27,20 @@ export const CONTROLLER_METHODS = [
   "resume",
   "pause",
   "cancel",
+  "snapshot.get",
+  "events.poll",
+  "events.history",
+  "mutation.acquire",
+  "mutation.renew",
+  "mutation.release",
+  "run.create",
+  "run.resume",
+  "run.pause",
+  "run.cancel",
+  "question.ask",
+  "question.answer",
+  "instruction.submit",
+  "daemon.stop",
 ] as const;
 
 export type ControllerMethod = (typeof CONTROLLER_METHODS)[number];
@@ -29,6 +54,45 @@ export interface ControllerRpcParams {
   readonly resume: {readonly runId: string};
   readonly pause: {readonly runId: string};
   readonly cancel: {readonly runId: string};
+  readonly "snapshot.get": {readonly recentEventLimit?: number};
+  readonly "events.poll": {readonly afterCursor: number; readonly limit?: number; readonly waitMs?: number};
+  readonly "events.history": {readonly runId?: string; readonly afterCursor: number; readonly limit?: number};
+  readonly "mutation.acquire": {readonly commandId: string; readonly attachmentId: string; readonly correlationId: string};
+  readonly "mutation.renew": {
+    readonly commandId: string; readonly attachmentId: string; readonly correlationId: string;
+    readonly leaseId: string; readonly fence: number;
+  };
+  readonly "mutation.release": {
+    readonly commandId: string; readonly attachmentId: string; readonly correlationId: string;
+    readonly leaseId: string; readonly fence: number;
+  };
+  readonly "run.create": SoftwareAgentRunCommandParams & {
+    readonly objective: string;
+    readonly maxParallel: number;
+    readonly tokenMode?: "economy" | "balanced" | "quality";
+  };
+  readonly "run.resume": SoftwareAgentRunCommandParams & {readonly runId: string};
+  readonly "run.pause": SoftwareAgentRunCommandParams & {readonly runId: string};
+  readonly "run.cancel": SoftwareAgentRunCommandParams & {readonly runId: string};
+  readonly "question.ask": SoftwareAgentRunCommandParams & {readonly runId: string; readonly sessionId: string; readonly prompt: string};
+  readonly "question.answer": SoftwareAgentRunCommandParams & {readonly runId: string; readonly questionId: string; readonly answer: string};
+  readonly "instruction.submit": SoftwareAgentRunCommandParams & {
+    readonly runId: string;
+    readonly target: {readonly kind: "agent" | "task" | "run"; readonly id: string};
+    readonly text: string;
+  };
+  readonly "daemon.stop": Readonly<Record<string, never>>;
+}
+
+export interface SoftwareAgentRunCommandParams {
+  readonly schema: "software-agent.command/v2";
+  readonly commandId: string;
+  readonly actor: {readonly type: "human" | "agent" | "system"; readonly id: string};
+  readonly expectedRunRevision: number;
+  readonly correlationId: string;
+  readonly causationId: string;
+  readonly uiAttachmentId: string;
+  readonly mutationLease: {readonly leaseId: string; readonly fence: number};
 }
 
 export interface ControllerRpcResults {
@@ -40,6 +104,20 @@ export interface ControllerRpcResults {
   readonly resume: RunView;
   readonly pause: RunView;
   readonly cancel: RunView;
+  readonly "snapshot.get": SoftwareAgentSnapshot;
+  readonly "events.poll": SoftwareAgentEventsPage;
+  readonly "events.history": SoftwareAgentEventsPage;
+  readonly "mutation.acquire": MutationLeaseView;
+  readonly "mutation.renew": MutationLeaseView;
+  readonly "mutation.release": MutationLeaseView;
+  readonly "run.create": SoftwareAgentRunView;
+  readonly "run.resume": SoftwareAgentCommandReceipt;
+  readonly "run.pause": SoftwareAgentCommandReceipt;
+  readonly "run.cancel": SoftwareAgentCommandReceipt;
+  readonly "question.ask": QuestionCommandResult;
+  readonly "question.answer": QuestionCommandResult;
+  readonly "instruction.submit": InstructionCommandResult;
+  readonly "daemon.stop": {readonly schema: "software-agent.daemon-stop/v1"; readonly accepted: true};
 }
 
 export interface RpcErrorShape {
@@ -227,7 +305,100 @@ export function parseControllerParams<M extends ControllerMethod>(method: M, val
       assertKeys(params, ["runId"]);
       requiredString(params, "runId", 512);
       return params as unknown as ControllerRpcParams[M];
+    case "snapshot.get":
+      assertKeys(params, [], ["recentEventLimit"]);
+      optionalInteger(params, "recentEventLimit", 0, 250);
+      return params as unknown as ControllerRpcParams[M];
+    case "events.poll":
+      assertKeys(params, ["afterCursor"], ["limit", "waitMs"]);
+      requiredInteger(params, "afterCursor", 0, Number.MAX_SAFE_INTEGER);
+      optionalInteger(params, "limit", 1, 250);
+      optionalInteger(params, "waitMs", 0, 30_000);
+      return params as unknown as ControllerRpcParams[M];
+    case "events.history":
+      assertKeys(params, ["afterCursor"], ["runId", "limit"]);
+      requiredInteger(params, "afterCursor", 0, Number.MAX_SAFE_INTEGER);
+      optionalString(params, "runId", 512);
+      optionalInteger(params, "limit", 1, 250);
+      return params as unknown as ControllerRpcParams[M];
+    case "mutation.acquire":
+      assertKeys(params, ["commandId", "attachmentId", "correlationId"]);
+      requiredString(params, "commandId", 256);
+      requiredString(params, "attachmentId", 256);
+      requiredString(params, "correlationId", 256);
+      return params as unknown as ControllerRpcParams[M];
+    case "mutation.renew":
+    case "mutation.release":
+      assertKeys(params, ["commandId", "attachmentId", "correlationId", "leaseId", "fence"]);
+      requiredString(params, "commandId", 256);
+      requiredString(params, "attachmentId", 256);
+      requiredString(params, "correlationId", 256);
+      requiredString(params, "leaseId", 256);
+      requiredInteger(params, "fence", 1, Number.MAX_SAFE_INTEGER);
+      return params as unknown as ControllerRpcParams[M];
+    case "run.create":
+      parseSoftwareAgentRunCommand(params, ["objective", "maxParallel"], ["tokenMode"]);
+      requiredString(params, "objective", 32_768);
+      requiredInteger(params, "maxParallel", 1, 3);
+      if (params.tokenMode !== undefined && params.tokenMode !== "economy" && params.tokenMode !== "balanced" && params.tokenMode !== "quality") {
+        throw new TypeError("tokenMode is invalid");
+      }
+      return params as unknown as ControllerRpcParams[M];
+    case "run.resume":
+    case "run.pause":
+    case "run.cancel":
+      parseSoftwareAgentRunCommand(params, ["runId"]);
+      requiredString(params, "runId", 512);
+      return params as unknown as ControllerRpcParams[M];
+    case "question.ask":
+      parseSoftwareAgentRunCommand(params, ["runId", "sessionId", "prompt"]);
+      requiredString(params, "runId", 512);
+      requiredString(params, "sessionId", 512);
+      requiredString(params, "prompt", 4096);
+      return params as unknown as ControllerRpcParams[M];
+    case "question.answer":
+      parseSoftwareAgentRunCommand(params, ["runId", "questionId", "answer"]);
+      requiredString(params, "runId", 512);
+      requiredString(params, "questionId", 512);
+      requiredString(params, "answer", 4096);
+      return params as unknown as ControllerRpcParams[M];
+    case "instruction.submit": {
+      parseSoftwareAgentRunCommand(params, ["runId", "target", "text"]);
+      requiredString(params, "runId", 512);
+      requiredString(params, "text", 4096);
+      const target = plainObject(params.target, "target");
+      assertKeys(target, ["kind", "id"]);
+      if (target.kind !== "agent" && target.kind !== "task" && target.kind !== "run") throw new TypeError("target.kind is invalid");
+      requiredString(target, "id", 512);
+      return params as unknown as ControllerRpcParams[M];
+    }
+    case "daemon.stop":
+      assertKeys(params, []);
+      return params as ControllerRpcParams[M];
   }
+}
+
+function parseSoftwareAgentRunCommand(
+  params: Record<string, unknown>,
+  operationKeys: readonly string[],
+  optionalOperationKeys: readonly string[] = [],
+): void {
+  const common = ["schema", "commandId", "actor", "expectedRunRevision", "correlationId", "causationId", "uiAttachmentId", "mutationLease"];
+  assertKeys(params, [...common, ...operationKeys], optionalOperationKeys);
+  if (params.schema !== "software-agent.command/v2") throw new TypeError("unsupported Software Agent command schema");
+  requiredString(params, "commandId", 256);
+  requiredInteger(params, "expectedRunRevision", 0, Number.MAX_SAFE_INTEGER);
+  requiredString(params, "correlationId", 256);
+  requiredString(params, "causationId", 256);
+  requiredString(params, "uiAttachmentId", 256);
+  const actor = plainObject(params.actor, "actor");
+  assertKeys(actor, ["type", "id"]);
+  if (!(["human", "agent", "system"] as readonly unknown[]).includes(actor.type)) throw new TypeError("actor.type is invalid");
+  requiredString(actor, "id", 256);
+  const lease = plainObject(params.mutationLease, "mutationLease");
+  assertKeys(lease, ["leaseId", "fence"]);
+  requiredString(lease, "leaseId", 256);
+  requiredInteger(lease, "fence", 1, Number.MAX_SAFE_INTEGER);
 }
 
 function handshakeProofPayload(input: Omit<ClientHello, "kind" | "nonceProof">): string {
@@ -270,4 +441,17 @@ function optionalString(value: Record<string, unknown>, key: string, maximumLeng
     throw new TypeError(`${key} must be a non-empty string of at most ${maximumLength} characters`);
   }
   return result;
+}
+
+function requiredInteger(value: Record<string, unknown>, key: string, minimum: number, maximum: number): number {
+  const result = value[key];
+  if (typeof result !== "number" || !Number.isSafeInteger(result) || result < minimum || result > maximum) {
+    throw new TypeError(`${key} must be an integer between ${minimum} and ${maximum}`);
+  }
+  return result;
+}
+
+function optionalInteger(value: Record<string, unknown>, key: string, minimum: number, maximum: number): number | undefined {
+  if (value[key] === undefined) return undefined;
+  return requiredInteger(value, key, minimum, maximum);
 }

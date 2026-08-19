@@ -1,285 +1,312 @@
-# Terminal platform architecture
+# Software Agent architecture
 
-## Status and scope
+## Status and authority boundaries
 
-This document describes the implemented `@agent-company/cli` v0.2 vertical
-slice and the separate Python/MCP compatibility runtime. v0.2 now has an active
-authenticated local IPC boundary and child-process worker supervision. It
-remains a preview: scheduling, recovery, connector execution, and operator UI
-do not yet meet the blueprint's full stable scope.
+This document describes the Software Agent v0.3 local developer platform.
+
+Several surfaces coexist and must not be treated as one contract:
+
+| Surface | Implemented now | Current limitation |
+| --- | --- | --- |
+| Installed TypeScript CLI | `software-agent`, with a deprecated `agent-company` migration shim; primary lifecycle, provider, model, token, setup, inspection, and approval commands are active | Selected legacy inspection and connector-plan paths remain during migration |
+| Controller runtime v2 | event-sourced three-session runtime, bounded parallel DAG, durable assignments/turns/attempts/handoffs, mutation fencing, polling/history, questions and instructions | Automatic retries and complete external-side-effect reconciliation remain future work |
+| Project-room TUI | authenticated live IPC source, cursor resync, lease renewal, read-only fallback, targeted instructions, approvals, model/tool activity, evidence, tokens, and cost | Very large projections still need pagination/compaction beyond current bounded event pages |
+| Model gateway | deterministic, native OpenAI Responses, and native Anthropic Messages adapters with tool continuations, routing, and one-use grants | Provider availability, price, or usage that cannot be verified remains `UNKNOWN` |
+| Token budgets | durable 25%/50%/100% accounts, per-agent reservations/reconciliation, approved extensions, snapshot projection, and live room display | The full ceiling is fixed at 100,000 tokens per run in v0.3 |
+| Python/MCP | `software_agent` compatibility package and deprecated `agentic_company` aliases | Separate state and orchestration; never a second TypeScript controller |
+
+The schemas in [`schemas/vnext`](../../schemas/vnext) describe these contracts
+separately. A schema's presence does not imply that every adapter between the
+contracts exists.
 
 ## Component map
 
 ```text
-                         HUMAN / AUTOMATION
-                                |
-                    +-----------+-----------+
-                    | CLI / plain / JSON    |
-                    | operator console      |
-                    +-----------+-----------+
-                                |
-                  authenticated framed IPC
-                  Unix socket / Windows pipe
-                                v
-                    +-----------------------+
-                    | controller service    |
-                    | one-shot or standalone|
-                    +---+------+------+----+
-                        |      |      |
-          +-------------+      |      +----------------+
-          v                    v                       v
-  SQLite event store     approval + budget      worker supervisor
-  WAL, receipts          SQLite tables          child Node process
-          |                    |                       |
-          v                    v                       v
-  snapshot projection     policy/tool gate       leased manifest
-          |                    |                  bound result
-          +--------------------+-----------------------+
+                       human / automation
+                               |
+              +----------------+----------------+
+              | software-agent CLI              |
+              | plain / JSON / compatibility UI |
+              +----------------+----------------+
+                               |
+                 authenticated framed local IPC
+                 Unix socket / Windows named pipe
                                v
-                      normalized connector plans
-                         /        |        \
-                     GitHub     Vercel   Supabase
-                    provider-owned CLI authentication
+              +---------------------------------+
+              | controller service              |
+              | embedded or standalone daemon   |
+              +---------+---------------+-------+
+                        |               |
+          +-------------+               +------------------+
+          v                                                v
+  SQLite event store                             runtime-v2 scheduler
+  receipts, approvals, budgets                   sessions / turns / attempts
+          |                                                |
+          v                                                v
+  snapshots + event pages                  controller-owned model/tool executor
+                                                   |        |        |
+                                                   v        v        v
+                                                models   workspace  approved
+                                                         tools      commands
 
-  Attachments --> scan receipt --> content-addressed artifact store
+  project-room UI <---- IPC source adapter ----> snapshot/events/commands
+                         cursor + mutation lease
+
+  model gateway + token ledger <---- active integration ----> runtime/TUI
 ```
 
-## CLI and operator console
+## Project and durable state
 
-`apps/cli` owns command parsing, global selection flags, output envelopes, exit
-codes, and the controller client facade. For every controller-backed command it
-attempts an IPC connection. When none is usable, it starts an in-process
-one-shot IPC server, connects to that server, executes the RPC, then closes both
-client and server. If the standalone controller is already alive, the CLI uses
-it and leaves it running.
+Current TypeScript projects use `.software-agent/project.toml`,
+`.software-agent/policy.toml`, and `.software-agent/state.sqlite`. Project
+configuration is `software-agent.project/v2`. Loading a legacy
+`.agent-company/project.toml` can copy configuration into the current directory
+with a read-only migration backup, but it does not import legacy run state or
+approval authority.
 
-Even the one-shot path crosses the framed authenticated socket/pipe boundary;
-the CLI no longer opens `LocalController` or its SQLite database directly.
-Attachments, artifacts, Git inspection, and provider probes are separate local
-CLI paths.
+The SQLite event store uses WAL, full synchronous writes, foreign keys, a busy
+timeout, expected stream versions, and durable command receipts. The same
+database is opened by one controller through the supported lifecycle. This is
+application-level single-writer coordination; it does not prevent the owning
+OS account from directly modifying local files.
 
-`apps/operator-console` renders a controller snapshot with Ink for a TTY or as
-stable plain text for narrow/non-interactive terminals. It does not yet
-subscribe to live events or expose the blueprint's full project-room controls.
-Machine output is documented in [CLI ABI](../protocols/cli-abi.md).
+The shared event table can contain both compatibility events such as
+`run.created` and runtime-v2 events such as `software-agent.run.created`.
+Runtime-v2 projection ignores non-`software-agent.*` events, but unfiltered
+snapshot and history pages can return both. Current events carry metadata
+`schema: software-agent.event/v2`, `correlationId`, and `causationId`. The
+separate legacy-event schema exists only for already stored compatibility data.
 
-## Controller service and IPC
+## Local controller and IPC
 
-`apps/controller-daemon` constructs `LocalController` plus
-`ControllerIpcServer`. It can run inside the CLI for one command or as the
-standalone `dist/controller.js` process until signaled.
+The CLI normally ensures a detached standalone controller is available and
+connects to it. Tests and deployments that set
+`SOFTWARE_AGENT_CONTROLLER_MODE=embedded` can create an in-process controller
+service for the command lifetime. Both paths use the socket or pipe: the CLI
+does not directly call `LocalController` for controller-backed commands.
 
-The server discovers a workspace-specific runtime directory, writes a
-heartbeat descriptor and separate nonce file, listens on a Unix domain socket
-or Windows named pipe, and never falls back to TCP. Frames have a four-byte
-big-endian JSON payload length with a 1 MiB default limit.
+IPC uses four-byte unsigned big-endian length-prefixed UTF-8 JSON frames with a
+1 MiB default frame limit. A descriptor and separate owner-private nonce file
+bind the endpoint to a workspace, local user, controller instance, and protocol
+range. HMAC-SHA-256 nonce possession authenticates a hello before RPC.
 
-Before RPC, the client proves possession of a random 32-byte nonce with
-HMAC-SHA-256 over request/protocol/instance/user-binding fields. The server
-negotiates protocol v1 and correlates concurrent requests with `rpc_...` IDs.
-Descriptors and nonce files are owner-private and ownership-checked on POSIX.
-Windows relies on ordinary account ACLs in v0.2 and does not perform an
-independent ACL/peer-credential check.
+The current descriptor is `software-agent.controller/v2` with protocol range
+1 through 2. Protocol 2 adds dotted runtime methods for snapshots, event
+polling/history, mutation leases, run lifecycle, questions, instructions, and
+daemon shutdown. CamelCase compatibility methods remain active because some
+inspection and approval paths still consume them. The server currently accepts any registered method after
+either negotiated version; protocol-to-method gating remains an unresolved
+compatibility decision.
 
-The exposed methods are `snapshot`, `createRun`, `listApprovals`, `approve`,
-`deny`, `resume`, `pause`, and `cancel`. Method-specific parameter validation
-rejects missing, extra, blank, and oversized inputs. RPC authentication only
-grants access to this local service; domain approval and policy remain separate.
+See [Local IPC](../protocols/local-ipc.md) for the exact envelopes and method
+table.
 
-See [Local IPC](../protocols/local-ipc.md) and the controller descriptor/request/
-response schemas for the exact wire contract.
+## Runtime-v2 execution model
 
-## Controller and durable state
+The v0.3 runtime builds a deterministic five-task DAG across exactly three
+session roles:
 
-`apps/control-plane` coordinates the current vertical slice:
+- `master-orchestrator`;
+- `software-engineer`; and
+- `reviewer-qa`.
 
-1. Load `.agent-company/project.toml`.
-2. Open `.agent-company/state.sqlite` in the controller service.
-3. Create a run and deterministic task DAG.
-4. Record why/scopes/model class/cost estimate for lazily activated specialists.
-5. Persist run, task, agent, approval, and state-change events.
-6. Wait for an exact plan approval.
-7. Issue and verify an HMAC-protected short-lived approval authorization, then
-   atomically consume the underlying approval.
-8. Claim each task with an attempt/lease manifest and execute it in a child
-   worker process in DAG order.
-9. Verify the bound result, persist evidence, and reach `SUCCEEDED`.
+A new run begins `PAUSED`. Its `maxParallel` is one through three. The scheduler
+runs ready tasks concurrently up to that bound, never assigns two active tasks
+to the same session, and permits only one workspace-mutating attempt at a time.
+It persists assignments, turns, attempts, handoffs, questions, mailbox
+messages, evidence, and state changes.
 
-The event store is the replay source for run projections. Approval and budget
-tables share the same SQLite database, with dedicated invariants. SQLite uses
-foreign keys, a busy timeout, WAL journaling, and full synchronous writes.
-Appends use `BEGIN IMMEDIATE`, expected stream versions, and idempotent command
-receipts.
+Runtime-v2 run states are `PAUSED`, `RUNNING`, `PAUSING`, `RECOVERING`,
+`SUCCEEDED`, `FAILED`, and `CANCELED`. Task states are `BLOCKED`, `READY`,
+`RUNNING`, `PASSED`, `FAILED`, and `CANCELED`. The broader compatibility
+controller state enums are not valid runtime-v2 run or task views.
 
-Only one active descriptor/server may own a workspace through the supported
-IPC lifecycle. This is application-level single-writer coordination, not a
-cryptographic defense against the local account directly opening state files.
+Every mutating runtime-v2 run, question, or instruction command carries:
 
-## Domain states
+- `schema: software-agent.command/v2`;
+- an idempotent `commandId`;
+- actor, correlation, and causation identity;
+- `expectedRunRevision` for optimistic concurrency;
+- a UI attachment identity; and
+- the matching controller mutation `leaseId` and fence.
 
-Run states:
+The controller injects the local human actor for mutation-lease acquisition,
+renewal, and release. The run command then proves the attachment/lease/fence
+binding again. Authentication, optimistic concurrency, and mutation leases are
+separate from domain approval.
 
-```text
-DRAFT, PLANNING, WAITING_INPUT, WAITING_APPROVAL, RUNNING, PAUSING,
-PAUSED, RECOVERING, NEEDS_RECONCILIATION, SUCCEEDED, PARTIAL, FAILED,
-CANCELED
-```
+## Attempt, tool, subprocess, and recovery boundaries
 
-Task states:
+Runtime-v2 sends a strict `software-agent.step/v1` manifest to an injectable
+step executor. The installed controller uses a controller-owned model/tool
+executor; direct runtime tests can use the child-worker executor. The manifest
+binds run, task revision, session, turn revision, attempt, lease, fencing epoch,
+workspace revision, role, objective, heartbeat cadence, and execution limits.
+It never contains provider or tool credentials.
 
-```text
-PROPOSED, BLOCKED, READY, CLAIMED, RUNNING, WAITING_TOOL, WAITING_INPUT,
-WAITING_APPROVAL, REVIEW, REWORK, PASSED, FAILED, SKIPPED, CANCELED
-```
+The executor emits strict `software-agent.step-frame/v1` heartbeat, activity,
+intent, and completion frames. Model calls stay behind one-use grants and the
+controller-side secret broker. Repository discovery, literal context search,
+reads, and writes pass through `WorkspaceEnvironment`; writes require an exact
+revision plus the active lease/fence. Verification commands require an exact
+human approval, use no shell, receive a reduced environment, and run in bounded
+child process trees. A completed frame is accepted only while its attempt,
+lease, revisions, turn, and fencing epoch remain current; late results are
+recorded and rejected.
 
-Agent states:
+On controller startup, active or leased attempts are fenced, their assignments
+are released, running tasks return to `READY`, sessions return to `IDLE`, and a
+recovering run is rescheduled. Pause and cancel abort child execution and
+persist terminal/interrupted state.
 
-```text
-ACTIVATING, PLANNING, RUNNING, WAITING_TOOL, WAITING_INPUT,
-WAITING_APPROVAL, BLOCKED, REVIEWING, PAUSED, SUCCEEDED, FAILED, STOPPED
-```
+Recovery is still bounded:
 
-Approval states:
+- a heartbeat records liveness but does not extend the fixed lease expiry;
+- ordinary worker failure is terminal for that task; there is no retry/backoff policy;
+- restart recovery fences logical attempts but does not enumerate or kill every possible orphan OS process;
+- model/tool execution is controller-owned rather than isolated in a hostile-code sandbox;
+- approved verification commands have process separation but no OS sandbox, container, or network namespace; and
+- uncertain external postconditions do not yet have a complete reconciliation workflow.
 
-```text
-PENDING, APPROVED, DENIED, CHANGES_REQUESTED, CANCELED, SUPERSEDED,
-EXPIRED, CONSUMED, INVALIDATED
-```
+Process separation, reduced environment, binding checks, and fencing are
+meaningful controls, but they are not a hostile-code sandbox.
 
-Transition helpers reject invalid run/task edges and stale revisions. Replay
-also checks each recorded run/task transition against its current projected
-state and fails with `CORRUPT_EVENT_STREAM` on inconsistency. Agent lifecycle
-metadata is projected, although the current fixed slice does not emit a full
-agent-state event lifecycle.
+## Snapshots and event delivery
 
-## Events and projections
+`software-agent.snapshot/v2` returns the global event cursor, project identity,
+current mutation lease, all runtime-v2 runs, and up to 250 recent stored events.
+`software-agent.events/v2` is used for both history and long polling.
 
-Each stored event has a global `sequence`, per-stream `streamVersion`, unique
-event ID, schema version, timestamp, actor, type, data, and metadata. Commands
-bind an `operationHash` and response to their first and last event sequences.
-Repeating the same command ID/binding returns the receipt; reusing the ID for
-different input is rejected.
+Polling accepts a cursor, limit up to 250, and wait up to 30 seconds. If more
+than 512 events or 512 KiB have accumulated behind the cursor, the response is
+empty with `resyncRequired: true`; a client must load a new snapshot. History
+scans the global sequence and applies an optional run filter after the scan, so
+its cursor can advance over events from other streams.
 
-Current projections are rebuilt by replay. Event payloads remain
-event-type-specific JSON objects. The vNext event schema validates the envelope
-and deliberately does not claim to validate every event payload/upcast.
+There is no server-push subscription. The live-room IPC source turns snapshots
+plus committed event pages into a contiguous UI projection and reloads an
+authoritative snapshot when the server requests resynchronization.
 
-## Policy and approvals
+## Project-room TUI contract
 
-Contracts canonicalize JSON before SHA-256 hashing. Operation candidates bind
-actor, connector, action, resource, environment, artifact digest, and
-parameters. Approval records bind the operation hash plus a binding hash.
+`apps/operator-console` contains a reducer-driven Ink project room with:
 
-| Approval class | Boundary | v0.2 policy |
-| --- | --- | --- |
-| A0 | observation | permitted without human approval |
-| A1 | reversible local | permitted within local policy |
-| A2 | reversible isolated remote | approval required |
-| A3 | shared non-production | approval required |
-| A4 | production/security-sensitive | approval required |
-| A5 | destructive/irreversible | denied by default |
+- plain fallback below 60 columns or 20 rows;
+- narrow, two-card, and three-card layouts at 60, 90, and 120 columns;
+- agent, event, approval, detail, and token panels;
+- explicit composer targets and confirmation state;
+- focus, search, follow, help, reconnect, resync, stale, error, empty, and read-only states; and
+- `NO_COLOR`, ASCII, non-interactive text, and terminal-restoration behavior.
 
-Unknown connector operations are denied. Dynamic escalation accounts for
-production environments and protected GitHub targets. Selected dangerous
-operations are hard-denied before an action plan exists.
+Its `ProjectRoomSource` has three operations: load an authoritative
+`software-agent.project-room/v1` projection, wait for the next committed update
+after a cursor, and execute a typed UI intent. Reducer state changes authority
+only after a committed update.
 
-Approval decisions require a human actor. `APPROVED` is not execution: resume
-issues a signed authorization bound to the stored approval and expiry, verifies
-it, then uses a SQLite compare-and-update for single-use consumption.
+`IpcProjectRoomSource` is wired into the primary `start`, `run`, `resume`,
+`pause`, and `cancel` flows. It acquires a 15-second controller mutation lease,
+renews it before expiry, falls back to `READ_ONLY` when another room owns the
+lease, checks each intent's `expectedCursor` against a fresh snapshot, then
+uses the selected run's current revision in the runtime command. It releases
+the lease on leave or disposal. `objective.create` creates a paused runtime-v2
+run and immediately resumes it; `session.leave` can continue, pause, or cancel.
 
-## Worker process and lease boundary
+The adapter derives activity, evidence, provider/model, usage, cost, token
+budgets, and approval panels from authoritative snapshots and recent events.
+Missing provider data stays `UNKNOWN`. Runtime-v2 command execution creates
+durable exact approval records; the current UI decision is carried over the
+authenticated compatibility-named `approve`/`deny` RPC while the command wait
+and single-use consumption remain controller-owned.
 
-`ChildWorkerSupervisor` creates a `agent-company.run-manifest/v1` record with
-attempt ID, lease ID/expiry, run/task/role/workspace/model binding, objective,
-wall-time limit, and maximum output bytes. The controller records
-`worker.lease_granted` before execution.
+## Models and provider boundary
 
-The supervisor spawns a separate Node process with:
+`ModelGateway` registers adapters and normalizes discovery, streaming frames,
+tool calls, usage, completion, and failure behavior. Implemented adapters are:
 
-- the workspace as its current directory;
-- no shell and a reduced environment;
-- hidden window on Windows;
-- piped stdin/stdout/stderr;
-- a wall-clock timeout (30 seconds by default, at most one hour);
-- bounded stdout (1 MiB by default, at most 16 MiB); and
-- exactly one NDJSON result line.
+- a deterministic local adapter;
+- native OpenAI Responses API transport; and
+- native Anthropic Messages API transport.
 
-The worker rejects a lease already expired at startup, validates the manifest,
-runs the deterministic model adapter, and returns an attempt/lease-bound result.
-The supervisor checks attempt, lease, and task identity before accepting it.
-The controller records completion/evidence or failure/task/run transitions.
-Pause/cancel abort an active child through the controller's `AbortSignal`.
+Provider credentials are resolved from explicit secret references by the
+controller-side secret broker. Capability catalogs use
+`software-agent.model-catalog/v1`; unavailable capability, context, pricing, or
+usage data stays `UNKNOWN` rather than being guessed.
 
-The lease is not yet durable scheduling infrastructure: there are no lease
-heartbeats/extensions, retry policy, attempt adoption after restart, OS
-sandbox/container, network restriction, or complete orphan-process recovery.
-Separate-process execution and environment reduction are isolation controls,
-not a security sandbox.
+Routing produces immutable `software-agent.model-route/v1` revisions using
+run, next-run, role, project, then user precedence. Explicit changes increment
+the revision. `ModelBroker` issues in-memory, expiring, one-use
+`software-agent.model-grant/v1` grants bound to run, task, agent, attempt,
+provider, model, route revision, and token limits.
 
-## Tools, models, and budgets
+The installed controller resolves the effective project/role route for every
+step, issues a one-use broker grant, invokes the selected adapter, persists
+model/tool activity, reconciles provider usage, and records evidence. OpenAI
+tool continuations use `previous_response_id`; Anthropic uses normalized
+assistant/tool history. The deterministic route remains the offline default.
 
-The tool gateway validates input/output with Zod, applies path/network/shell
-guards, requires an approval consumer for gated classes, passes an
-`AbortSignal`, and emits sanitized audit records. Current connected commands
-emit action plans rather than routing a remote mutation executor through it.
+## Token budgets
 
-The model gateway has deterministic and OpenAI-compatible adapter interfaces;
-the controller/worker slice intentionally uses the deterministic adapter.
-Budget reservations store integer micro-dollars and reserve transactionally.
-Complete provider pricing, delayed usage reconciliation, and unpriced-usage
-governance remain incomplete.
+The SQLite budget ledger supports token modes `economy`, `balanced`, and
+`quality`, which set a base ceiling to 25, 50, or 100 percent of a configured
+full ceiling. It supports optional exact-total per-agent shares,
+transactional reservations, provider-usage normalization, conservative
+`UNKNOWN` reconciliation, release, reassignment, 80-percent warnings, and
+single-use approved extensions.
 
-## Attachments and artifacts
+An extension must equal exactly 25 percent of the full ceiling, remain within
+the full ceiling, and be consumed before an approval expiry no more than 15
+minutes away. These relational rules are enforced by code and are described,
+but not all can be expressed in a single JSON Schema instance.
 
-Artifacts are stored by the SHA-256 digest of bytes and verified on read.
-Manifests record logical name, media type, producer, classification, size,
-digest, and optional source revision.
+Every new run receives a 100,000-token full ceiling and the selected mode. The
+controller snapshot carries account and per-agent allocation views, and the
+project room renders actual spent/reserved status. Balanced mode is the default
+50% ceiling; economy is 25% and quality is 100%.
 
-Attachment ingestion resolves real paths under allowed roots, skips directory
-symlinks, applies file/folder limits, detects basic types, and performs
-deterministic malware-test, secret, PII, and injection-pattern checks. The
-receipt fixes `transfer_count` at zero. These checks are defense in depth, not
-a malware sandbox or authorization to upload/execute content.
+## Approvals, connectors, attachments, and artifacts
 
-## Connectors and secrets
+The approval service still implements exact operation bindings, human
+decisions, expiry, single-use consumption, and states from `PENDING` through
+`INVALIDATED`. Connector plans normalize A0 through A5 risk classes and hard
+deny selected destructive operations. Attachments are scanned before content
+addressed artifact storage and never grant transfer authority.
 
-Adapters use installed provider CLIs for authentication discovery and read-only
-inventory. They run without a shell, with a reduced environment, timeout,
-output cap, hidden Windows process window, and terminal sanitization.
+Those facilities are active. Before an allowlisted process command runs, the
+controller creates an exact A3 packet bound to the agent, run, command digest,
+attempt authority, and expiry; persists a visible request event; waits for a
+human decision; and atomically consumes approval once. Denied, expired,
+canceled, already-consumed, or mismatched approvals fail closed. Connected
+remote mutations remain plan-only pending receipt/reconciliation executors.
 
-Normalized action plans contain identity, capability, target, environment,
-arguments, preconditions, risk, and operation hash. v0.2 does not execute the
-planned remote mutations.
+## Compatibility boundary
 
-The secret broker accepts references and produces short-lived in-memory lease
-values. Environment-variable lookup is implemented. OS credential-store
-adapters, rotation, revocation, and non-exportable provider sessions remain
-incomplete.
+Current schemas and outputs use `software-agent.*`. Explicit legacy readers
+remain for project configuration, controller descriptor/lock discovery, old
+stored events, selected artifact/attachment/connector inputs, the deprecated
+npm binary, and Python import/entrypoint aliases. They are migration boundaries,
+not permission to emit new legacy contracts.
 
-## Python/MCP compatibility boundary
+The compatibility controller and worker path remains callable, and current
+inspection/approval commands still consume parts of its projection. Primary
+run creation and lifecycle now use runtime v2. Removing the residual path
+requires migrating those remaining commands and external clients. See
+[Compatibility and migration](../compatibility.md).
 
-`src/agentic_company` preserves the Python reference runtime and MCP surface.
-Its state and contracts do not share a protocol with vNext. Python uses
-`.agentic_company/state.json` plus `events.jsonl`; TypeScript uses
-`.agent-company/state.sqlite`. See [Compatibility](../compatibility.md).
+## Contract index
 
-## Failure and recovery model
+The most important current schemas are:
 
-Transactions roll back failed writes; artifacts detect digest mismatch;
-approval expiry/binding mismatch fail closed; framed IPC is bounded; worker
-result binding is checked. Clean controller shutdown removes its descriptor,
-nonce, and Unix socket.
-
-Full crash recovery is not implemented. There is no persistent lease heartbeat,
-automatic retry, attempt adoption, or definitive orphan reconciliation. Once a
-remote executor exists, uncertain postconditions must use
-`NEEDS_RECONCILIATION`, not guessed success. See
-[Backup and recovery](../runbooks/backup-and-recovery.md).
+- [controller descriptor](../../schemas/vnext/controller-descriptor.schema.json), [handshake](../../schemas/vnext/ipc-handshake.schema.json), [request](../../schemas/vnext/ipc-request.schema.json), and [response](../../schemas/vnext/ipc-response.schema.json);
+- [runtime snapshot](../../schemas/vnext/snapshot.schema.json), [event page](../../schemas/vnext/events-page.schema.json), [run](../../schemas/vnext/run.schema.json), [task](../../schemas/vnext/task.schema.json), and [event](../../schemas/vnext/event.schema.json);
+- [project-room projection](../../schemas/vnext/project-room.schema.json), [committed update](../../schemas/vnext/project-room-update.schema.json), and [UI intent](../../schemas/vnext/project-room-command.schema.json);
+- [step manifest](../../schemas/vnext/step-manifest.schema.json) and [step frame](../../schemas/vnext/step-frame.schema.json);
+- model catalog, descriptor, route, grant, request, frame, result, and usage schemas; and
+- token budget configuration, account, allocation, reservation, usage, and extension schemas.
 
 ## References
 
-- [ADR-0002](../adr/0002-typescript-terminal-platform-preview.md)
 - [Local IPC](../protocols/local-ipc.md)
+- [Compatibility and migration](../compatibility.md)
 - [Threat model](../security/threat-model.md)
+- [Backup and recovery](../runbooks/backup-and-recovery.md)
 - [Blueprint traceability](../blueprint-traceability.md)
-- [vNext schemas](../../schemas/vnext)

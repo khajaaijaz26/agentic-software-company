@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/khajaaijaz26/agentic-software-company/schemas/task-envelope.schema.json",
+  "$id": "https://github.com/khajaaijaz26/software-agent/schemas/task-envelope.schema.json",
   "title": "Task Envelope",
   "description": "The immutable instruction bundle handed to a specialist agent by the orchestrator. Binds identity, scope, policy, approvals, context, budget, and reporting expectations for one task.",
   "type": "object",

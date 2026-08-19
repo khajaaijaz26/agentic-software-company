@@ -1,95 +1,339 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.agent-company.dev/vnext/ipc-request.schema.json",
-  "title": "Agent Company authenticated controller RPC request v1",
-  "description": "RPC request payload carried after the authenticated hello/welcome handshake in a 4-byte big-endian length-prefixed JSON frame.",
+  "$id": "https://schemas.software-agent.dev/vnext/ipc-request.schema.json",
+  "title": "Software Agent authenticated controller RPC request",
+  "description": "Request sent after hello/welcome over a four-byte big-endian length-prefixed UTF-8 JSON frame. Dotted methods are the runtime-v2 surface; camelCase methods are active protocol-1 compatibility calls.",
+  "$comment": "The implementation currently checks only that protocolVersion equals the negotiated value; it does not gate method names by version.",
   "type": "object",
   "additionalProperties": false,
   "required": ["kind", "requestId", "protocolVersion", "method", "params"],
   "properties": {
     "kind": { "const": "request" },
-    "requestId": { "type": "string", "pattern": "^rpc_[a-f0-9]{32}$" },
-    "protocolVersion": { "const": 1 },
+    "requestId": { "$ref": "#/$defs/requestId" },
+    "protocolVersion": { "enum": [1, 2] },
     "method": {
-      "enum": ["snapshot", "createRun", "listApprovals", "approve", "deny", "resume", "pause", "cancel"]
+      "enum": [
+        "snapshot",
+        "createRun",
+        "listApprovals",
+        "approve",
+        "deny",
+        "resume",
+        "pause",
+        "cancel",
+        "snapshot.get",
+        "events.poll",
+        "events.history",
+        "mutation.acquire",
+        "mutation.renew",
+        "mutation.release",
+        "run.create",
+        "run.resume",
+        "run.pause",
+        "run.cancel",
+        "question.ask",
+        "question.answer",
+        "instruction.submit",
+        "daemon.stop"
+      ]
     },
     "params": { "type": "object" }
   },
   "oneOf": [
-    {
-      "properties": {
-        "method": { "const": "snapshot" },
-        "params": { "$ref": "#/$defs/emptyParams" }
-      }
-    },
-    {
-      "properties": {
-        "method": { "const": "createRun" },
-        "params": { "$ref": "#/$defs/createRunParams" }
-      }
-    },
-    {
-      "properties": {
-        "method": { "const": "listApprovals" },
-        "params": { "$ref": "#/$defs/listApprovalsParams" }
-      }
-    },
-    {
-      "properties": {
-        "method": { "enum": ["approve", "deny"] },
-        "params": { "$ref": "#/$defs/decisionParams" }
-      }
-    },
-    {
-      "properties": {
-        "method": { "enum": ["resume", "pause", "cancel"] },
-        "params": { "$ref": "#/$defs/runParams" }
-      }
-    }
+    { "$ref": "#/$defs/legacySnapshot" },
+    { "$ref": "#/$defs/legacyCreateRun" },
+    { "$ref": "#/$defs/legacyListApprovals" },
+    { "$ref": "#/$defs/legacyDecision" },
+    { "$ref": "#/$defs/legacyRunAction" },
+    { "$ref": "#/$defs/snapshotGet" },
+    { "$ref": "#/$defs/eventsPoll" },
+    { "$ref": "#/$defs/eventsHistory" },
+    { "$ref": "#/$defs/mutationAcquire" },
+    { "$ref": "#/$defs/mutationBound" },
+    { "$ref": "#/$defs/runCreate" },
+    { "$ref": "#/$defs/runAction" },
+    { "$ref": "#/$defs/questionAsk" },
+    { "$ref": "#/$defs/questionAnswer" },
+    { "$ref": "#/$defs/instructionSubmit" },
+    { "$ref": "#/$defs/daemonStop" }
   ],
   "$defs": {
-    "nonBlank512": {
-      "type": "string",
-      "minLength": 1,
-      "maxLength": 512,
-      "pattern": "\\S"
-    },
-    "emptyParams": {
+    "requestId": { "type": "string", "pattern": "^rpc_[a-f0-9]{32}$" },
+    "legacyString512": { "type": "string", "minLength": 1, "maxLength": 512, "pattern": "\\S" },
+    "legacyString4096": { "type": "string", "minLength": 1, "maxLength": 4096, "pattern": "\\S" },
+    "exact256": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "^\\S(?:[\\s\\S]*\\S)?$" },
+    "safeNonNegativeInteger": { "type": "integer", "minimum": 0, "maximum": 9007199254740991 },
+    "positiveFence": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+    "emptyParams": { "type": "object", "additionalProperties": false, "maxProperties": 0 },
+    "actor": {
       "type": "object",
       "additionalProperties": false,
-      "maxProperties": 0
-    },
-    "createRunParams": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["objective"],
+      "required": ["type", "id"],
       "properties": {
-        "objective": { "type": "string", "minLength": 1, "maxLength": 32768, "pattern": "\\S" }
+        "type": { "enum": ["human", "agent", "system"] },
+        "id": { "$ref": "#/$defs/exact256" }
       }
     },
-    "listApprovalsParams": {
+    "mutationLeaseBinding": {
       "type": "object",
       "additionalProperties": false,
+      "required": ["leaseId", "fence"],
       "properties": {
-        "runId": { "$ref": "#/$defs/nonBlank512" }
+        "leaseId": { "$ref": "#/$defs/exact256" },
+        "fence": { "$ref": "#/$defs/positiveFence" }
       }
     },
-    "decisionParams": {
+    "commandContext": {
       "type": "object",
-      "additionalProperties": false,
-      "required": ["approvalId"],
+      "required": [
+        "schema",
+        "commandId",
+        "actor",
+        "expectedRunRevision",
+        "correlationId",
+        "causationId",
+        "uiAttachmentId",
+        "mutationLease"
+      ],
       "properties": {
-        "approvalId": { "$ref": "#/$defs/nonBlank512" },
-        "reason": { "type": "string", "minLength": 1, "maxLength": 4096, "pattern": "\\S" }
+        "schema": { "const": "software-agent.command/v2" },
+        "commandId": { "$ref": "#/$defs/exact256" },
+        "actor": { "$ref": "#/$defs/actor" },
+        "expectedRunRevision": { "$ref": "#/$defs/safeNonNegativeInteger" },
+        "correlationId": { "$ref": "#/$defs/exact256" },
+        "causationId": { "$ref": "#/$defs/exact256" },
+        "uiAttachmentId": { "$ref": "#/$defs/exact256" },
+        "mutationLease": { "$ref": "#/$defs/mutationLeaseBinding" }
       }
     },
-    "runParams": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["runId"],
+    "legacySnapshot": {
+      "properties": { "method": { "const": "snapshot" }, "params": { "$ref": "#/$defs/emptyParams" } }
+    },
+    "legacyCreateRun": {
       "properties": {
-        "runId": { "$ref": "#/$defs/nonBlank512" }
+        "method": { "const": "createRun" },
+        "params": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["objective"],
+          "properties": { "objective": { "type": "string", "minLength": 1, "maxLength": 32768, "pattern": "\\S" } }
+        }
       }
+    },
+    "legacyListApprovals": {
+      "properties": {
+        "method": { "const": "listApprovals" },
+        "params": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "runId": { "$ref": "#/$defs/legacyString512" } }
+        }
+      }
+    },
+    "legacyDecision": {
+      "properties": {
+        "method": { "enum": ["approve", "deny"] },
+        "params": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["approvalId"],
+          "properties": {
+            "approvalId": { "$ref": "#/$defs/legacyString512" },
+            "reason": { "$ref": "#/$defs/legacyString4096" }
+          }
+        }
+      }
+    },
+    "legacyRunAction": {
+      "properties": {
+        "method": { "enum": ["resume", "pause", "cancel"] },
+        "params": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["runId"],
+          "properties": { "runId": { "$ref": "#/$defs/legacyString512" } }
+        }
+      }
+    },
+    "snapshotGet": {
+      "properties": {
+        "method": { "const": "snapshot.get" },
+        "params": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "recentEventLimit": { "type": "integer", "minimum": 0, "maximum": 250 } }
+        }
+      }
+    },
+    "eventsPoll": {
+      "properties": {
+        "method": { "const": "events.poll" },
+        "params": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["afterCursor"],
+          "properties": {
+            "afterCursor": { "$ref": "#/$defs/safeNonNegativeInteger" },
+            "limit": { "type": "integer", "minimum": 1, "maximum": 250 },
+            "waitMs": { "type": "integer", "minimum": 0, "maximum": 30000 }
+          }
+        }
+      }
+    },
+    "eventsHistory": {
+      "properties": {
+        "method": { "const": "events.history" },
+        "params": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["afterCursor"],
+          "properties": {
+            "runId": { "$ref": "#/$defs/legacyString512" },
+            "afterCursor": { "$ref": "#/$defs/safeNonNegativeInteger" },
+            "limit": { "type": "integer", "minimum": 1, "maximum": 250 }
+          }
+        }
+      }
+    },
+    "mutationAcquire": {
+      "properties": {
+        "method": { "const": "mutation.acquire" },
+        "params": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["commandId", "attachmentId", "correlationId"],
+          "properties": {
+            "commandId": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "\\S" },
+            "attachmentId": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "\\S" },
+            "correlationId": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "\\S" }
+          }
+        }
+      }
+    },
+    "mutationBound": {
+      "properties": {
+        "method": { "enum": ["mutation.renew", "mutation.release"] },
+        "params": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["commandId", "attachmentId", "correlationId", "leaseId", "fence"],
+          "properties": {
+            "commandId": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "\\S" },
+            "attachmentId": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "\\S" },
+            "correlationId": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "\\S" },
+            "leaseId": { "type": "string", "minLength": 1, "maxLength": 256, "pattern": "\\S" },
+            "fence": { "$ref": "#/$defs/positiveFence" }
+          }
+        }
+      }
+    },
+    "runCreate": {
+      "properties": {
+        "method": { "const": "run.create" },
+        "params": {
+          "allOf": [
+            { "$ref": "#/$defs/commandContext" },
+            {
+              "type": "object",
+              "required": ["objective", "maxParallel"],
+              "properties": {
+                "expectedRunRevision": { "const": 0 },
+                "objective": { "type": "string", "minLength": 1, "maxLength": 32768, "pattern": "\\S" },
+                "maxParallel": { "type": "integer", "minimum": 1, "maximum": 3 },
+                "tokenMode": { "enum": ["economy", "balanced", "quality"] }
+              }
+            }
+          ],
+          "unevaluatedProperties": false
+        }
+      }
+    },
+    "runAction": {
+      "properties": {
+        "method": { "enum": ["run.resume", "run.pause", "run.cancel"] },
+        "params": {
+          "allOf": [
+            { "$ref": "#/$defs/commandContext" },
+            {
+              "type": "object",
+              "required": ["runId"],
+              "properties": { "runId": { "$ref": "#/$defs/legacyString512" } }
+            }
+          ],
+          "unevaluatedProperties": false
+        }
+      }
+    },
+    "questionAsk": {
+      "properties": {
+        "method": { "const": "question.ask" },
+        "params": {
+          "allOf": [
+            { "$ref": "#/$defs/commandContext" },
+            {
+              "type": "object",
+              "required": ["runId", "sessionId", "prompt"],
+              "properties": {
+                "runId": { "$ref": "#/$defs/legacyString512" },
+                "sessionId": { "$ref": "#/$defs/legacyString512" },
+                "prompt": { "$ref": "#/$defs/legacyString4096" }
+              }
+            }
+          ],
+          "unevaluatedProperties": false
+        }
+      }
+    },
+    "questionAnswer": {
+      "properties": {
+        "method": { "const": "question.answer" },
+        "params": {
+          "allOf": [
+            { "$ref": "#/$defs/commandContext" },
+            {
+              "type": "object",
+              "required": ["runId", "questionId", "answer"],
+              "properties": {
+                "runId": { "$ref": "#/$defs/legacyString512" },
+                "questionId": { "$ref": "#/$defs/legacyString512" },
+                "answer": { "$ref": "#/$defs/legacyString4096" }
+              }
+            }
+          ],
+          "unevaluatedProperties": false
+        }
+      }
+    },
+    "instructionSubmit": {
+      "properties": {
+        "method": { "const": "instruction.submit" },
+        "params": {
+          "allOf": [
+            { "$ref": "#/$defs/commandContext" },
+            {
+              "type": "object",
+              "required": ["runId", "target", "text"],
+              "properties": {
+                "runId": { "$ref": "#/$defs/legacyString512" },
+                "target": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["kind", "id"],
+                  "properties": {
+                    "kind": { "enum": ["agent", "task", "run"] },
+                    "id": { "$ref": "#/$defs/legacyString512" }
+                  }
+                },
+                "text": { "$ref": "#/$defs/legacyString4096" }
+              }
+            }
+          ],
+          "unevaluatedProperties": false
+        }
+      }
+    },
+    "daemonStop": {
+      "properties": { "method": { "const": "daemon.stop" }, "params": { "$ref": "#/$defs/emptyParams" } }
     }
   }
 }

@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://schemas.agent-company.dev/vnext/run.schema.json",
-  "title": "Agent Company run view v1",
+  "$id": "https://schemas.software-agent.dev/vnext/run.schema.json",
+  "title": "Software Agent runtime run view v2",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -9,102 +9,137 @@
     "projectId",
     "objective",
     "state",
+    "revision",
+    "maxParallel",
     "createdAt",
     "tasks",
-    "agents",
-    "approvalIds",
-    "costUsd"
+    "sessions",
+    "assignments",
+    "attempts",
+    "handoffs",
+    "questions",
+    "mailbox"
   ],
   "properties": {
-    "id": { "type": "string", "minLength": 1 },
-    "projectId": { "type": "string", "minLength": 1 },
-    "objective": { "type": "string", "minLength": 1 },
-    "state": {
-      "enum": [
-        "DRAFT",
-        "PLANNING",
-        "WAITING_INPUT",
-        "WAITING_APPROVAL",
-        "RUNNING",
-        "PAUSING",
-        "PAUSED",
-        "RECOVERING",
-        "NEEDS_RECONCILIATION",
-        "SUCCEEDED",
-        "PARTIAL",
-        "FAILED",
-        "CANCELED"
-      ]
-    },
-    "createdAt": { "type": "string", "format": "date-time" },
-    "tasks": {
-      "type": "array",
-      "items": { "$ref": "task.schema.json" }
-    },
-    "agents": {
-      "type": "array",
-      "items": { "$ref": "#/$defs/agent" }
-    },
-    "approvalIds": {
-      "type": "array",
-      "items": { "type": "string", "minLength": 1 },
-      "uniqueItems": true
-    },
-    "costUsd": { "type": "number", "minimum": 0 }
+    "id": { "$ref": "#/$defs/id" },
+    "projectId": { "$ref": "#/$defs/id" },
+    "objective": { "type": "string", "minLength": 1, "maxLength": 32768 },
+    "state": { "enum": ["PAUSED", "RUNNING", "PAUSING", "RECOVERING", "SUCCEEDED", "FAILED", "CANCELED"] },
+    "revision": { "$ref": "#/$defs/revision" },
+    "maxParallel": { "type": "integer", "minimum": 1, "maximum": 3 },
+    "createdAt": { "$ref": "#/$defs/timestamp" },
+    "tasks": { "type": "array", "items": { "$ref": "task.schema.json" } },
+    "sessions": { "type": "array", "items": { "$ref": "#/$defs/session" } },
+    "assignments": { "type": "array", "items": { "$ref": "#/$defs/assignment" } },
+    "attempts": { "type": "array", "items": { "$ref": "#/$defs/attempt" } },
+    "handoffs": { "type": "array", "items": { "$ref": "#/$defs/handoff" } },
+    "questions": { "type": "array", "items": { "$ref": "#/$defs/question" } },
+    "mailbox": { "type": "array", "items": { "$ref": "#/$defs/mailboxMessage" } }
   },
   "$defs": {
-    "agent": {
+    "id": { "type": "string", "minLength": 1, "maxLength": 512 },
+    "revision": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "role": { "enum": ["master-orchestrator", "software-engineer", "reviewer-qa"] },
+    "session": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "role", "state", "revision"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "role": { "$ref": "#/$defs/role" },
+        "state": { "enum": ["IDLE", "RUNNING", "WAITING_INPUT", "WAITING_HANDOFF", "PAUSED", "SUCCEEDED", "FAILED", "STOPPED"] },
+        "revision": { "$ref": "#/$defs/revision" },
+        "currentTaskId": { "$ref": "#/$defs/id" },
+        "currentTurnId": { "$ref": "#/$defs/id" },
+        "lastHeartbeatAt": { "$ref": "#/$defs/timestamp" },
+        "leaseExpiresAt": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "assignment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "taskId", "sessionId", "taskRevision", "state"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "taskId": { "$ref": "#/$defs/id" },
+        "sessionId": { "$ref": "#/$defs/id" },
+        "taskRevision": { "$ref": "#/$defs/revision" },
+        "state": { "enum": ["OFFERED", "ACTIVE", "RELEASED", "COMPLETED", "CANCELED"] }
+      }
+    },
+    "attempt": {
       "type": "object",
       "additionalProperties": false,
       "required": [
         "id",
-        "role",
-        "displayName",
-        "state",
         "taskId",
-        "model",
-        "modelClass",
-        "why",
-        "scopes",
-        "estimatedCostUsd",
-        "deactivateWhen"
+        "sessionId",
+        "turnId",
+        "taskRevision",
+        "turnRevision",
+        "leaseId",
+        "leaseExpiresAt",
+        "fencingEpoch",
+        "state",
+        "startedAt",
+        "lastHeartbeatAt"
       ],
       "properties": {
-        "id": { "type": "string", "minLength": 1 },
-        "role": { "type": "string", "minLength": 1 },
-        "displayName": { "type": "string", "minLength": 1 },
-        "state": {
-          "enum": [
-            "ACTIVATING",
-            "PLANNING",
-            "RUNNING",
-            "WAITING_TOOL",
-            "WAITING_INPUT",
-            "WAITING_APPROVAL",
-            "BLOCKED",
-            "REVIEWING",
-            "PAUSED",
-            "SUCCEEDED",
-            "FAILED",
-            "STOPPED"
-          ]
-        },
-        "taskId": { "type": "string" },
-        "model": { "type": "string", "minLength": 1 },
-        "modelClass": { "enum": ["reasoning", "coding", "fast"] },
-        "why": { "type": "string", "minLength": 1 },
-        "scopes": {
-          "type": "array",
-          "items": { "type": "string", "minLength": 1 },
-          "uniqueItems": true
-        },
-        "estimatedCostUsd": {
-          "oneOf": [
-            { "type": "number", "minimum": 0 },
-            { "const": "UNKNOWN" }
-          ]
-        },
-        "deactivateWhen": { "type": "string", "minLength": 1 }
+        "id": { "$ref": "#/$defs/id" },
+        "taskId": { "$ref": "#/$defs/id" },
+        "sessionId": { "$ref": "#/$defs/id" },
+        "turnId": { "$ref": "#/$defs/id" },
+        "taskRevision": { "$ref": "#/$defs/revision" },
+        "turnRevision": { "$ref": "#/$defs/revision" },
+        "leaseId": { "$ref": "#/$defs/id" },
+        "leaseExpiresAt": { "$ref": "#/$defs/timestamp" },
+        "fencingEpoch": { "$ref": "#/$defs/revision" },
+        "state": { "enum": ["LEASED", "RUNNING", "COMPLETED", "FAILED", "INTERRUPTED", "FENCED", "EXPIRED"] },
+        "startedAt": { "$ref": "#/$defs/timestamp" },
+        "lastHeartbeatAt": { "$ref": "#/$defs/timestamp" },
+        "completedAt": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "handoff": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "fromSessionId", "toSessionId", "taskId", "state", "offeredAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "fromSessionId": { "$ref": "#/$defs/id" },
+        "toSessionId": { "$ref": "#/$defs/id" },
+        "taskId": { "$ref": "#/$defs/id" },
+        "state": { "enum": ["OFFERED", "ACCEPTED", "REJECTED", "EXPIRED"] },
+        "offeredAt": { "$ref": "#/$defs/timestamp" },
+        "decidedAt": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "question": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "sessionId", "prompt", "state", "askedAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "sessionId": { "$ref": "#/$defs/id" },
+        "prompt": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "state": { "enum": ["OPEN", "ANSWERED", "CANCELED"] },
+        "askedAt": { "$ref": "#/$defs/timestamp" },
+        "answer": { "type": "string", "minLength": 1, "maxLength": 4096 },
+        "answeredAt": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "mailboxMessage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "from", "to", "kind", "payload", "createdAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "from": { "$ref": "#/$defs/id" },
+        "to": { "$ref": "#/$defs/id" },
+        "kind": { "enum": ["ASSIGNMENT", "QUESTION", "ANSWER", "HANDOFF", "INSTRUCTION"] },
+        "payload": { "type": "string" },
+        "createdAt": { "$ref": "#/$defs/timestamp" }
       }
     }
   }
