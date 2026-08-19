@@ -199,6 +199,7 @@ export class ControllerIpcServer {
       nonce = generateNonce();
       userBinding = currentUserBinding();
       endpoint = createControllerEndpoint(this.#paths, instanceId, userBinding);
+      if (endpoint.transport === "unix") await secureRuntimeDirectory(this.#paths.endpointDirectory);
       nonceRef = await writeNonceFile(this.#paths.directory, instanceId, nonce);
     } catch (error) {
       await releaseControllerLock(this.#paths, lock);
@@ -536,6 +537,9 @@ export class ControllerIpcClient {
     await assertSecureRuntimeDirectory(paths.directory);
     const descriptor = await readControllerDescriptor(paths.descriptor);
     validateDescriptorBinding(descriptor, paths, options.maximumHeartbeatAgeMs ?? 30_000);
+    if (descriptor.transport === "unix" && descriptor.schema === CONTROLLER_DESCRIPTOR_SCHEMA) {
+      await assertSecureRuntimeDirectory(paths.endpointDirectory);
+    }
     const nonce = await readNonceFile(paths.directory, descriptor.nonceRef);
     const socket = await connectSocket(descriptor.endpoint, options.connectTimeoutMs ?? 5000);
     try {

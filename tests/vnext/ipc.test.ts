@@ -107,7 +107,8 @@ describe("local controller IPC", () => {
       expect(descriptor.endpoint).toMatch(/^\\\\\.\\pipe\\software-agent-/u);
     } else {
       expect(descriptor.transport).toBe("unix");
-      expect(descriptor.endpoint.startsWith(paths.directory)).toBe(true);
+      expect(descriptor.endpoint.startsWith(paths.endpointDirectory)).toBe(true);
+      expect(Buffer.byteLength(descriptor.endpoint, "utf8")).toBeLessThanOrEqual(100);
     }
 
     const client = await ControllerIpcClient.connect({workspace, runtimeRoot});

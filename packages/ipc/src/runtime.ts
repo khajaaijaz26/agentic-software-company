@@ -34,6 +34,7 @@ export interface ControllerDescriptor {
 
 export interface ControllerRuntimePaths {
   readonly directory: string;
+  readonly endpointDirectory: string;
   readonly descriptor: string;
   readonly lock: string;
   readonly workspaceHash: string;
@@ -67,6 +68,7 @@ export function controllerRuntimePaths(options: RuntimePathOptions = {}): Contro
   const directory = join(runtimeRoot, "controllers", workspaceHash);
   return {
     directory,
+    endpointDirectory: join(runtimeRoot, "s", workspaceHash),
     descriptor: join(directory, CONTROLLER_DESCRIPTOR_FILE),
     lock: join(directory, CONTROLLER_LOCK_FILE),
     workspaceHash,
@@ -96,7 +98,10 @@ export function createControllerEndpoint(
       transport: "named-pipe",
     };
   }
-  const endpoint = join(paths.directory, `software-agent-${instanceId.slice(-16)}.sock`);
+  // Keep the socket outside the longer descriptor path. macOS and Linux cap
+  // sockaddr_un paths, while the authenticated descriptor/nonce remain in the
+  // compatibility-stable controllers directory.
+  const endpoint = join(paths.endpointDirectory, "c.sock");
   if (Buffer.byteLength(endpoint, "utf8") > 100) {
     throw new RuntimeSecurityError("SOCKET_PATH_TOO_LONG", "controller Unix socket path exceeds the portable 100-byte limit");
   }
@@ -249,7 +254,8 @@ export async function removeOwnedRuntimeFiles(paths: ControllerRuntimePaths, des
   const current = await readControllerDescriptor(paths.descriptor).catch(() => undefined);
   await rm(resolveNonceReference(paths.directory, descriptor.nonceRef), {force: true});
   if (current?.instanceId === descriptor.instanceId) await rm(paths.descriptor, {force: true});
-  if (descriptor.transport === "unix" && pathInside(paths.directory, descriptor.endpoint)) {
+  const endpointRoot = descriptor.schema === LEGACY_CONTROLLER_DESCRIPTOR_SCHEMA ? paths.directory : paths.endpointDirectory;
+  if (descriptor.transport === "unix" && pathInside(endpointRoot, descriptor.endpoint)) {
     await rm(descriptor.endpoint, {force: true});
   }
 }
